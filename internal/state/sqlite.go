@@ -224,6 +224,99 @@ func (s *SQLiteStore) ListStories(filter StoryFilter) ([]Story, error) {
 	return stories, rows.Err()
 }
 
+// ListRequirements returns all requirements ordered by creation time.
+func (s *SQLiteStore) ListRequirements() ([]Requirement, error) {
+	rows, err := s.db.Query(
+		`SELECT id, title, description, status, created_at FROM requirements ORDER BY created_at ASC`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list requirements: %w", err)
+	}
+	defer rows.Close()
+
+	var reqs []Requirement
+	for rows.Next() {
+		var req Requirement
+		if err := rows.Scan(&req.ID, &req.Title, &req.Description, &req.Status, &req.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan requirement: %w", err)
+		}
+		reqs = append(reqs, req)
+	}
+	return reqs, rows.Err()
+}
+
+// AgentFilter specifies criteria for filtering agents.
+type AgentFilter struct {
+	Status string
+}
+
+// ListAgents returns agents matching the given filter, ordered by creation time.
+func (s *SQLiteStore) ListAgents(filter AgentFilter) ([]Agent, error) {
+	query := `SELECT id, type, model, runtime, status, current_story_id, session_name, created_at FROM agents`
+	var args []any
+
+	if filter.Status != "" {
+		query += " WHERE status = ?"
+		args = append(args, filter.Status)
+	}
+	query += " ORDER BY created_at ASC"
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list agents: %w", err)
+	}
+	defer rows.Close()
+
+	var agents []Agent
+	for rows.Next() {
+		var a Agent
+		if err := rows.Scan(
+			&a.ID, &a.Type, &a.Model, &a.Runtime,
+			&a.Status, &a.CurrentStoryID, &a.SessionName, &a.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan agent: %w", err)
+		}
+		agents = append(agents, a)
+	}
+	return agents, rows.Err()
+}
+
+// Escalation represents a recorded escalation between agent roles.
+type Escalation struct {
+	ID         string
+	StoryID    string
+	FromAgent  string
+	Reason     string
+	Status     string
+	Resolution string
+	CreatedAt  string
+}
+
+// ListEscalations returns all escalations ordered by creation time descending.
+func (s *SQLiteStore) ListEscalations() ([]Escalation, error) {
+	rows, err := s.db.Query(
+		`SELECT id, story_id, from_agent, reason, status, resolution, created_at
+		 FROM escalations ORDER BY created_at DESC`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list escalations: %w", err)
+	}
+	defer rows.Close()
+
+	var escalations []Escalation
+	for rows.Next() {
+		var e Escalation
+		if err := rows.Scan(
+			&e.ID, &e.StoryID, &e.FromAgent, &e.Reason,
+			&e.Status, &e.Resolution, &e.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan escalation: %w", err)
+		}
+		escalations = append(escalations, e)
+	}
+	return escalations, rows.Err()
+}
+
 // --- private helpers ---
 
 func (s *SQLiteStore) decodePayload(evt Event) map[string]any {

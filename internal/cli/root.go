@@ -13,6 +13,20 @@ var rootCmd = &cobra.Command{
 	Version: version,
 }
 
+func init() {
+	rootCmd.PersistentFlags().String("config", "vxd.yaml", "Path to config file")
+
+	rootCmd.AddCommand(newInitCmd())
+	rootCmd.AddCommand(newReqCmd())
+	rootCmd.AddCommand(newStatusCmd())
+	rootCmd.AddCommand(newResumeCmd())
+	rootCmd.AddCommand(newAgentsCmd())
+	rootCmd.AddCommand(newEscalationsCmd())
+	rootCmd.AddCommand(newGCCmd())
+	rootCmd.AddCommand(newConfigCmd())
+	rootCmd.AddCommand(newEventsCmd())
+}
+
 func Execute() error {
 	return rootCmd.Execute()
 }

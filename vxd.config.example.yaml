@@ -1,0 +1,82 @@
+version: "1.0"
+
+workspace:
+  state_dir: ~/.vxd
+  backend: dolt
+  log_level: info
+  log_retention_days: 30
+
+models:
+  tech_lead:
+    provider: anthropic
+    model: claude-opus-4-20250514
+    max_tokens: 16000
+  senior:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+    max_tokens: 8000
+  intermediate:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    max_tokens: 4000
+  junior:
+    provider: openai
+    model: gpt-4o-mini
+    max_tokens: 4000
+  qa:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+    max_tokens: 8000
+  supervisor:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+    max_tokens: 4000
+
+routing:
+  junior_max_complexity: 3
+  intermediate_max_complexity: 5
+  max_retries_before_escalation: 2
+  max_qa_failures_before_escalation: 3
+
+monitor:
+  poll_interval_ms: 10000
+  stuck_threshold_s: 120
+  context_freshness_tokens: 150000
+
+cleanup:
+  worktree_prune: immediate
+  branch_retention_days: 7
+  log_archive: dolt
+
+merge:
+  auto_merge: true
+  base_branch: main
+  pr_template: |
+    ## Story: {story_id}
+    {description}
+    ### Acceptance Criteria
+    {acceptance_criteria}
+
+runtimes:
+  claude-code:
+    command: claude
+    args: ["--dangerously-skip-permissions"]
+    models: ["opus-4", "sonnet-4", "haiku-4"]
+    detection:
+      idle_pattern: "^\\$\\s*$"
+      permission_pattern: "\\[Y/n\\]"
+      plan_mode_pattern: "Plan mode"
+  codex:
+    command: codex
+    args: ["--approval-mode", "full-auto"]
+    models: ["o3", "o4-mini"]
+    detection:
+      idle_pattern: "Codex>"
+      permission_pattern: "approve|deny"
+  gemini:
+    command: gemini
+    args: ["--sandbox"]
+    models: ["gemini-2.5-pro", "gemini-2.5-flash"]
+    detection:
+      idle_pattern: "gemini>"
+      permission_pattern: "Allow|Deny"

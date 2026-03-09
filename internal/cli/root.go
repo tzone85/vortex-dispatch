@@ -25,6 +25,7 @@ func init() {
 	rootCmd.AddCommand(newGCCmd())
 	rootCmd.AddCommand(newConfigCmd())
 	rootCmd.AddCommand(newEventsCmd())
+	rootCmd.AddCommand(newDashboardCmd())
 }
 
 func Execute() error {

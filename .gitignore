@@ -30,6 +30,13 @@ Thumbs.db
 # Claude
 .claude/
 
+# Generated artifacts
+docs/demo.gif
+firebase-debug.log
+
+# Config (local copy)
+vxd.yaml
+
 # Environment
 .env
 .env.local

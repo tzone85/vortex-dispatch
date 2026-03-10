@@ -230,6 +230,20 @@ vxd --help
 
 > **Note:** These instructions are for macOS. Windows setup may differ -- refer to the [Go installation docs](https://go.dev/doc/install) for platform-specific guidance on configuring `GOPATH` and `PATH`.
 
+## Acknowledgements
+
+VXD builds on ideas and patterns from several open-source projects. We're grateful for their pioneering work in AI agent orchestration:
+
+| Project | Author | What We Learned |
+|---------|--------|-----------------|
+| [Gastown](https://github.com/steveyegge/gastown) | Steve Yegge | Git-backed persistence, runtime abstraction, convoy/formula system |
+| [Beads](https://github.com/steveyegge/beads) | Steve Yegge | Hash-based task IDs, dependency-aware graph, memory decay patterns |
+| [Dolt](https://github.com/dolthub/dolt) | DoltHub | Version-controlled SQL state, branch-per-agent isolation, row-level diffing |
+| [Hungry Ghost Hive](https://github.com/nikrich/hungry-ghost-hive) | nikrich | Agile team hierarchy, complexity-based routing, micromanager daemon |
+| [Wasteland](https://github.com/gastownhall/wasteland) | Gastown Hall | Reputation scoring, embedded web UI, tiered cleanup strategies |
+
+If you're interested in AI agent orchestration, these projects are well worth studying.
+
 ## License
 
 [Apache License 2.0](LICENSE)

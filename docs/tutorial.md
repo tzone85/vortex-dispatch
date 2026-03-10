@@ -8,6 +8,15 @@ Want to see the workflow before trying it?
 
 ![VXD Demo](https://vhs.charm.sh/vhs-6UGVMmtPuXwW63RPmVLw1K.gif)
 
+You can also re-record the demo locally with [VHS](https://github.com/charmbracelet/vhs):
+
+```bash
+brew install vhs ffmpeg ttyd   # or: go install github.com/charmbracelet/vhs@latest
+vhs docs/demo.tape
+```
+
+This produces `docs/demo.gif` showing `vxd init` through `vxd dashboard` in action.
+
 ## Setup
 
 Make sure you've completed the [Getting Started](getting-started.md) guide. You need:

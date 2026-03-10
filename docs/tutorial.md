@@ -4,14 +4,9 @@ This hands-on walkthrough takes you through VXD's full pipeline — from submitt
 
 ## Demo
 
-Want to see the workflow before trying it? Generate an animated GIF with [VHS](https://github.com/charmbracelet/vhs):
+Want to see the workflow before trying it?
 
-```bash
-brew install vhs   # or: go install github.com/charmbracelet/vhs@latest
-vhs docs/demo.tape
-```
-
-This produces `docs/demo.gif` showing `vxd init` through `vxd dashboard` in action.
+![VXD Demo](https://vhs.charm.sh/vhs-6UGVMmtPuXwW63RPmVLw1K.gif)
 
 ## Setup
 

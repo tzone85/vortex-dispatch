@@ -27,16 +27,18 @@ vxd dashboard
 
 ### Demo
 
-Generate an animated demo with [VHS](https://github.com/charmbracelet/vhs).
+![VXD Demo](https://vhs.charm.sh/vhs-6UGVMmtPuXwW63RPmVLw1K.gif)
 
-VHS requires `ffmpeg` and `ttyd` to record terminal sessions. On macOS, install all prerequisites with Homebrew:
+See the [full tutorial](docs/tutorial.md) for a step-by-step walkthrough.
+
+<details>
+<summary>Re-record the demo locally</summary>
 
 ```bash
 brew install vhs ffmpeg ttyd
 vhs docs/demo.tape
 ```
-
-See the [full tutorial](docs/tutorial.md) for a step-by-step walkthrough.
+</details>
 
 ## Features
 

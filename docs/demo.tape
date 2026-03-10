@@ -125,6 +125,6 @@ Type "echo 'and is orchestrating the full pipeline: plan -> dispatch -> execute 
 Enter
 Type "echo ''"
 Enter
-Type "echo 'Cleanup: run \"vxd gc\" to remove worktrees/branches, or \"rm -rf ~/.vxd\" for a full reset.'"
+Type "echo 'Cleanup: run vxd gc to remove worktrees/branches, or rm -rf ~/.vxd for a full reset.'"
 Enter
 Sleep 5s

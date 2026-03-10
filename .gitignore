@@ -27,6 +27,9 @@ Thumbs.db
 .vscode/
 *.swp
 
+# Claude
+.claude/
+
 # Environment
 .env
 .env.local

@@ -2,6 +2,17 @@
 
 This hands-on walkthrough takes you through VXD's full pipeline — from submitting a natural-language requirement to seeing merged pull requests.
 
+## Demo
+
+Want to see the workflow before trying it? Generate an animated GIF with [VHS](https://github.com/charmbracelet/vhs):
+
+```bash
+brew install vhs   # or: go install github.com/charmbracelet/vhs@latest
+vhs docs/demo.tape
+```
+
+This produces `docs/demo.gif` showing `vxd init` through `vxd dashboard` in action.
+
 ## Setup
 
 Make sure you've completed the [Getting Started](getting-started.md) guide. You need:

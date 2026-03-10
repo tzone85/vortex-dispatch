@@ -25,6 +25,17 @@ vxd status
 vxd dashboard
 ```
 
+### Demo
+
+Generate an animated demo with [VHS](https://github.com/charmbracelet/vhs):
+
+```bash
+brew install vhs
+vhs docs/demo.tape
+```
+
+See the [full tutorial](docs/tutorial.md) for a step-by-step walkthrough.
+
 ## Features
 
 - **Agent hierarchy with complexity-based routing** -- Fibonacci scoring routes stories to the right tier

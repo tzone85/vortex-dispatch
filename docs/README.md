@@ -20,6 +20,17 @@ Welcome to the VXD (Vortex Dispatch) training guides. Whether you're a first-tim
 | [Architecture](architecture.md) | Event sourcing, state management, package map, data flow |
 | [Contributing](contributing.md) | Adding runtimes, engine components, extending the CLI |
 
+## Demo
+
+Generate an animated GIF of the full VXD workflow with [VHS](https://github.com/charmbracelet/vhs):
+
+```bash
+brew install vhs
+vhs docs/demo.tape
+```
+
+This runs through `vxd init` -> `vxd req` -> `vxd status` -> `vxd agents` -> `vxd events` -> `vxd dashboard`.
+
 ## Recommended Reading Order
 
 **New users:** Getting Started -> Tutorial -> Workflows -> Configuration

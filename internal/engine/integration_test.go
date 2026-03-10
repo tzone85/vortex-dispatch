@@ -4,10 +4,12 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 
 	"github.com/tzone85/vortex-dispatch/internal/config"
 	"github.com/tzone85/vortex-dispatch/internal/engine"
+	"github.com/tzone85/vortex-dispatch/internal/graph"
 	"github.com/tzone85/vortex-dispatch/internal/llm"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
@@ -521,5 +523,143 @@ func TestIntegration_PlannerEventPersistence(t *testing.T) {
 	}
 	if req.Title != "Persist test" {
 		t.Fatalf("expected requirement title 'Persist test', got %q", req.Title)
+	}
+}
+
+func TestIntegration_DependencyStorageAndDAGReconstruction(t *testing.T) {
+	es, ps, cleanup := newIntegrationStores(t)
+	defer cleanup()
+
+	repoDir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(repoDir, "go.mod"), []byte("module dep-test"), 0644)
+
+	plannerResponse := `[
+		{
+			"id": "s-dep-1",
+			"title": "Base layer",
+			"description": "Foundation",
+			"acceptance_criteria": "Foundation built",
+			"complexity": 2,
+			"depends_on": []
+		},
+		{
+			"id": "s-dep-2",
+			"title": "Feature A",
+			"description": "Build A on base",
+			"acceptance_criteria": "A works",
+			"complexity": 3,
+			"depends_on": ["s-dep-1"]
+		},
+		{
+			"id": "s-dep-3",
+			"title": "Feature B",
+			"description": "Build B on base",
+			"acceptance_criteria": "B works",
+			"complexity": 5,
+			"depends_on": ["s-dep-1"]
+		},
+		{
+			"id": "s-dep-4",
+			"title": "Integration",
+			"description": "Combine A and B",
+			"acceptance_criteria": "Integration complete",
+			"complexity": 8,
+			"depends_on": ["s-dep-2", "s-dep-3"]
+		}
+	]`
+
+	client := llm.NewReplayClient(llm.CompletionResponse{
+		Content: plannerResponse,
+		Model:   "claude-opus-4",
+	})
+
+	cfg := config.DefaultConfig()
+	planner := engine.NewPlanner(client, cfg, es, ps)
+
+	// --- Phase 1: Plan ---
+	planResult, err := planner.Plan(context.Background(), "r-dep-1", "Build layered feature with dependencies", repoDir)
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if len(planResult.Stories) != 4 {
+		t.Fatalf("expected 4 planned stories, got %d", len(planResult.Stories))
+	}
+
+	// --- Phase 2: Verify story_deps table was populated ---
+	sqlitePS, ok := ps.(*state.SQLiteStore)
+	if !ok {
+		t.Fatal("expected ProjectionStore to be *state.SQLiteStore")
+	}
+
+	deps, err := sqlitePS.ListStoryDeps("r-dep-1")
+	if err != nil {
+		t.Fatalf("list story deps: %v", err)
+	}
+
+	// Expected edges: s-dep-2→s-dep-1, s-dep-3→s-dep-1, s-dep-4→s-dep-2, s-dep-4→s-dep-3
+	if len(deps) != 4 {
+		t.Fatalf("expected 4 dependency edges, got %d", len(deps))
+	}
+
+	// Build a lookup for verifying specific edges.
+	type edge struct{ from, to string }
+	edgeSet := make(map[edge]bool)
+	for _, d := range deps {
+		edgeSet[edge{d.StoryID, d.DependsOnID}] = true
+	}
+
+	expectedEdges := []edge{
+		{"s-dep-2", "s-dep-1"},
+		{"s-dep-3", "s-dep-1"},
+		{"s-dep-4", "s-dep-2"},
+		{"s-dep-4", "s-dep-3"},
+	}
+	for _, e := range expectedEdges {
+		if !edgeSet[e] {
+			t.Fatalf("missing dependency edge: %s depends on %s", e.from, e.to)
+		}
+	}
+
+	// --- Phase 3: Rebuild DAG from stored deps and verify ReadyNodes ---
+	reconstructed := graph.New()
+	allStories, err := sqlitePS.ListStories(state.StoryFilter{ReqID: "r-dep-1"})
+	if err != nil {
+		t.Fatalf("list stories: %v", err)
+	}
+	for _, s := range allStories {
+		reconstructed.AddNode(s.ID)
+	}
+	for _, d := range deps {
+		reconstructed.AddEdge(d.StoryID, d.DependsOnID)
+	}
+
+	// With nothing completed, only s-dep-1 (no deps) should be ready.
+	completed := make(map[string]bool)
+	ready := reconstructed.ReadyNodes(completed)
+	if len(ready) != 1 || ready[0] != "s-dep-1" {
+		t.Fatalf("expected ReadyNodes with empty completed to be [s-dep-1], got %v", ready)
+	}
+
+	// Mark s-dep-1 as completed; s-dep-2 and s-dep-3 should become ready.
+	completed["s-dep-1"] = true
+	ready = reconstructed.ReadyNodes(completed)
+	sort.Strings(ready)
+	if len(ready) != 2 || ready[0] != "s-dep-2" || ready[1] != "s-dep-3" {
+		t.Fatalf("expected ReadyNodes after s-dep-1 done to be [s-dep-2 s-dep-3], got %v", ready)
+	}
+
+	// Mark s-dep-2 and s-dep-3 as completed; s-dep-4 should become ready.
+	completed["s-dep-2"] = true
+	completed["s-dep-3"] = true
+	ready = reconstructed.ReadyNodes(completed)
+	if len(ready) != 1 || ready[0] != "s-dep-4" {
+		t.Fatalf("expected ReadyNodes after s-dep-2,s-dep-3 done to be [s-dep-4], got %v", ready)
+	}
+
+	// Mark everything completed; no nodes should be ready.
+	completed["s-dep-4"] = true
+	ready = reconstructed.ReadyNodes(completed)
+	if len(ready) != 0 {
+		t.Fatalf("expected no ReadyNodes when all completed, got %v", ready)
 	}
 }

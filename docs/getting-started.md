@@ -47,6 +47,32 @@ make build
 make install   # Copies vxd to $GOPATH/bin
 ```
 
+#### macOS: Additional Setup
+
+On macOS you may need to complete these extra steps before `make install` and `vxd` will work:
+
+**1. Create the Go bin directory** (if it doesn't already exist):
+
+```bash
+mkdir -p "$(go env GOPATH)/bin"
+```
+
+**2. Add it to your PATH** by appending this line to `~/.zshrc` (or `~/.bash_profile` for Bash):
+
+```bash
+export PATH="$HOME/go/bin:$PATH"
+```
+
+**3. Reload your shell** so the PATH change takes effect:
+
+```bash
+source ~/.zshrc
+```
+
+Then re-run `make install` and proceed to verification below.
+
+> **Note:** Windows setup may differ -- refer to the [Go installation docs](https://go.dev/doc/install) for platform-specific guidance on configuring `GOPATH` and `PATH`.
+
 ### Via Go Install
 
 ```bash
@@ -60,6 +86,16 @@ vxd --help
 ```
 
 You should see the full command list: `init`, `req`, `status`, `resume`, `agents`, `escalations`, `gc`, `config`, `events`, `dashboard`.
+
+## Configuration
+
+VXD requires a `vxd.yaml` config file in your project root. You can either let `vxd init` create it for you (see below), or copy it manually:
+
+```bash
+cp vxd.config.example.yaml vxd.yaml
+```
+
+Customize it as needed -- see [Configuration](configuration.md) for all available options.
 
 ## First Run: `vxd init`
 
@@ -79,7 +115,7 @@ This creates:
   config/            # Default configuration
 ```
 
-And copies `vxd.config.example.yaml` to `vxd.yaml` in your project root if one doesn't exist.
+It also copies `vxd.config.example.yaml` to `vxd.yaml` in your project root if one doesn't already exist.
 
 ## Verify Your Setup
 
@@ -97,6 +133,17 @@ If everything is configured correctly, you'll see a success message. Common issu
 | `gh not found` | Install GitHub CLI and run `gh auth login` |
 | `config not found` | Run `vxd init` or copy `vxd.config.example.yaml` to `vxd.yaml` |
 | `ANTHROPIC_API_KEY not set` | Export your API key in your shell profile |
+
+## Generating the Demo GIF (optional)
+
+If you want to generate the animated demo GIF, you'll need [VHS](https://github.com/charmbracelet/vhs) along with its dependencies `ffmpeg` and `ttyd`. On macOS:
+
+```bash
+brew install vhs ffmpeg ttyd
+vhs docs/demo.tape
+```
+
+This produces `docs/demo.gif`.
 
 ## Next Steps
 

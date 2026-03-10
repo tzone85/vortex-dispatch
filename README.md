@@ -27,10 +27,12 @@ vxd dashboard
 
 ### Demo
 
-Generate an animated demo with [VHS](https://github.com/charmbracelet/vhs):
+Generate an animated demo with [VHS](https://github.com/charmbracelet/vhs).
+
+VHS requires `ffmpeg` and `ttyd` to record terminal sessions. On macOS, install all prerequisites with Homebrew:
 
 ```bash
-brew install vhs
+brew install vhs ffmpeg ttyd
 vhs docs/demo.tape
 ```
 
@@ -181,6 +183,52 @@ make lint     # Run golangci-lint
 make clean    # Remove binary and coverage artifacts
 make install  # Build and install to $GOPATH/bin
 ```
+
+### Local Build & Install (macOS)
+
+If you're building from source on macOS, you may need to complete the following setup steps before `make install` and `vxd` will work correctly.
+
+**1. Ensure `~/go/bin` exists**
+
+The `make install` target moves the built binary to your Go bin directory. If this directory doesn't exist yet, create it:
+
+```bash
+mkdir -p "$(go env GOPATH)/bin"
+```
+
+**2. Add `~/go/bin` to your PATH**
+
+Add the following line to your `~/.zshrc` (or `~/.bash_profile` if using Bash):
+
+```bash
+export PATH="$HOME/go/bin:$PATH"
+```
+
+**3. Reload your shell**
+
+```bash
+source ~/.zshrc
+```
+
+**4. Set up the config file**
+
+VXD requires a `vxd.yaml` config file in the project root. You can either let `vxd init` create it for you, or copy it manually:
+
+```bash
+cp vxd.config.example.yaml vxd.yaml
+```
+
+Then customize it as needed (see [Configuration](docs/configuration.md) for details).
+
+**5. Build and install**
+
+```bash
+make install
+vxd config validate   # Verify config is valid
+vxd --help
+```
+
+> **Note:** These instructions are for macOS. Windows setup may differ -- refer to the [Go installation docs](https://go.dev/doc/install) for platform-specific guidance on configuring `GOPATH` and `PATH`.
 
 ## License
 

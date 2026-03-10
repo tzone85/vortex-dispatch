@@ -186,51 +186,35 @@ make clean    # Remove binary and coverage artifacts
 make install  # Build and install to $GOPATH/bin
 ```
 
-### Local Build & Install (macOS)
+### Required: PATH Setup
 
-If you're building from source on macOS, you may need to complete the following setup steps before `make install` and `vxd` will work correctly.
-
-**1. Ensure `~/go/bin` exists**
-
-The `make install` target moves the built binary to your Go bin directory. If this directory doesn't exist yet, create it:
+Before using VXD, ensure `~/go/bin` is on your PATH:
 
 ```bash
 mkdir -p "$(go env GOPATH)/bin"
-```
-
-**2. Add `~/go/bin` to your PATH**
-
-Add the following line to your `~/.zshrc` (or `~/.bash_profile` if using Bash):
-
-```bash
-export PATH="$HOME/go/bin:$PATH"
-```
-
-**3. Reload your shell**
-
-```bash
+echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-**4. Set up the config file**
-
-VXD requires a `vxd.yaml` config file in the project root. You can either let `vxd init` create it for you, or copy it manually:
+Then build and install:
 
 ```bash
-cp vxd.config.example.yaml vxd.yaml
+make build && make install
+vxd --help   # Should show the command list
 ```
 
-Then customize it as needed (see [Configuration](docs/configuration.md) for details).
+### Using VXD in a New Project
 
-**5. Build and install**
+VXD works in **any** git repository — you don't need to be in the source directory:
 
 ```bash
-make install
-vxd config validate   # Verify config is valid
-vxd --help
+mkdir ~/my-project && cd ~/my-project && git init
+cp ~/path/to/vortex-dispatch/vxd.config.example.yaml vxd.yaml
+vxd init
+vxd req "Your requirement here"
 ```
 
-> **Note:** These instructions are for macOS. Windows setup may differ -- refer to the [Go installation docs](https://go.dev/doc/install) for platform-specific guidance on configuring `GOPATH` and `PATH`.
+See the [full Getting Started guide](docs/getting-started.md) for detailed setup instructions.
 
 ## Acknowledgements
 

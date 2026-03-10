@@ -140,6 +140,19 @@ migrations/           SQLite schema migrations
 test/                 E2E tests
 ```
 
+## Documentation
+
+Full training guides are available in the [`docs/`](docs/) directory:
+
+- **[Getting Started](docs/getting-started.md)** -- Prerequisites, installation, first run
+- **[Tutorial](docs/tutorial.md)** -- Hands-on walkthrough of the full pipeline
+- **[Workflows](docs/workflows.md)** -- Each pipeline stage explained in depth
+- **[Configuration](docs/configuration.md)** -- Every config knob with tuning advice
+- **[Agents and Roles](docs/agents-and-roles.md)** -- Role hierarchy, routing, reputation
+- **[Monitoring](docs/monitoring.md)** -- Watchdog, supervisor, dashboard, escalations
+- **[Architecture](docs/architecture.md)** -- Event sourcing, internals, data flow
+- **[Contributing](docs/contributing.md)** -- Adding runtimes, components, commands
+
 ## Testing
 
 ```bash

@@ -36,22 +36,11 @@ export OPENAI_API_KEY="sk-..."
 gh auth login
 ```
 
-## Installation
+## Before You Install: PATH Setup (required)
 
-### From Source (recommended for contributors)
+The VXD binary installs to `~/go/bin/`. You **must** ensure this directory exists and is on your PATH before proceeding.
 
-```bash
-git clone https://github.com/tzone85/vortex-dispatch.git
-cd vortex-dispatch
-make build
-make install   # Copies vxd to $GOPATH/bin
-```
-
-#### macOS: Additional Setup
-
-On macOS you may need to complete these extra steps before `make install` and `vxd` will work:
-
-**1. Create the Go bin directory** (if it doesn't already exist):
+**1. Create the Go bin directory:**
 
 ```bash
 mkdir -p "$(go env GOPATH)/bin"
@@ -60,20 +49,37 @@ mkdir -p "$(go env GOPATH)/bin"
 **2. Add it to your PATH** by appending this line to `~/.zshrc` (or `~/.bash_profile` for Bash):
 
 ```bash
-export PATH="$HOME/go/bin:$PATH"
+echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.zshrc
 ```
 
-**3. Reload your shell** so the PATH change takes effect:
+**3. Reload your shell:**
 
 ```bash
 source ~/.zshrc
 ```
 
-Then re-run `make install` and proceed to verification below.
+**4. Verify** the directory is on your PATH:
 
-> **Note:** Windows setup may differ -- refer to the [Go installation docs](https://go.dev/doc/install) for platform-specific guidance on configuring `GOPATH` and `PATH`.
+```bash
+echo $PATH | tr ':' '\n' | grep go/bin
+# Should show: /Users/<you>/go/bin
+```
+
+> **Note:** Windows setup may differ — refer to the [Go installation docs](https://go.dev/doc/install) for platform-specific guidance on configuring `GOPATH` and `PATH`.
+
+## Installation
+
+### From Source (recommended)
+
+```bash
+git clone https://github.com/tzone85/vortex-dispatch.git
+cd vortex-dispatch
+make build && make install
+```
 
 ### Via Go Install
+
+> **Note:** This only works if the repository is public or you have configured `GOPRIVATE`. See [Private Repos](#private-repo-setup) below.
 
 ```bash
 go install github.com/tzone85/vortex-dispatch/cmd/vxd@latest
@@ -87,39 +93,60 @@ vxd --help
 
 You should see the full command list: `init`, `req`, `status`, `resume`, `agents`, `escalations`, `gc`, `config`, `events`, `dashboard`.
 
-## Configuration
+If you see `zsh: command not found: vxd`, go back to the [PATH setup](#before-you-install-path-setup-required) section.
 
-VXD requires a `vxd.yaml` config file in your project root. You can either let `vxd init` create it for you (see below), or copy it manually:
+### Private Repo Setup
+
+If the repository is private, `go install` won't work through the public Go module proxy. Either build from source (recommended), or configure Go for private repos:
 
 ```bash
-cp vxd.config.example.yaml vxd.yaml
+# Tell Go to bypass the public proxy for your repos
+echo 'export GOPRIVATE=github.com/tzone85/*' >> ~/.zshrc
+source ~/.zshrc
+
+# Ensure git can authenticate via HTTPS
+gh auth setup-git
 ```
 
-Customize it as needed -- see [Configuration](configuration.md) for all available options.
+## Setting Up a New Project
 
-## First Run: `vxd init`
+Once VXD is installed, you can use it in **any** git repository. You do not need to be inside the vortex-dispatch source directory.
 
-Initialize your workspace from within any git repository:
+### Step 1: Create or navigate to your project
 
 ```bash
+mkdir ~/my-project
 cd ~/my-project
+git init
+```
+
+### Step 2: Copy the config file
+
+VXD needs a `vxd.yaml` config file in your project root. Copy it from the source repo:
+
+```bash
+cp ~/path/to/vortex-dispatch/vxd.config.example.yaml vxd.yaml
+```
+
+> **Known issue:** `vxd init` currently does not generate the config file when run outside the source repo ([#6](https://github.com/tzone85/vortex-dispatch/issues/6)). Until this is fixed, copy the file manually.
+
+Customize it as needed — see [Configuration](configuration.md) for all available options.
+
+### Step 3: Initialize the workspace
+
+```bash
 vxd init
 ```
 
-This creates:
+This creates the global state directory:
 
 ```
 ~/.vxd/
   events.jsonl       # Append-only event log
   vxd.db             # SQLite projection store
-  config/            # Default configuration
 ```
 
-It also copies `vxd.config.example.yaml` to `vxd.yaml` in your project root if one doesn't already exist.
-
-## Verify Your Setup
-
-Run a quick config validation:
+### Step 4: Validate your setup
 
 ```bash
 vxd config validate
@@ -129,10 +156,19 @@ If everything is configured correctly, you'll see a success message. Common issu
 
 | Error | Fix |
 |-------|-----|
+| `command not found: vxd` | Complete the [PATH setup](#before-you-install-path-setup-required) |
 | `tmux not found` | Install tmux: `brew install tmux` |
 | `gh not found` | Install GitHub CLI and run `gh auth login` |
-| `config not found` | Run `vxd init` or copy `vxd.config.example.yaml` to `vxd.yaml` |
+| `config not found` | Copy `vxd.config.example.yaml` to `vxd.yaml` in your project |
 | `ANTHROPIC_API_KEY not set` | Export your API key in your shell profile |
+
+### Step 5: Submit your first requirement
+
+```bash
+vxd req "Build a REST API for user management with CRUD endpoints"
+vxd status
+vxd dashboard
+```
 
 ## Generating the Demo GIF (optional)
 
@@ -147,4 +183,4 @@ This produces `docs/demo.gif`.
 
 ## Next Steps
 
-You're ready to submit your first requirement. Head to the [Tutorial](tutorial.md) for a hands-on walkthrough.
+You're ready to explore the full pipeline. Head to the [Tutorial](tutorial.md) for a detailed walkthrough.

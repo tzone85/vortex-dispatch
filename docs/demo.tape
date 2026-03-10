@@ -1,14 +1,13 @@
 # VXD Demo Tape
-# Generates an animated GIF showing the full VXD workflow:
-# vxd init -> vxd req -> vxd status -> vxd dashboard
+# Generates an animated GIF showing the VXD CLI in action.
 #
 # Prerequisites:
-#   brew install vhs   (or go install github.com/charmbracelet/vhs@latest)
+#   brew install vhs ffmpeg ttyd
 #
 # Usage:
 #   vhs docs/demo.tape
 #
-# This produces demo.gif in the current directory.
+# This produces docs/demo.gif.
 
 # --- Configuration ---
 Output docs/demo.gif
@@ -20,8 +19,17 @@ Set Padding 20
 Set TypingSpeed 50ms
 Set Shell "zsh"
 
-# --- Scene 1: Initialize VXD ---
-Type "# Step 1: Initialize VXD in your project"
+# --- Scene 1: Show available commands ---
+Type "echo '--- Step 1: Explore the VXD CLI ---'"
+Enter
+Sleep 1s
+
+Type "vxd --help"
+Enter
+Sleep 3s
+
+# --- Scene 2: Initialize VXD ---
+Type "echo '--- Step 2: Initialize VXD in your project ---'"
 Enter
 Sleep 1s
 
@@ -29,17 +37,21 @@ Type "vxd init"
 Enter
 Sleep 3s
 
-# --- Scene 2: Submit a requirement ---
-Type "# Step 2: Submit a natural-language requirement"
+# --- Scene 3: Validate configuration ---
+Type "echo '--- Step 3: Validate configuration ---'"
 Enter
 Sleep 1s
 
-Type@100ms 'vxd req "Add a health check endpoint at GET /healthz that returns 200 OK with service name, version, and uptime"'
+Type "vxd config validate"
 Enter
-Sleep 5s
+Sleep 2s
 
-# --- Scene 3: Check status ---
-Type "# Step 3: Check the pipeline status"
+Type "vxd config show"
+Enter
+Sleep 3s
+
+# --- Scene 4: Check status ---
+Type "echo '--- Step 4: Check the pipeline status ---'"
 Enter
 Sleep 1s
 
@@ -47,17 +59,8 @@ Type "vxd status"
 Enter
 Sleep 3s
 
-# --- Scene 4: View agents ---
-Type "# Step 4: See which agents are assigned"
-Enter
-Sleep 1s
-
-Type "vxd agents"
-Enter
-Sleep 3s
-
-# --- Scene 5: View recent events ---
-Type "# Step 5: Review the event trail"
+# --- Scene 5: View events ---
+Type "echo '--- Step 5: Review the event trail ---'"
 Enter
 Sleep 1s
 
@@ -66,7 +69,7 @@ Enter
 Sleep 3s
 
 # --- Scene 6: Launch the dashboard ---
-Type "# Step 6: Launch the live TUI dashboard"
+Type "echo '--- Step 6: Launch the live TUI dashboard ---'"
 Enter
 Sleep 1s
 
@@ -78,6 +81,6 @@ Sleep 5s
 Type "q"
 Sleep 1s
 
-Type "# Done! VXD orchestrates your AI agents from requirement to merged PR."
+Type "echo 'Done! VXD orchestrates your AI agents from requirement to merged PR.'"
 Enter
 Sleep 3s

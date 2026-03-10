@@ -22,14 +22,18 @@ Welcome to the VXD (Vortex Dispatch) training guides. Whether you're a first-tim
 
 ## Demo
 
-Generate an animated GIF of the full VXD workflow with [VHS](https://github.com/charmbracelet/vhs):
+![VXD Demo](https://vhs.charm.sh/vhs-6UGVMmtPuXwW63RPmVLw1K.gif)
+
+`vxd init` -> `vxd req` -> `vxd status` -> `vxd agents` -> `vxd events` -> `vxd dashboard`
+
+<details>
+<summary>Re-record the demo locally</summary>
 
 ```bash
-brew install vhs
+brew install vhs ffmpeg ttyd
 vhs docs/demo.tape
 ```
-
-This runs through `vxd init` -> `vxd req` -> `vxd status` -> `vxd agents` -> `vxd events` -> `vxd dashboard`.
+</details>
 
 ## Recommended Reading Order
 

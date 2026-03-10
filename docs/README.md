@@ -22,7 +22,7 @@ Welcome to the VXD (Vortex Dispatch) training guides. Whether you're a first-tim
 
 ## Demo
 
-![VXD Demo](https://vhs.charm.sh/vhs-6UGVMmtPuXwW63RPmVLw1K.gif)
+![VXD Demo](https://vhs.charm.sh/vhs-5yT705ybH66DOTmCJKviR8.gif)
 
 `vxd init` -> `vxd req` -> `vxd status` -> `vxd agents` -> `vxd events` -> `vxd dashboard`
 

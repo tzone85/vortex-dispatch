@@ -6,7 +6,7 @@ This hands-on walkthrough takes you through VXD's full pipeline — from submitt
 
 Want to see the workflow before trying it?
 
-![VXD Demo](https://vhs.charm.sh/vhs-6UGVMmtPuXwW63RPmVLw1K.gif)
+![VXD Demo](https://vhs.charm.sh/vhs-5yT705ybH66DOTmCJKviR8.gif)
 
 You can also re-record the demo locally with [VHS](https://github.com/charmbracelet/vhs):
 

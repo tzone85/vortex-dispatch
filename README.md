@@ -27,7 +27,7 @@ vxd dashboard
 
 ### Demo
 
-![VXD Demo](https://vhs.charm.sh/vhs-6UGVMmtPuXwW63RPmVLw1K.gif)
+![VXD Demo](https://vhs.charm.sh/vhs-5yT705ybH66DOTmCJKviR8.gif)
 
 See the [full tutorial](docs/tutorial.md) for a step-by-step walkthrough.
 

@@ -5,14 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/tzone85/vortex-dispatch/internal/agent"
 	"github.com/tzone85/vortex-dispatch/internal/config"
 	vxdgit "github.com/tzone85/vortex-dispatch/internal/git"
 	"github.com/tzone85/vortex-dispatch/internal/runtime"
 	"github.com/tzone85/vortex-dispatch/internal/state"
-	"github.com/tzone85/vortex-dispatch/internal/tmux"
 )
 
 // ActiveAgent tracks a running agent session for the monitor.
@@ -97,6 +95,11 @@ func (e *Executor) spawn(repoDir string, a Assignment, story PlannedStory) Spawn
 	// Resolve model for this role
 	modelCfg := a.Role.ModelConfig(e.config.Models)
 
+	// Build log path for post-mortem diagnosis
+	logDir := filepath.Join(execExpandHome(e.config.Workspace.StateDir), "logs")
+	os.MkdirAll(logDir, 0o755)
+	logFile := filepath.Join(logDir, a.StoryID+".log")
+
 	// Spawn the runtime session
 	if err := rt.Spawn(runtime.SessionConfig{
 		SessionName:  a.SessionName,
@@ -104,15 +107,11 @@ func (e *Executor) spawn(repoDir string, a Assignment, story PlannedStory) Spawn
 		Model:        modelCfg.Model,
 		Goal:         agent.GoalPrompt(a.Role, promptCtx),
 		SystemPrompt: agent.SystemPrompt(a.Role, promptCtx),
+		LogFile:      logFile,
 	}); err != nil {
 		result.Error = fmt.Errorf("spawn runtime for %s: %w", a.StoryID, err)
 		return result
 	}
-
-	// Auto-accept the CLI trust prompt ("Is this a project you trust?").
-	// The first option ("Yes") is pre-selected, so Enter confirms it.
-	time.Sleep(800 * time.Millisecond)
-	tmux.SendKeysRaw(a.SessionName, "Enter")
 
 	// Emit STORY_STARTED event
 	startEvt := state.NewEvent(state.EventStoryStarted, a.AgentID, a.StoryID, map[string]any{

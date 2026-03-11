@@ -113,9 +113,10 @@ func (c *CLIRuntime) Spawn(cfg SessionConfig) error {
 		cmdStr += " --model " + cfg.Model
 	}
 
-	// Write the combined prompt (system context + goal) to a file and pipe
-	// it via stdin. This avoids all shell escaping issues with quotes, $,
-	// backticks, and newlines that would break when passed as arguments.
+	// Write the combined prompt (system context + goal) to a file and pass
+	// it via --prompt-file if the runtime supports it, otherwise via shell
+	// argument with proper quoting. Piping via stdin does not work reliably
+	// inside tmux detached sessions.
 	prompt := cfg.Goal
 	if cfg.SystemPrompt != "" {
 		prompt = cfg.SystemPrompt + "\n\n---\n\n" + cfg.Goal
@@ -127,7 +128,9 @@ func (c *CLIRuntime) Spawn(cfg SessionConfig) error {
 		if err := os.WriteFile(promptFile, []byte(prompt), 0o644); err != nil {
 			return fmt.Errorf("write prompt file: %w", err)
 		}
-		cmdStr = fmt.Sprintf("cat %q | %s", promptFile, cmdStr)
+		// Pass the prompt file contents as a shell argument using $(...) to
+		// avoid stdin pipe issues in tmux.
+		cmdStr = fmt.Sprintf("%s \"$(cat %q)\"", cmdStr, promptFile)
 	}
 
 	// Tee output to a log file so we can inspect it after the session exits.

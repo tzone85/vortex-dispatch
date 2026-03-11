@@ -75,7 +75,7 @@ func (e *Executor) spawn(repoDir string, a Assignment, story PlannedStory) Spawn
 	// Write a CLAUDE.md that suppresses brainstorming/skill plugins and
 	// instructs the agent to implement code directly without interaction.
 	claudeMDPath := filepath.Join(worktreePath, "CLAUDE.md")
-	if _, err := os.Stat(claudeMDPath); os.IsNotExist(err) {
+	{
 		claudeMD := `# Agent Instructions
 
 You are an autonomous coding agent. Implement code directly.

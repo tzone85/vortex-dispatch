@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
+	"sync"
 	"time"
 
 	"github.com/tzone85/vortex-dispatch/internal/config"
+	vxdgit "github.com/tzone85/vortex-dispatch/internal/git"
 	"github.com/tzone85/vortex-dispatch/internal/runtime"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
@@ -49,7 +51,9 @@ func NewMonitor(
 }
 
 // Run polls active agents at the configured interval until all are done
-// or the context is cancelled.
+// or the context is cancelled. When all agents finish naturally, Run waits
+// for their post-execution pipelines (review, QA, merge) to complete before
+// returning. On Ctrl+C it detaches immediately.
 func (m *Monitor) Run(ctx context.Context, agents []ActiveAgent, repoDir string) error {
 	pollInterval := time.Duration(m.config.Monitor.PollIntervalMs) * time.Millisecond
 	if pollInterval == 0 {
@@ -58,6 +62,8 @@ func (m *Monitor) Run(ctx context.Context, agents []ActiveAgent, repoDir string)
 
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
+
+	var pipelineWG sync.WaitGroup
 
 	active := make(map[string]ActiveAgent, len(agents))
 	for _, a := range agents {
@@ -73,18 +79,20 @@ func (m *Monitor) Run(ctx context.Context, agents []ActiveAgent, repoDir string)
 			return nil // graceful detach, agents continue in tmux
 		case <-ticker.C:
 			if len(active) == 0 {
-				log.Printf("[monitor] all agents finished")
+				log.Printf("[monitor] all agents finished, waiting for post-execution pipelines")
+				pipelineWG.Wait()
+				log.Printf("[monitor] all pipelines complete")
 				return nil
 			}
 
-			m.pollOnce(ctx, active, repoDir)
+			m.pollOnce(ctx, &pipelineWG, active, repoDir)
 		}
 	}
 }
 
 // pollOnce performs a single pass over active agents, checking status and
 // kicking off post-execution pipelines for any that have finished.
-func (m *Monitor) pollOnce(ctx context.Context, active map[string]ActiveAgent, repoDir string) {
+func (m *Monitor) pollOnce(ctx context.Context, wg *sync.WaitGroup, active map[string]ActiveAgent, repoDir string) {
 	for sessionName, ag := range active {
 		rt, err := m.registry.Get(ag.RuntimeName)
 		if err != nil {
@@ -126,7 +134,11 @@ func (m *Monitor) pollOnce(ctx context.Context, active map[string]ActiveAgent, r
 		}
 
 		// Drive post-execution pipeline
-		go m.postExecutionPipeline(ctx, ag, repoDir)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			m.postExecutionPipeline(ctx, ag, repoDir)
+		}()
 
 		// Remove from active tracking
 		m.watchdog.ClearFingerprint(sessionName)
@@ -204,6 +216,16 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 		}
 		log.Printf("[pipeline] %s -> PR #%d (%s) merged=%v",
 			storyID, result.PRNumber, result.PRURL, result.Merged)
+
+		// Clean up worktree and branches after successful merge.
+		if result.Merged {
+			if err := vxdgit.RemoveWorktree(repoDir, ag.WorktreePath, branch); err != nil {
+				log.Printf("[pipeline] worktree cleanup for %s: %v", storyID, err)
+			}
+			if err := vxdgit.DeleteRemoteBranch(repoDir, branch); err != nil {
+				log.Printf("[pipeline] remote branch cleanup for %s: %v", storyID, err)
+			}
+		}
 	}
 
 	// 4. Check if requirement is paused before next wave dispatch

@@ -118,14 +118,14 @@ func TestIntegration_PlannerToDispatcher(t *testing.T) {
 	if len(assignments) != 1 {
 		t.Fatalf("expected 1 assignment in wave 1, got %d", len(assignments))
 	}
-	if assignments[0].StoryID != "s-001" {
-		t.Fatalf("expected s-001 in wave 1, got %s", assignments[0].StoryID)
+	if assignments[0].StoryID != "r-integ--s-001" {
+		t.Fatalf("expected r-integ--s-001 in wave 1, got %s", assignments[0].StoryID)
 	}
 
-	// Verify story s-001 is now 'assigned' in projection.
-	s001, err := ps.GetStory("s-001")
+	// Verify story r-integ--s-001 is now 'assigned' in projection.
+	s001, err := ps.GetStory("r-integ--s-001")
 	if err != nil {
-		t.Fatalf("get story s-001: %v", err)
+		t.Fatalf("get story r-integ--s-001: %v", err)
 	}
 	if s001.Status != "assigned" {
 		t.Fatalf("expected s-001 status 'assigned', got %q", s001.Status)
@@ -137,13 +137,13 @@ func TestIntegration_PlannerToDispatcher(t *testing.T) {
 	}
 
 	// --- Phase 3: Dispatch Wave 2 ---
-	completed["s-001"] = true
+	completed["r-integ--s-001"] = true
 	assignments2, err := dispatcher.DispatchWave(planResult.Graph, completed, "r-integ-1", planResult.Stories)
 	if err != nil {
 		t.Fatalf("dispatch wave 2: %v", err)
 	}
 
-	// Wave 2: s-002 and s-003 both depend only on s-001, which is now complete.
+	// Wave 2: r-integ--s-002 and r-integ--s-003 both depend only on r-integ--s-001, which is now complete.
 	if len(assignments2) != 2 {
 		t.Fatalf("expected 2 assignments in wave 2, got %d", len(assignments2))
 	}
@@ -154,24 +154,24 @@ func TestIntegration_PlannerToDispatcher(t *testing.T) {
 		assignmentMap[a.StoryID] = a
 	}
 
-	if a, ok := assignmentMap["s-002"]; ok {
+	if a, ok := assignmentMap["r-integ--s-002"]; ok {
 		if a.Role != "intermediate" {
-			t.Fatalf("s-002 (complexity 5) should route to intermediate, got %s", a.Role)
+			t.Fatalf("r-integ--s-002 (complexity 5) should route to intermediate, got %s", a.Role)
 		}
 	} else {
-		t.Fatal("s-002 not found in wave 2 assignments")
+		t.Fatal("r-integ--s-002 not found in wave 2 assignments")
 	}
 
-	if a, ok := assignmentMap["s-003"]; ok {
+	if a, ok := assignmentMap["r-integ--s-003"]; ok {
 		if a.Role != "junior" {
-			t.Fatalf("s-003 (complexity 3) should route to junior, got %s", a.Role)
+			t.Fatalf("r-integ--s-003 (complexity 3) should route to junior, got %s", a.Role)
 		}
 	} else {
-		t.Fatal("s-003 not found in wave 2 assignments")
+		t.Fatal("r-integ--s-003 not found in wave 2 assignments")
 	}
 
 	// Verify all wave 2 stories are now 'assigned'.
-	for _, id := range []string{"s-002", "s-003"} {
+	for _, id := range []string{"r-integ--s-002", "r-integ--s-003"} {
 		story, err := ps.GetStory(id)
 		if err != nil {
 			t.Fatalf("get story %s: %v", id, err)
@@ -404,11 +404,11 @@ func TestIntegration_MultiStoryPipeline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dispatch wave 1: %v", err)
 	}
-	if len(wave1) != 1 || wave1[0].StoryID != "s-m1" {
-		t.Fatalf("wave 1: expected [s-m1], got %v", wave1)
+	if len(wave1) != 1 || wave1[0].StoryID != "r-multi-s-m1" {
+		t.Fatalf("wave 1: expected [r-multi-s-m1], got %v", wave1)
 	}
 
-	// Simulate s-m1 completion through the full lifecycle.
+	// Simulate r-multi-s-m1 completion through the full lifecycle.
 	for _, evtType := range []state.EventType{
 		state.EventStoryStarted,
 		state.EventStoryCompleted,
@@ -416,7 +416,7 @@ func TestIntegration_MultiStoryPipeline(t *testing.T) {
 		state.EventStoryQAPassed,
 		state.EventStoryMerged,
 	} {
-		evt := state.NewEvent(evtType, "agent-m1", "s-m1", nil)
+		evt := state.NewEvent(evtType, "agent-m1", "r-multi-s-m1", nil)
 		if err := es.Append(evt); err != nil {
 			t.Fatalf("append %s: %v", evtType, err)
 		}
@@ -425,19 +425,19 @@ func TestIntegration_MultiStoryPipeline(t *testing.T) {
 		}
 	}
 
-	// Verify s-m1 is merged.
-	sm1, _ := ps.GetStory("s-m1")
+	// Verify r-multi-s-m1 is merged.
+	sm1, _ := ps.GetStory("r-multi-s-m1")
 	if sm1.Status != "merged" {
-		t.Fatalf("expected s-m1 'merged', got %q", sm1.Status)
+		t.Fatalf("expected r-multi-s-m1 'merged', got %q", sm1.Status)
 	}
 
-	// Dispatch wave 2: s-m2 depends on s-m1 which is now completed.
-	wave2, err := dispatcher.DispatchWave(planResult.Graph, map[string]bool{"s-m1": true}, "r-multi", planResult.Stories)
+	// Dispatch wave 2: r-multi-s-m2 depends on r-multi-s-m1 which is now completed.
+	wave2, err := dispatcher.DispatchWave(planResult.Graph, map[string]bool{"r-multi-s-m1": true}, "r-multi", planResult.Stories)
 	if err != nil {
 		t.Fatalf("dispatch wave 2: %v", err)
 	}
-	if len(wave2) != 1 || wave2[0].StoryID != "s-m2" {
-		t.Fatalf("wave 2: expected [s-m2], got %v", wave2)
+	if len(wave2) != 1 || wave2[0].StoryID != "r-multi-s-m2" {
+		t.Fatalf("wave 2: expected [r-multi-s-m2], got %v", wave2)
 	}
 
 	// Complexity 8 should route to senior.
@@ -445,14 +445,14 @@ func TestIntegration_MultiStoryPipeline(t *testing.T) {
 		t.Fatalf("expected senior role for complexity 8, got %s", wave2[0].Role)
 	}
 
-	// Verify s-m2 is assigned.
-	sm2, _ := ps.GetStory("s-m2")
+	// Verify r-multi-s-m2 is assigned.
+	sm2, _ := ps.GetStory("r-multi-s-m2")
 	if sm2.Status != "assigned" {
-		t.Fatalf("expected s-m2 'assigned', got %q", sm2.Status)
+		t.Fatalf("expected r-multi-s-m2 'assigned', got %q", sm2.Status)
 	}
 
 	// No more waves should be dispatchable.
-	completed := map[string]bool{"s-m1": true, "s-m2": true}
+	completed := map[string]bool{"r-multi-s-m1": true, "r-multi-s-m2": true}
 	wave3, err := dispatcher.DispatchWave(planResult.Graph, completed, "r-multi", planResult.Stories)
 	if err != nil {
 		t.Fatalf("dispatch wave 3: %v", err)
@@ -507,8 +507,8 @@ func TestIntegration_PlannerEventPersistence(t *testing.T) {
 		t.Fatalf("expected 1 REQ_PLANNED event, got %d", len(plannedEvents))
 	}
 
-	// Verify projection has the story.
-	story, err := ps.GetStory("s-p1")
+	// Verify projection has the story (ID is prefixed with first 8 chars of reqID).
+	story, err := ps.GetStory("r-persis-s-p1")
 	if err != nil {
 		t.Fatalf("get story: %v", err)
 	}
@@ -596,7 +596,9 @@ func TestIntegration_DependencyStorageAndDAGReconstruction(t *testing.T) {
 		t.Fatalf("list story deps: %v", err)
 	}
 
-	// Expected edges: s-dep-2→s-dep-1, s-dep-3→s-dep-1, s-dep-4→s-dep-2, s-dep-4→s-dep-3
+	// Expected edges (prefixed with "r-dep-1"):
+	// r-dep-1-s-dep-2→r-dep-1-s-dep-1, r-dep-1-s-dep-3→r-dep-1-s-dep-1,
+	// r-dep-1-s-dep-4→r-dep-1-s-dep-2, r-dep-1-s-dep-4→r-dep-1-s-dep-3
 	if len(deps) != 4 {
 		t.Fatalf("expected 4 dependency edges, got %d", len(deps))
 	}
@@ -609,10 +611,10 @@ func TestIntegration_DependencyStorageAndDAGReconstruction(t *testing.T) {
 	}
 
 	expectedEdges := []edge{
-		{"s-dep-2", "s-dep-1"},
-		{"s-dep-3", "s-dep-1"},
-		{"s-dep-4", "s-dep-2"},
-		{"s-dep-4", "s-dep-3"},
+		{"r-dep-1-s-dep-2", "r-dep-1-s-dep-1"},
+		{"r-dep-1-s-dep-3", "r-dep-1-s-dep-1"},
+		{"r-dep-1-s-dep-4", "r-dep-1-s-dep-2"},
+		{"r-dep-1-s-dep-4", "r-dep-1-s-dep-3"},
 	}
 	for _, e := range expectedEdges {
 		if !edgeSet[e] {
@@ -633,31 +635,31 @@ func TestIntegration_DependencyStorageAndDAGReconstruction(t *testing.T) {
 		reconstructed.AddEdge(d.StoryID, d.DependsOnID)
 	}
 
-	// With nothing completed, only s-dep-1 (no deps) should be ready.
+	// With nothing completed, only r-dep-1-s-dep-1 (no deps) should be ready.
 	completed := make(map[string]bool)
 	ready := reconstructed.ReadyNodes(completed)
-	if len(ready) != 1 || ready[0] != "s-dep-1" {
-		t.Fatalf("expected ReadyNodes with empty completed to be [s-dep-1], got %v", ready)
+	if len(ready) != 1 || ready[0] != "r-dep-1-s-dep-1" {
+		t.Fatalf("expected ReadyNodes with empty completed to be [r-dep-1-s-dep-1], got %v", ready)
 	}
 
-	// Mark s-dep-1 as completed; s-dep-2 and s-dep-3 should become ready.
-	completed["s-dep-1"] = true
+	// Mark r-dep-1-s-dep-1 as completed; r-dep-1-s-dep-2 and r-dep-1-s-dep-3 should become ready.
+	completed["r-dep-1-s-dep-1"] = true
 	ready = reconstructed.ReadyNodes(completed)
 	sort.Strings(ready)
-	if len(ready) != 2 || ready[0] != "s-dep-2" || ready[1] != "s-dep-3" {
-		t.Fatalf("expected ReadyNodes after s-dep-1 done to be [s-dep-2 s-dep-3], got %v", ready)
+	if len(ready) != 2 || ready[0] != "r-dep-1-s-dep-2" || ready[1] != "r-dep-1-s-dep-3" {
+		t.Fatalf("expected ReadyNodes after r-dep-1-s-dep-1 done to be [r-dep-1-s-dep-2 r-dep-1-s-dep-3], got %v", ready)
 	}
 
-	// Mark s-dep-2 and s-dep-3 as completed; s-dep-4 should become ready.
-	completed["s-dep-2"] = true
-	completed["s-dep-3"] = true
+	// Mark r-dep-1-s-dep-2 and r-dep-1-s-dep-3 as completed; r-dep-1-s-dep-4 should become ready.
+	completed["r-dep-1-s-dep-2"] = true
+	completed["r-dep-1-s-dep-3"] = true
 	ready = reconstructed.ReadyNodes(completed)
-	if len(ready) != 1 || ready[0] != "s-dep-4" {
-		t.Fatalf("expected ReadyNodes after s-dep-2,s-dep-3 done to be [s-dep-4], got %v", ready)
+	if len(ready) != 1 || ready[0] != "r-dep-1-s-dep-4" {
+		t.Fatalf("expected ReadyNodes after r-dep-1-s-dep-2,r-dep-1-s-dep-3 done to be [r-dep-1-s-dep-4], got %v", ready)
 	}
 
 	// Mark everything completed; no nodes should be ready.
-	completed["s-dep-4"] = true
+	completed["r-dep-1-s-dep-4"] = true
 	ready = reconstructed.ReadyNodes(completed)
 	if len(ready) != 0 {
 		t.Fatalf("expected no ReadyNodes when all completed, got %v", ready)

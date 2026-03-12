@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/tzone85/vortex-dispatch/internal/config"
 	vxdgit "github.com/tzone85/vortex-dispatch/internal/git"
+	"github.com/tzone85/vortex-dispatch/internal/graph"
 	"github.com/tzone85/vortex-dispatch/internal/runtime"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
@@ -25,6 +28,12 @@ type Monitor struct {
 	config     config.Config
 	eventStore state.EventStore
 	projStore  state.ProjectionStore
+
+	// dispatcher + executor allow the monitor to automatically spawn the
+	// next wave of stories after merges complete, removing the need for
+	// the user to manually run "vxd resume" between waves.
+	dispatcher *Dispatcher
+	executor   *Executor
 
 	// mergeMu serializes the rebase-push-merge cycle so that each story
 	// rebases onto the latest main before merging, preventing conflicts
@@ -55,11 +64,33 @@ func NewMonitor(
 	}
 }
 
+// SetAutoResume enables automatic dispatch of the next wave when stories
+// complete. Without this, the monitor exits after one wave and the user
+// must manually run "vxd resume".
+func (m *Monitor) SetAutoResume(d *Dispatcher, e *Executor) {
+	m.dispatcher = d
+	m.executor = e
+}
+
+// RunContext carries the state needed for auto-resume across waves.
+type RunContext struct {
+	ReqID          string
+	PlannedStories []PlannedStory
+	DAG            *graph.DAG
+}
+
 // Run polls active agents at the configured interval until all are done
 // or the context is cancelled. When all agents finish naturally, Run waits
-// for their post-execution pipelines (review, QA, merge) to complete before
-// returning. On Ctrl+C it detaches immediately.
+// for their post-execution pipelines (review, QA, merge) to complete.
+// If auto-resume is enabled (SetAutoResume was called), Run then dispatches
+// the next wave of ready stories and continues monitoring. This repeats
+// until all stories are complete or context is cancelled.
 func (m *Monitor) Run(ctx context.Context, agents []ActiveAgent, repoDir string) error {
+	return m.RunWithContext(ctx, agents, repoDir, nil)
+}
+
+// RunWithContext is like Run but accepts a RunContext for auto-resume.
+func (m *Monitor) RunWithContext(ctx context.Context, agents []ActiveAgent, repoDir string, rc *RunContext) error {
 	pollInterval := time.Duration(m.config.Monitor.PollIntervalMs) * time.Millisecond
 	if pollInterval == 0 {
 		pollInterval = 10 * time.Second
@@ -87,6 +118,19 @@ func (m *Monitor) Run(ctx context.Context, agents []ActiveAgent, repoDir string)
 				log.Printf("[monitor] all agents finished, waiting for post-execution pipelines")
 				pipelineWG.Wait()
 				log.Printf("[monitor] all pipelines complete")
+
+				// Auto-resume: dispatch next wave if possible.
+				if rc != nil && m.dispatcher != nil && m.executor != nil {
+					newAgents := m.dispatchNextWave(ctx, rc, repoDir)
+					if len(newAgents) > 0 {
+						for _, a := range newAgents {
+							active[a.Assignment.SessionName] = a
+						}
+						log.Printf("[monitor] auto-resumed: tracking %d new agents", len(newAgents))
+						continue
+					}
+				}
+
 				return nil
 			}
 
@@ -160,6 +204,12 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 
 	log.Printf("[pipeline] starting post-execution for %s", storyID)
 
+	// Auto-commit any uncommitted work left by the agent.
+	// Claude Code agents frequently exit without committing their changes,
+	// especially in -p (prompt) mode. This safety net ensures we capture
+	// the work before checking the diff.
+	autoCommit(ag.WorktreePath, storyID)
+
 	// Check if agent produced any changes
 	diff, err := gitDiff(ag.WorktreePath)
 	if err != nil {
@@ -186,7 +236,11 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 			storyAC = story.AcceptanceCriteria
 		}
 
-		result, err := m.reviewer.Review(ctx, storyID, storyTitle, storyAC, diff)
+		// Capture the file tree to give the reviewer context about files
+		// that already exist (prevents hallucinations about "missing" files).
+		fileTree := captureFileTree(ag.WorktreePath)
+
+		result, err := m.reviewer.Review(ctx, storyID, storyTitle, storyAC, diff, fileTree)
 		if err != nil {
 			log.Printf("[pipeline] review error for %s: %v", storyID, err)
 			m.resetStoryToDraft(storyID, "reviewer", fmt.Sprintf("review error: %v", err))
@@ -316,6 +370,151 @@ func (m *Monitor) resetStoryToDraft(storyID, fromAgent, reason string) {
 		log.Printf("[pipeline] failed to project reset event for %s: %v", storyID, err)
 	}
 	log.Printf("[pipeline] reset %s to draft: %s", storyID, reason)
+}
+
+// dispatchNextWave determines which stories are now ready (dependencies met)
+// and dispatches a new wave of agents. Returns the newly spawned ActiveAgents.
+func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir string) []ActiveAgent {
+	// Build completed set from the projection store.
+	stories, err := m.projStore.ListStories(state.StoryFilter{ReqID: rc.ReqID})
+	if err != nil {
+		log.Printf("[auto-resume] failed to list stories: %v", err)
+		return nil
+	}
+
+	completed := make(map[string]bool)
+	allDone := true
+	for _, s := range stories {
+		if s.Status == "merged" || s.Status == "pr_submitted" {
+			completed[s.ID] = true
+		} else {
+			allDone = false
+		}
+	}
+
+	if allDone {
+		log.Printf("[auto-resume] all %d stories complete for requirement %s", len(stories), rc.ReqID)
+		// Mark requirement complete.
+		compEvt := state.NewEvent(state.EventReqCompleted, "monitor", "", map[string]any{"id": rc.ReqID})
+		m.eventStore.Append(compEvt)
+		m.projStore.Project(compEvt)
+		return nil
+	}
+
+	assignments, err := m.dispatcher.DispatchWave(rc.DAG, completed, rc.ReqID, rc.PlannedStories)
+	if err != nil {
+		log.Printf("[auto-resume] dispatch error: %v", err)
+		return nil
+	}
+	if len(assignments) == 0 {
+		log.Printf("[auto-resume] no stories ready for next wave (dependencies not met)")
+		return nil
+	}
+
+	log.Printf("[auto-resume] dispatching %d stories in next wave", len(assignments))
+
+	storyMap := make(map[string]PlannedStory, len(rc.PlannedStories))
+	for _, ps := range rc.PlannedStories {
+		storyMap[ps.ID] = ps
+	}
+
+	results := m.executor.SpawnAll(repoDir, assignments, storyMap)
+
+	var active []ActiveAgent
+	for _, r := range results {
+		if r.Error != nil {
+			log.Printf("[auto-resume] spawn error for %s: %v", r.Assignment.StoryID, r.Error)
+			continue
+		}
+		log.Printf("[auto-resume] spawned %s -> %s (session: %s)",
+			r.Assignment.StoryID, r.RuntimeName, r.Assignment.SessionName)
+		active = append(active, ActiveAgent{
+			Assignment:   r.Assignment,
+			WorktreePath: r.WorktreePath,
+			RuntimeName:  r.RuntimeName,
+		})
+	}
+
+	return active
+}
+
+// autoCommit stages and commits any uncommitted changes in the worktree.
+// This is a safety net for agents that produce code but exit without
+// committing. VXD artifacts (.vxd-prompts, CLAUDE.md, .serena) are excluded.
+func autoCommit(worktreePath, storyID string) {
+	// Check for uncommitted changes (staged or unstaged).
+	statusCmd := exec.Command("git", "status", "--porcelain")
+	statusCmd.Dir = worktreePath
+	statusOut, err := statusCmd.CombinedOutput()
+	if err != nil || len(strings.TrimSpace(string(statusOut))) == 0 {
+		return // nothing to commit
+	}
+
+	log.Printf("[pipeline] auto-committing uncommitted work for %s", storyID)
+
+	// Ensure VXD artifacts are in .gitignore so they are never committed.
+	ensureGitignorePatterns(worktreePath)
+
+	// Stage all non-ignored changes.
+	addCmd := exec.Command("git", "add", "-A")
+	addCmd.Dir = worktreePath
+	if out, err := addCmd.CombinedOutput(); err != nil {
+		log.Printf("[pipeline] git add failed for %s: %v (%s)", storyID, err, strings.TrimSpace(string(out)))
+		return
+	}
+
+	// Commit with a descriptive message.
+	commitCmd := exec.Command("git", "commit", "-m",
+		fmt.Sprintf("feat(%s): auto-commit agent work\n\nVXD auto-committed changes that the agent left uncommitted.", storyID))
+	commitCmd.Dir = worktreePath
+	if out, err := commitCmd.CombinedOutput(); err != nil {
+		log.Printf("[pipeline] auto-commit failed for %s: %v (%s)", storyID, err, strings.TrimSpace(string(out)))
+		return
+	}
+
+	log.Printf("[pipeline] auto-commit succeeded for %s", storyID)
+}
+
+// ensureGitignorePatterns appends VXD artifact patterns to .gitignore if
+// they are not already present, preventing CLAUDE.md, .vxd-prompts/,
+// .serena/, and other tool artifacts from being committed by agents.
+func ensureGitignorePatterns(worktreePath string) {
+	vxdPatterns := []string{
+		"CLAUDE.md",
+		".vxd-prompts/",
+		".serena/",
+		"firebase-debug.log",
+	}
+
+	giPath := worktreePath + "/.gitignore"
+	existing, _ := os.ReadFile(giPath)
+	content := string(existing)
+
+	var toAdd []string
+	for _, pat := range vxdPatterns {
+		if !strings.Contains(content, pat) {
+			toAdd = append(toAdd, pat)
+		}
+	}
+	if len(toAdd) == 0 {
+		return
+	}
+
+	appendix := "\n# VXD agent artifacts (auto-added)\n" + strings.Join(toAdd, "\n") + "\n"
+	os.WriteFile(giPath, append(existing, []byte(appendix)...), 0o644)
+}
+
+// captureFileTree returns a compact listing of tracked files in the worktree.
+// This gives the reviewer context about what already exists so it doesn't
+// hallucinate about "missing" files that weren't part of the diff.
+func captureFileTree(worktreePath string) string {
+	cmd := exec.Command("git", "ls-files")
+	cmd.Dir = worktreePath
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // gitDiff returns the git diff for committed changes in a worktree.

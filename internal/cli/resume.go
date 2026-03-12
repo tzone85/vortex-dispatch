@@ -181,7 +181,18 @@ func runResume(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	monitor := engine.NewMonitor(reg, watchdog, reviewer, qaRunner, merger, s.Config, s.Events, s.Proj)
-	return monitor.Run(ctx, activeAgents, repoDir)
+
+	// Enable auto-resume: when a wave completes, the monitor automatically
+	// dispatches the next wave of ready stories instead of exiting.
+	monitor.SetAutoResume(dispatcher, executor)
+
+	rc := &engine.RunContext{
+		ReqID:          reqID,
+		PlannedStories: plannedStories,
+		DAG:            dag,
+	}
+
+	return monitor.RunWithContext(ctx, activeAgents, repoDir, rc)
 }
 
 // rebuildDAG reconstructs the dependency graph from the story_deps table

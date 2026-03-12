@@ -189,6 +189,7 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 		result, err := m.reviewer.Review(ctx, storyID, storyTitle, storyAC, diff)
 		if err != nil {
 			log.Printf("[pipeline] review error for %s: %v", storyID, err)
+			m.resetStoryToDraft(storyID, "reviewer", fmt.Sprintf("review error: %v", err))
 			return
 		}
 		if !result.Passed {
@@ -208,6 +209,7 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 		result, err := m.qa.Run(ctx, storyID, ag.WorktreePath)
 		if err != nil {
 			log.Printf("[pipeline] QA error for %s: %v", storyID, err)
+			m.resetStoryToDraft(storyID, "qa", fmt.Sprintf("QA error: %v", err))
 			return
 		}
 		if !result.Passed {
@@ -230,6 +232,7 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 
 		if err != nil {
 			log.Printf("[pipeline] merge error for %s: %v", storyID, err)
+			m.resetStoryToDraft(storyID, "merger", fmt.Sprintf("merge/rebase error: %v", err))
 			return
 		}
 		log.Printf("[pipeline] %s -> PR #%d (%s) merged=%v",
@@ -296,6 +299,23 @@ func (m *Monitor) isRequirementPaused(storyID string) bool {
 	}
 
 	return req.Status == "paused"
+}
+
+// resetStoryToDraft emits a STORY_REVIEW_FAILED event to move a story back
+// to "draft" so it can be re-dispatched. This handles error paths (review
+// errors, QA errors, rebase conflicts) that would otherwise leave the story
+// stuck in an intermediate status.
+func (m *Monitor) resetStoryToDraft(storyID, fromAgent, reason string) {
+	evt := state.NewEvent(state.EventStoryReviewFailed, fromAgent, storyID, map[string]any{
+		"reason": reason,
+	})
+	if err := m.eventStore.Append(evt); err != nil {
+		log.Printf("[pipeline] failed to append reset event for %s: %v", storyID, err)
+	}
+	if err := m.projStore.Project(evt); err != nil {
+		log.Printf("[pipeline] failed to project reset event for %s: %v", storyID, err)
+	}
+	log.Printf("[pipeline] reset %s to draft: %s", storyID, reason)
 }
 
 // gitDiff returns the git diff for committed changes in a worktree.

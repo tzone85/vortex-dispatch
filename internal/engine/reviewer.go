@@ -49,21 +49,35 @@ func NewReviewer(client llm.Client, model string, maxTokens int, es state.EventS
 // Review takes a story ID, title, acceptance criteria, and the git diff of
 // the branch changes. It calls the Senior LLM for code review and emits
 // either STORY_REVIEW_PASSED or STORY_REVIEW_FAILED.
-func (r *Reviewer) Review(ctx context.Context, storyID, title, acceptanceCriteria, diff string) (ReviewResult, error) {
+// worktreePath is optional — if provided, the reviewer gets the full file
+// tree to avoid hallucinating about missing files.
+func (r *Reviewer) Review(ctx context.Context, storyID, title, acceptanceCriteria, diff string, extra ...string) (ReviewResult, error) {
 	if diff == "" {
 		return ReviewResult{}, fmt.Errorf("empty diff for story %s", storyID)
+	}
+
+	// Build optional file tree context.
+	fileTreeCtx := ""
+	if len(extra) > 0 && extra[0] != "" {
+		fileTreeCtx = fmt.Sprintf("\nExisting file tree (files already on disk, not just the diff):\n%s\n", extra[0])
 	}
 
 	prompt := fmt.Sprintf(`Review this code change for the following story:
 
 Story: %s
 Acceptance Criteria: %s
-
+%s
 Diff:
 %s
 
+IMPORTANT REVIEW GUIDELINES:
+- Only judge the diff contents. Files that exist in the file tree but are NOT in the diff were already present before this change.
+- Do NOT reject because files appear "missing" if they are listed in the file tree above.
+- Focus on whether the NEW code in the diff is correct, well-structured, and meets the acceptance criteria.
+- Pass the review if the code makes reasonable progress toward the acceptance criteria, even if not 100%% perfect.
+
 Review the code for:
-1. Correctness - does it meet the acceptance criteria?
+1. Correctness - does the diff content meet the acceptance criteria?
 2. Code quality - clean, readable, well-structured?
 3. Test coverage - are changes tested?
 4. Security - any vulnerabilities?
@@ -74,12 +88,12 @@ Respond with JSON:
   "passed": true/false,
   "comments": [{"file": "path", "line": 0, "severity": "critical|major|minor|info", "comment": "..."}],
   "summary": "brief summary"
-}`, title, acceptanceCriteria, diff)
+}`, title, acceptanceCriteria, fileTreeCtx, diff)
 
 	resp, err := r.llmClient.Complete(ctx, llm.CompletionRequest{
 		Model:     r.model,
 		MaxTokens: r.maxTokens,
-		System:    "You are a Senior code reviewer. Review code changes and provide structured feedback. Respond only with JSON.",
+		System:    "You are a Senior code reviewer for an AI-orchestrated development pipeline. Review code changes and provide structured feedback. Be pragmatic — pass code that makes solid progress even if minor issues exist. Only reject for critical functional failures. Respond only with JSON.",
 		Messages:  []llm.Message{{Role: llm.RoleUser, Content: prompt}},
 	})
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 )
 
 const openaiAPIURL = "https://api.openai.com/v1/chat/completions"
@@ -114,10 +115,14 @@ func (c *OpenAIClient) Complete(ctx context.Context, req CompletionRequest) (Com
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return CompletionResponse{}, fmt.Errorf(
-			"openai API error (status %d): %s",
-			resp.StatusCode, string(respBody),
-		)
+		retryable := resp.StatusCode == 429 || resp.StatusCode >= 500
+		retryAfter, _ := strconv.Atoi(resp.Header.Get("Retry-After"))
+		return CompletionResponse{}, &APIError{
+			StatusCode: resp.StatusCode,
+			Message:    string(respBody),
+			Retryable:  retryable,
+			RetryAfter: retryAfter,
+		}
 	}
 
 	var apiResp openaiResponse

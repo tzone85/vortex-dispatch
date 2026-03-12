@@ -13,6 +13,7 @@ import (
 	"github.com/tzone85/vortex-dispatch/internal/config"
 	vxdgit "github.com/tzone85/vortex-dispatch/internal/git"
 	"github.com/tzone85/vortex-dispatch/internal/graph"
+	"github.com/tzone85/vortex-dispatch/internal/llm"
 	"github.com/tzone85/vortex-dispatch/internal/runtime"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
@@ -242,6 +243,14 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 
 		result, err := m.reviewer.Review(ctx, storyID, storyTitle, storyAC, diff, fileTree)
 		if err != nil {
+			// Billing / balance exhaustion is fatal — pause the entire
+			// requirement instead of resetting the story (which would
+			// cause an infinite retry loop).
+			if llm.IsInsufficientBalance(err) {
+				log.Printf("[pipeline] FATAL: API credit balance exhausted — pausing requirement for %s", storyID)
+				m.pauseRequirement(storyID, "API credit balance too low to continue")
+				return
+			}
 			log.Printf("[pipeline] review error for %s: %v", storyID, err)
 			m.resetStoryToDraft(storyID, "reviewer", fmt.Sprintf("review error: %v", err))
 			return
@@ -353,6 +362,31 @@ func (m *Monitor) isRequirementPaused(storyID string) bool {
 	}
 
 	return req.Status == "paused"
+}
+
+// pauseRequirement pauses the entire requirement that owns the given story.
+// This is used when a fatal, non-retryable error (e.g. billing exhaustion)
+// makes further progress impossible. The user must resolve the issue and
+// run "vxd resume" to continue.
+func (m *Monitor) pauseRequirement(storyID, reason string) {
+	story, err := m.projStore.GetStory(storyID)
+	if err != nil {
+		log.Printf("[pipeline] cannot pause: failed to look up story %s: %v", storyID, err)
+		return
+	}
+
+	pauseEvt := state.NewEvent(state.EventReqPaused, "monitor", "", map[string]any{
+		"id":     story.ReqID,
+		"reason": reason,
+	})
+	if err := m.eventStore.Append(pauseEvt); err != nil {
+		log.Printf("[pipeline] failed to append pause event for req %s: %v", story.ReqID, err)
+	}
+	if err := m.projStore.Project(pauseEvt); err != nil {
+		log.Printf("[pipeline] failed to project pause event for req %s: %v", story.ReqID, err)
+	}
+	log.Printf("[pipeline] requirement %s paused: %s", story.ReqID, reason)
+	log.Printf("[pipeline] top up your API credits and run 'vxd resume %s' to continue", story.ReqID)
 }
 
 // resetStoryToDraft emits a STORY_REVIEW_FAILED event to move a story back

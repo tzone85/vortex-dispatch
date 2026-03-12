@@ -102,9 +102,38 @@ func (c *CLIRuntime) Name() string { return c.name }
 // SupportedModels returns the list of models this runtime can use.
 func (c *CLIRuntime) SupportedModels() []string { return c.models }
 
+// claudeMDContent is written to each worktree on every spawn so that
+// Claude Code's superpowers/brainstorming plugins don't override the
+// -p prompt instructions. Re-written unconditionally because a reused
+// worktree may have a stale or missing CLAUDE.md.
+const claudeMDContent = `# VXD Agent Directive
+
+You are an automated coding agent dispatched by VXD (vortex-dispatch).
+Follow these rules strictly:
+
+1. **Do NOT brainstorm or plan.** Execute the task described in the prompt immediately.
+2. **Do NOT ask questions.** Make reasonable decisions and proceed.
+3. **Do NOT enter plan mode.** Write code directly.
+4. **Do NOT use interactive features.** No confirmations, no menus.
+5. **Commit your changes** when the task is complete.
+6. **Stay focused on the assigned story only.** Do not refactor unrelated code.
+`
+
 // Spawn creates a new tmux session running the CLI tool with the given
 // configuration. Output is tee'd to a log file for post-mortem diagnosis.
 func (c *CLIRuntime) Spawn(cfg SessionConfig) error {
+	// Write CLAUDE.md unconditionally to the worktree to suppress
+	// brainstorming/planning plugins that would override -p prompt
+	// instructions. This must happen on every spawn, not just the first
+	// worktree creation, because reused worktrees may have stale content.
+	if cfg.WorkDir != "" {
+		claudeMDPath := filepath.Join(cfg.WorkDir, "CLAUDE.md")
+		if err := os.WriteFile(claudeMDPath, []byte(claudeMDContent), 0o644); err != nil {
+			// Non-fatal: log and continue so the agent can still run.
+			fmt.Fprintf(os.Stderr, "warning: failed to write CLAUDE.md to %s: %v\n", cfg.WorkDir, err)
+		}
+	}
+
 	cmdStr := c.command
 	for _, arg := range c.args {
 		cmdStr += " " + arg

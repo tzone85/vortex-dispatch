@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 )
 
 const anthropicAPIURL = "https://api.anthropic.com/v1/messages"
@@ -108,10 +109,14 @@ func (c *AnthropicClient) Complete(ctx context.Context, req CompletionRequest) (
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return CompletionResponse{}, fmt.Errorf(
-			"anthropic API error (status %d): %s",
-			resp.StatusCode, string(respBody),
-		)
+		retryable := resp.StatusCode == 429 || resp.StatusCode == 529 || resp.StatusCode >= 500
+		retryAfter, _ := strconv.Atoi(resp.Header.Get("Retry-After"))
+		return CompletionResponse{}, &APIError{
+			StatusCode: resp.StatusCode,
+			Message:    string(respBody),
+			Retryable:  retryable,
+			RetryAfter: retryAfter,
+		}
 	}
 
 	var apiResp anthropicResponse

@@ -25,6 +25,11 @@ type Monitor struct {
 	config     config.Config
 	eventStore state.EventStore
 	projStore  state.ProjectionStore
+
+	// mergeMu serializes the rebase-push-merge cycle so that each story
+	// rebases onto the latest main before merging, preventing conflicts
+	// when parallel agents touch the same files.
+	mergeMu sync.Mutex
 }
 
 // NewMonitor creates a Monitor wired to all pipeline components.
@@ -207,9 +212,12 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 		log.Printf("[pipeline] QA passed for %s", storyID)
 	}
 
-	// 3. Merge
+	// 3. Merge (serialized: rebase onto latest main, then push + merge)
 	if m.merger != nil {
-		result, err := m.merger.Merge(storyID, storyID, repoDir, branch)
+		m.mergeMu.Lock()
+		result, err := m.rebaseAndMerge(storyID, branch, repoDir, ag.WorktreePath)
+		m.mergeMu.Unlock()
+
 		if err != nil {
 			log.Printf("[pipeline] merge error for %s: %v", storyID, err)
 			return
@@ -235,6 +243,31 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 	}
 
 	log.Printf("[pipeline] post-execution complete for %s, next wave can be dispatched", storyID)
+}
+
+// rebaseAndMerge fetches the latest base branch, rebases the worktree onto
+// it, then delegates to the merger for push + PR + auto-merge. This must be
+// called while holding mergeMu so that each story sees the result of any
+// prior merge before rebasing.
+func (m *Monitor) rebaseAndMerge(storyID, branch, repoDir, worktreePath string) (MergeResult, error) {
+	baseBranch := m.config.Merge.BaseBranch
+	if baseBranch == "" {
+		baseBranch = "main"
+	}
+
+	log.Printf("[pipeline] fetching %s and rebasing %s for %s", baseBranch, branch, storyID)
+
+	if err := vxdgit.FetchBranch(repoDir, baseBranch); err != nil {
+		return MergeResult{}, fmt.Errorf("fetch %s: %w", baseBranch, err)
+	}
+
+	if err := vxdgit.RebaseOnto(worktreePath, "origin/"+baseBranch); err != nil {
+		return MergeResult{}, fmt.Errorf("rebase onto %s: %w", baseBranch, err)
+	}
+
+	log.Printf("[pipeline] rebase succeeded for %s, proceeding to merge", storyID)
+
+	return m.merger.Merge(storyID, storyID, repoDir, branch)
 }
 
 // isRequirementPaused looks up the requirement for a story and returns true

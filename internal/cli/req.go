@@ -92,13 +92,13 @@ func buildLLMClient(provider string) (llm.Client, error) {
 		if apiKey == "" {
 			return nil, fmt.Errorf("ANTHROPIC_API_KEY environment variable is required")
 		}
-		return llm.NewAnthropicClient(apiKey), nil
+		return llm.NewRetryClient(llm.NewAnthropicClient(apiKey), 3), nil
 	case "openai":
 		apiKey := os.Getenv("OPENAI_API_KEY")
 		if apiKey == "" {
 			return nil, fmt.Errorf("OPENAI_API_KEY environment variable is required")
 		}
-		return llm.NewOpenAIClient(apiKey), nil
+		return llm.NewRetryClient(llm.NewOpenAIClient(apiKey), 3), nil
 	default:
 		return nil, fmt.Errorf("unsupported LLM provider: %s", provider)
 	}

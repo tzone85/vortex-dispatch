@@ -121,6 +121,34 @@ func RemoveWorktree(repoDir, worktreePath, branch string) error {
 	return nil
 }
 
+// FetchBranch fetches a single branch from origin.
+func FetchBranch(repoDir, branch string) error {
+	cmd := exec.Command("git", "fetch", "origin", branch)
+	cmd.Dir = repoDir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git fetch: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// RebaseOnto rebases the branch in the given worktree onto the specified
+// upstream ref (e.g. "origin/main"). Returns an error if the rebase fails,
+// typically due to conflicts.
+func RebaseOnto(worktreePath, upstream string) error {
+	cmd := exec.Command("git", "rebase", upstream)
+	cmd.Dir = worktreePath
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		// Abort the failed rebase to leave the worktree in a clean state.
+		abort := exec.Command("git", "rebase", "--abort")
+		abort.Dir = worktreePath
+		abort.CombinedOutput()
+		return fmt.Errorf("git rebase %s: %w (%s)", upstream, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // GHAvailable reports whether the gh CLI binary is on PATH.
 func GHAvailable() bool {
 	_, err := exec.LookPath("gh")

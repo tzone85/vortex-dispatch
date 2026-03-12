@@ -6,8 +6,10 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/tzone85/vortex-dispatch/internal/config"
 	"github.com/tzone85/vortex-dispatch/internal/engine"
 	vxdgit "github.com/tzone85/vortex-dispatch/internal/git"
 	"github.com/tzone85/vortex-dispatch/internal/graph"
@@ -91,18 +93,10 @@ func runResume(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Dispatch next wave
-	dispatcher := engine.NewDispatcher(s.Config, s.Events, s.Proj)
-	assignments, err := dispatcher.DispatchWave(dag, completed, reqID, plannedStories)
-	if err != nil {
-		return fmt.Errorf("dispatch wave: %w", err)
-	}
-	if len(assignments) == 0 {
-		fmt.Fprintf(out, "No stories ready for dispatch (dependencies not yet met).\n")
-		return nil
-	}
-
-	fmt.Fprintf(out, "\nWave: dispatching %d stories\n\n", len(assignments))
+	// Recover orphaned in-progress stories whose agent sessions have ended
+	// but whose worktrees still contain committed work. The monitor will
+	// detect these as StatusTerminated and run postExecutionPipeline.
+	orphanAgents := recoverOrphanedStories(stories, s.Proj, s.Config)
 
 	// Build story map for executor
 	storyMap := make(map[string]engine.PlannedStory, len(plannedStories))
@@ -127,28 +121,52 @@ func runResume(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("repository has no commits — run 'git add . && git commit -m \"initial commit\"' first")
 	}
 
-	// Spawn agents via executor
+	dispatcher := engine.NewDispatcher(s.Config, s.Events, s.Proj)
 	executor := engine.NewExecutor(reg, s.Config, s.Events, s.Proj)
-	results := executor.SpawnAll(repoDir, assignments, storyMap)
 
-	activeAgents := make([]engine.ActiveAgent, 0, len(results))
-	for _, r := range results {
-		if r.Error != nil {
-			fmt.Fprintf(out, "  [FAIL] %s: %v\n", r.Assignment.StoryID, r.Error)
-			continue
+	var activeAgents []engine.ActiveAgent
+
+	if len(orphanAgents) > 0 {
+		// Process orphaned stories first through the post-execution pipeline
+		// (review → QA → merge). Auto-resume dispatches the next wave after.
+		fmt.Fprintf(out, "\nRecovering %d orphaned stories (agent sessions ended, work exists)...\n", len(orphanAgents))
+		for _, oa := range orphanAgents {
+			fmt.Fprintf(out, "  [ORPHAN] %s (branch: %s)\n", oa.Assignment.StoryID, oa.Assignment.Branch)
 		}
-		fmt.Fprintf(out, "  [%s] %s -> %s (session: %s, branch: %s)\n",
-			r.Assignment.Role, r.Assignment.StoryID, r.RuntimeName,
-			r.Assignment.SessionName, r.Assignment.Branch)
-		activeAgents = append(activeAgents, engine.ActiveAgent{
-			Assignment:   r.Assignment,
-			WorktreePath: r.WorktreePath,
-			RuntimeName:  r.RuntimeName,
-		})
+		activeAgents = orphanAgents
+	} else {
+		// Normal path: dispatch next wave of ready stories.
+		assignments, err := dispatcher.DispatchWave(dag, completed, reqID, plannedStories)
+		if err != nil {
+			return fmt.Errorf("dispatch wave: %w", err)
+		}
+		if len(assignments) == 0 {
+			fmt.Fprintf(out, "No stories ready for dispatch (dependencies not yet met).\n")
+			return nil
+		}
+
+		fmt.Fprintf(out, "\nWave: dispatching %d stories\n\n", len(assignments))
+
+		results := executor.SpawnAll(repoDir, assignments, storyMap)
+
+		for _, r := range results {
+			if r.Error != nil {
+				fmt.Fprintf(out, "  [FAIL] %s: %v\n", r.Assignment.StoryID, r.Error)
+				continue
+			}
+			fmt.Fprintf(out, "  [%s] %s -> %s (session: %s, branch: %s)\n",
+				r.Assignment.Role, r.Assignment.StoryID, r.RuntimeName,
+				r.Assignment.SessionName, r.Assignment.Branch)
+			activeAgents = append(activeAgents, engine.ActiveAgent{
+				Assignment:   r.Assignment,
+				WorktreePath: r.WorktreePath,
+				RuntimeName:  r.RuntimeName,
+			})
+		}
 	}
 
 	if len(activeAgents) == 0 {
-		return fmt.Errorf("no agents spawned successfully")
+		return fmt.Errorf("no agents to process")
 	}
 
 	fmt.Fprintf(out, "\n%d agents working. Monitoring progress...\n", len(activeAgents))
@@ -241,4 +259,70 @@ func (g *ghOpsAdapter) CreatePR(repoDir, title, body, baseBranch, headBranch str
 
 func (g *ghOpsAdapter) MergePR(repoDir string, prNumber int) error {
 	return vxdgit.MergePR(repoDir, prNumber)
+}
+
+// recoverOrphanedStories finds stories stuck in "in_progress" with no live
+// tmux session and a worktree containing committed work. It returns ActiveAgent
+// entries that the monitor will immediately detect as terminated, routing them
+// through postExecutionPipeline (review → QA → merge).
+func recoverOrphanedStories(stories []state.Story, proj *state.SQLiteStore, cfg config.Config) []engine.ActiveAgent {
+	worktreeBase := filepath.Join(expandHome(cfg.Workspace.StateDir), "worktrees")
+
+	// Load all agents into a map for fast lookup.
+	allAgents, _ := proj.ListAgents(state.AgentFilter{})
+	agentByID := make(map[string]state.Agent, len(allAgents))
+	for _, a := range allAgents {
+		agentByID[a.ID] = a
+	}
+
+	// Default runtime fallback.
+	var defaultRuntime string
+	for name := range cfg.Runtimes {
+		defaultRuntime = name
+		break
+	}
+
+	var orphans []engine.ActiveAgent
+	for _, story := range stories {
+		if story.Status != "in_progress" {
+			continue
+		}
+
+		worktreePath := filepath.Join(worktreeBase, story.ID)
+		if _, err := os.Stat(worktreePath); os.IsNotExist(err) {
+			continue
+		}
+
+		// Use the original session name and runtime from the agent record,
+		// falling back to synthetic values. A dead tmux session returns
+		// StatusTerminated, which is exactly what we need.
+		sessionName := fmt.Sprintf("vxd-orphan-%s", story.ID)
+		rtName := defaultRuntime
+
+		if ag, ok := agentByID[story.AgentID]; ok {
+			if ag.SessionName != "" {
+				sessionName = ag.SessionName
+			}
+			if ag.Runtime != "" {
+				rtName = ag.Runtime
+			}
+		}
+
+		branch := fmt.Sprintf("vxd/%s", story.ID)
+
+		log.Printf("[resume] recovering orphaned story %s (session: %s, runtime: %s)", story.ID, sessionName, rtName)
+
+		orphans = append(orphans, engine.ActiveAgent{
+			Assignment: engine.Assignment{
+				StoryID:     story.ID,
+				AgentID:     story.AgentID,
+				SessionName: sessionName,
+				Branch:      branch,
+			},
+			WorktreePath: worktreePath,
+			RuntimeName:  rtName,
+		})
+	}
+
+	return orphans
 }

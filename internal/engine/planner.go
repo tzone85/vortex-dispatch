@@ -84,10 +84,15 @@ Requirement: %s
 Respond with a JSON array of stories. Each story must have:
 - id: short identifier (e.g., "s-001")
 - title: brief title
-- description: what to implement
+- description: what to implement, including exact file paths (e.g., "Create src/models/user.js")
 - acceptance_criteria: how to verify it's done
 - complexity: Fibonacci score (1, 2, 3, 5, 8, 13)
 - depends_on: array of story IDs this depends on (empty if none)
+
+IMPORTANT:
+- The first story (s-001) MUST establish the project directory structure and scaffold empty placeholder files.
+- All subsequent stories MUST reference specific file paths in their descriptions.
+- Distribute work across different files to minimize merge conflicts between parallel agents.
 
 Respond ONLY with the JSON array, no other text.`, requirement)
 

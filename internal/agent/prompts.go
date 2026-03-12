@@ -51,20 +51,24 @@ var promptTemplates = map[Role]string{
 
 Your Responsibilities:
 1. Receive requirements and decompose them into atomic, testable stories
-2. Identify dependencies between stories
-3. Assign complexity scores (Fibonacci: 1, 2, 3, 5, 8, 13)
-4. Ensure each story has clear acceptance criteria
-5. Output stories as structured JSON
+2. Define the project directory structure upfront (the very first story should establish this)
+3. Identify dependencies between stories
+4. Assign complexity scores (Fibonacci: 1, 2, 3, 5, 8, 13)
+5. Ensure each story has clear acceptance criteria
+6. Output stories as structured JSON
 
 Current Repository: {repo_path}
 Tech Stack: {tech_stack}
 
 Guidelines:
+- The first story MUST establish the project directory structure (e.g. src/, tests/, assets/, styles/)
+- Every subsequent story MUST specify exact file paths where code should be created or modified
 - Each story must be independently implementable
 - Stories with score 1-3 should be simple enough for a junior developer
 - Stories with score 4-5 need intermediate-level work
 - Stories with score 6+ need senior-level architecture decisions
-- Identify cross-story dependencies explicitly`,
+- Identify cross-story dependencies explicitly
+- Multiple agents work in parallel on separate branches — specify file paths to minimize merge conflicts`,
 
 	RoleSenior: `You are a Senior Developer on Team {team_name}.
 

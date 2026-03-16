@@ -2,11 +2,15 @@ package engine_test
 
 import (
 	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/tzone85/vortex-dispatch/internal/config"
 	"github.com/tzone85/vortex-dispatch/internal/engine"
+	"github.com/tzone85/vortex-dispatch/internal/llm"
 	"github.com/tzone85/vortex-dispatch/internal/runtime"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
@@ -179,6 +183,87 @@ func TestMonitor_Run_DefaultPollInterval(t *testing.T) {
 	err = mon.Run(ctx, []engine.ActiveAgent{}, "/tmp/repo")
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
+	}
+}
+
+// TestMonitor_PostExecution_ReviewRejection_EmitsOneEvent is a regression test
+// for BUG18: when the reviewer rejects a story, exactly ONE EventStoryReviewFailed
+// must be emitted. Before the fix, the Reviewer.Review() already emitted one and
+// postExecutionPipeline emitted a duplicate second event.
+func TestMonitor_PostExecution_ReviewRejection_EmitsOneEvent(t *testing.T) {
+	es, ps, cleanup := newTestStores(t)
+	defer cleanup()
+
+	ps.Project(state.NewEvent(state.EventStoryCreated, "tech-lead", "s-rej-001", map[string]any{
+		"id": "s-rej-001", "req_id": "r-001", "title": "Task", "description": "desc", "complexity": 3,
+	}))
+
+	// Set up a real git repo with two commits so gitDiff produces a non-empty diff.
+	repoDir := t.TempDir()
+	runGit := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repoDir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v (%s)", args, err, out)
+		}
+	}
+	runGit("init")
+	runGit("config", "user.email", "test@test.com")
+	runGit("config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("init"), 0644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	runGit("add", ".")
+	runGit("commit", "-m", "init")
+	if err := os.WriteFile(filepath.Join(repoDir, "feature.go"), []byte("package main\nfunc Feature() {}"), 0644); err != nil {
+		t.Fatalf("write feature.go: %v", err)
+	}
+	runGit("add", ".")
+	runGit("commit", "-m", "feat: add feature")
+
+	// Reviewer always rejects.
+	replayClient := llm.NewReplayClient(llm.CompletionResponse{
+		Content: `{"passed": false, "comments": [], "summary": "rejected for test"}`,
+	})
+	reviewer := engine.NewReviewer(replayClient, "sonnet", 4000, es, ps)
+
+	cfg := config.DefaultConfig()
+	cfg.Monitor.PollIntervalMs = 10
+
+	reg, err := newTestRegistryWithDone()
+	if err != nil {
+		t.Fatalf("create registry: %v", err)
+	}
+	wd := engine.NewWatchdog(engine.WatchdogConfig{StuckThresholdS: 120}, es)
+	mon := engine.NewMonitor(reg, wd, reviewer, nil, nil, cfg, es, ps)
+
+	agents := []engine.ActiveAgent{
+		{
+			Assignment: engine.Assignment{
+				StoryID:     "s-rej-001",
+				AgentID:     "agent-rej-1",
+				SessionName: "vxd-test-rej-1",
+				Branch:      "vxd/s-rej-001",
+			},
+			RuntimeName:  "test-runtime",
+			WorktreePath: repoDir,
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	_ = mon.Run(ctx, agents, repoDir)
+
+	// Exactly ONE EventStoryReviewFailed must be emitted (from Reviewer.Review).
+	// Before BUG18-FIX, postExecutionPipeline emitted a second duplicate event.
+	events, err := es.List(state.EventFilter{Type: state.EventStoryReviewFailed})
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 EventStoryReviewFailed, got %d (regression: duplicate emission)", len(events))
 	}
 }
 

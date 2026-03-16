@@ -1,6 +1,7 @@
 package git
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -27,9 +28,11 @@ func CreatePR(repoDir, title, body, baseBranch, headBranch string) (PRInfo, erro
 		"--head", headBranch,
 	)
 	cmd.Dir = repoDir
-	out, err := cmd.CombinedOutput()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
-		return PRInfo{}, fmt.Errorf("gh pr create: %w (%s)", err, strings.TrimSpace(string(out)))
+		return PRInfo{}, fmt.Errorf("gh pr create: %w (%s)", err, strings.TrimSpace(stderr.String()))
 	}
 
 	url := strings.TrimSpace(string(out))

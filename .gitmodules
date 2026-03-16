@@ -1,0 +1,4 @@
+[submodule "repos/vortex-dispatch"]
+	path = repos/vortex-dispatch
+	url = https://github.com/tzone85/vortex-dispatch.git
+	branch = main

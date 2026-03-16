@@ -40,3 +40,8 @@ vxd.yaml
 # Environment
 .env
 .env.local
+
+# Hive workspace artifacts
+.hive/
+repos/team-*/
+verification-plan.prompt

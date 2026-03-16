@@ -1,6 +1,7 @@
 package runtime_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/tzone85/vortex-dispatch/internal/config"
@@ -91,6 +92,100 @@ func TestRegistry_InvalidPattern(t *testing.T) {
 	_, err := runtime.NewRegistry(cfg)
 	if err == nil {
 		t.Fatal("expected error for invalid regex pattern")
+	}
+}
+
+func TestBuildCommand_ContainsPFlag(t *testing.T) {
+	cfg := map[string]config.RuntimeConfig{
+		"claude-code": {
+			Command: "claude",
+			Args:    []string{"--dangerously-skip-permissions"},
+			Models:  []string{"opus-4"},
+			Detection: config.RuntimeDetection{
+				IdlePattern: `\$`,
+			},
+		},
+	}
+	reg, err := runtime.NewRegistry(cfg)
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+	rt, err := reg.Get("claude-code")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	cliRT := rt.(*runtime.CLIRuntime)
+
+	tmpDir := t.TempDir()
+	cmd, err := cliRT.BuildCommand(runtime.SessionConfig{
+		WorkDir: tmpDir,
+		Goal:    "implement feature X",
+	})
+	if err != nil {
+		t.Fatalf("build command: %v", err)
+	}
+	if !strings.Contains(cmd, " -p ") {
+		t.Errorf("expected -p flag in command, got: %s", cmd)
+	}
+}
+
+func TestBuildCommand_NoPFlagWithoutPrompt(t *testing.T) {
+	cfg := map[string]config.RuntimeConfig{
+		"claude-code": {
+			Command: "claude",
+			Args:    []string{"--dangerously-skip-permissions"},
+			Detection: config.RuntimeDetection{
+				IdlePattern: `\$`,
+			},
+		},
+	}
+	reg, err := runtime.NewRegistry(cfg)
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+	rt, _ := reg.Get("claude-code")
+	cliRT := rt.(*runtime.CLIRuntime)
+
+	cmd, err := cliRT.BuildCommand(runtime.SessionConfig{
+		WorkDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("build command: %v", err)
+	}
+	if strings.Contains(cmd, " -p ") {
+		t.Errorf("expected no -p flag without prompt, got: %s", cmd)
+	}
+}
+
+func TestBuildCommand_ModelFlag(t *testing.T) {
+	cfg := map[string]config.RuntimeConfig{
+		"claude-code": {
+			Command: "claude",
+			Detection: config.RuntimeDetection{
+				IdlePattern: `\$`,
+			},
+		},
+	}
+	reg, err := runtime.NewRegistry(cfg)
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+	rt, _ := reg.Get("claude-code")
+	cliRT := rt.(*runtime.CLIRuntime)
+
+	cmd, err := cliRT.BuildCommand(runtime.SessionConfig{
+		WorkDir: t.TempDir(),
+		Model:   "opus-4",
+		Goal:    "do something",
+	})
+	if err != nil {
+		t.Fatalf("build command: %v", err)
+	}
+	if !strings.Contains(cmd, "--model opus-4") {
+		t.Errorf("expected --model flag, got: %s", cmd)
+	}
+	if !strings.Contains(cmd, " -p ") {
+		t.Errorf("expected -p flag, got: %s", cmd)
 	}
 }
 

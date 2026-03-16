@@ -119,21 +119,10 @@ Follow these rules strictly:
 6. **Stay focused on the assigned story only.** Do not refactor unrelated code.
 `
 
-// Spawn creates a new tmux session running the CLI tool with the given
-// configuration. Output is tee'd to a log file for post-mortem diagnosis.
-func (c *CLIRuntime) Spawn(cfg SessionConfig) error {
-	// Write CLAUDE.md unconditionally to the worktree to suppress
-	// brainstorming/planning plugins that would override -p prompt
-	// instructions. This must happen on every spawn, not just the first
-	// worktree creation, because reused worktrees may have stale content.
-	if cfg.WorkDir != "" {
-		claudeMDPath := filepath.Join(cfg.WorkDir, "CLAUDE.md")
-		if err := os.WriteFile(claudeMDPath, []byte(claudeMDContent), 0o644); err != nil {
-			// Non-fatal: log and continue so the agent can still run.
-			fmt.Fprintf(os.Stderr, "warning: failed to write CLAUDE.md to %s: %v\n", cfg.WorkDir, err)
-		}
-	}
-
+// BuildCommand constructs the full shell command string for the CLI runtime.
+// It writes the prompt to a file in cfg.WorkDir and returns the assembled
+// command including environment exports. Extracted from Spawn for testability.
+func (c *CLIRuntime) BuildCommand(cfg SessionConfig) (string, error) {
 	cmdStr := c.command
 	for _, arg := range c.args {
 		cmdStr += " " + arg
@@ -143,9 +132,8 @@ func (c *CLIRuntime) Spawn(cfg SessionConfig) error {
 	}
 
 	// Write the combined prompt (system context + goal) to a file and pass
-	// it via --prompt-file if the runtime supports it, otherwise via shell
-	// argument with proper quoting. Piping via stdin does not work reliably
-	// inside tmux detached sessions.
+	// it via -p (non-interactive prompt mode) with shell substitution.
+	// Piping via stdin does not work reliably inside tmux detached sessions.
 	prompt := cfg.Goal
 	if cfg.SystemPrompt != "" {
 		prompt = cfg.SystemPrompt + "\n\n---\n\n" + cfg.Goal
@@ -155,11 +143,9 @@ func (c *CLIRuntime) Spawn(cfg SessionConfig) error {
 		os.MkdirAll(promptDir, 0o755)
 		promptFile := filepath.Join(promptDir, "prompt.txt")
 		if err := os.WriteFile(promptFile, []byte(prompt), 0o644); err != nil {
-			return fmt.Errorf("write prompt file: %w", err)
+			return "", fmt.Errorf("write prompt file: %w", err)
 		}
-		// Pass the prompt file contents as a shell argument using $(...) to
-		// avoid stdin pipe issues in tmux.
-		cmdStr = fmt.Sprintf("%s \"$(cat %q)\"", cmdStr, promptFile)
+		cmdStr = fmt.Sprintf("%s -p \"$(cat %q)\"", cmdStr, promptFile)
 	}
 
 	// Tee output to a log file so we can inspect it after the session exits.
@@ -187,6 +173,29 @@ func (c *CLIRuntime) Spawn(cfg SessionConfig) error {
 		envExports += fmt.Sprintf("export %s=%q; ", key, val)
 	}
 	cmdStr = envExports + "unset CLAUDECODE; " + cmdStr
+
+	return cmdStr, nil
+}
+
+// Spawn creates a new tmux session running the CLI tool with the given
+// configuration. Output is tee'd to a log file for post-mortem diagnosis.
+func (c *CLIRuntime) Spawn(cfg SessionConfig) error {
+	// Write CLAUDE.md unconditionally to the worktree to suppress
+	// brainstorming/planning plugins that would override -p prompt
+	// instructions. This must happen on every spawn, not just the first
+	// worktree creation, because reused worktrees may have stale content.
+	if cfg.WorkDir != "" {
+		claudeMDPath := filepath.Join(cfg.WorkDir, "CLAUDE.md")
+		if err := os.WriteFile(claudeMDPath, []byte(claudeMDContent), 0o644); err != nil {
+			// Non-fatal: log and continue so the agent can still run.
+			fmt.Fprintf(os.Stderr, "warning: failed to write CLAUDE.md to %s: %v\n", cfg.WorkDir, err)
+		}
+	}
+
+	cmdStr, err := c.BuildCommand(cfg)
+	if err != nil {
+		return err
+	}
 
 	return tmux.CreateSession(cfg.SessionName, cfg.WorkDir, cmdStr)
 }

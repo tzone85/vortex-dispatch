@@ -1,6 +1,9 @@
 package runtime_test
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tzone85/vortex-dispatch/internal/config"
@@ -91,6 +94,46 @@ func TestRegistry_InvalidPattern(t *testing.T) {
 	_, err := runtime.NewRegistry(cfg)
 	if err == nil {
 		t.Fatal("expected error for invalid regex pattern")
+	}
+}
+
+// TestCLIRuntime_Spawn_WritesCLAUDEMD verifies that Spawn writes the
+// authoritative CLAUDE.md (VXD Agent Directive) to the WorkDir.
+// This is a regression test for BUG08: executor.go was pre-writing CLAUDE.md
+// with different content before Spawn, causing two writes with conflicting
+// content. The executor write has been removed; only Spawn owns this file.
+func TestCLIRuntime_Spawn_WritesCLAUDEMD(t *testing.T) {
+	workDir := t.TempDir()
+
+	cfg := map[string]config.RuntimeConfig{
+		"test-rt": {
+			Command: "echo",
+			Args:    []string{"done"},
+			Models:  []string{"test-model"},
+		},
+	}
+	reg, err := runtime.NewRegistry(cfg)
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+	rt, err := reg.Get("test-rt")
+	if err != nil {
+		t.Fatalf("get runtime: %v", err)
+	}
+
+	// Spawn will fail because tmux is not available, but CLAUDE.md is written
+	// before the tmux call, so the file should exist regardless.
+	_ = rt.Spawn(runtime.SessionConfig{
+		SessionName: "test-session",
+		WorkDir:     workDir,
+	})
+
+	content, err := os.ReadFile(filepath.Join(workDir, "CLAUDE.md"))
+	if err != nil {
+		t.Fatalf("CLAUDE.md not written by Spawn: %v", err)
+	}
+	if !strings.Contains(string(content), "VXD Agent Directive") {
+		t.Fatalf("CLAUDE.md should contain 'VXD Agent Directive', got:\n%s", content)
 	}
 }
 

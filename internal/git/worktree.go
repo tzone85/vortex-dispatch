@@ -33,6 +33,11 @@ func CreateWorktree(repoDir, worktreePath, branch string) error {
 	delBranch.Dir = repoDir
 	delBranch.Run()
 
+	// Delete the remote tracking reference if it exists (e.g. origin/<branch>)
+	delRemote := exec.Command("git", "branch", "-dr", "origin/"+branch)
+	delRemote.Dir = repoDir
+	delRemote.Run()
+
 	// Create fresh worktree with new branch
 	cmd := exec.Command("git", "worktree", "add", "-b", branch, worktreePath)
 	cmd.Dir = repoDir

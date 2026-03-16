@@ -290,8 +290,8 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 	// 3. Merge (serialized: rebase onto latest main, then push + merge)
 	if m.merger != nil {
 		m.mergeMu.Lock()
+		defer m.mergeMu.Unlock()
 		result, err := m.rebaseAndMerge(storyID, branch, repoDir, ag.WorktreePath)
-		m.mergeMu.Unlock()
 
 		if err != nil {
 			log.Printf("[pipeline] merge error for %s: %v", storyID, err)

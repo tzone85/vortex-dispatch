@@ -257,11 +257,6 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 		}
 		if !result.Passed {
 			log.Printf("[pipeline] review rejected %s: %s", storyID, result.Summary)
-			failEvt := state.NewEvent(state.EventStoryReviewFailed, "reviewer", storyID, map[string]any{
-				"reason": result.Summary,
-			})
-			m.eventStore.Append(failEvt)
-			m.projStore.Project(failEvt)
 			return
 		}
 		log.Printf("[pipeline] review passed for %s", storyID)

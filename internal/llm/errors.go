@@ -33,6 +33,17 @@ func IsInsufficientBalance(err error) bool {
 			strings.Contains(msg, "insufficient_quota"))
 }
 
+// IsFatalAPIError returns true when the error is a non-retryable API error
+// that will never succeed regardless of retries — e.g. invalid credentials
+// (401), insufficient balance (400), or permission denied (403).
+func IsFatalAPIError(err error) bool {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	return apiErr.StatusCode == 401 || apiErr.StatusCode == 403 || IsInsufficientBalance(err)
+}
+
 // IsRateLimited returns true when the error is an HTTP 429 (Too Many Requests).
 func IsRateLimited(err error) bool {
 	var apiErr *APIError

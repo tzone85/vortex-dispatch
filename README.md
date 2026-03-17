@@ -50,6 +50,7 @@ vhs docs/demo.tape
 - **Senior code review** -- automated review via LLM with approve/request-changes verdicts
 - **Automated QA pipeline** -- lint, build, and test execution per story
 - **Auto-merge with PR creation** -- stories flow from code to merged PR hands-free
+- **LLM-powered conflict resolution** -- rebase conflicts auto-resolved via Senior model instead of blocking
 - **Tiered cleanup** -- worktree pruning, branch garbage collection with configurable retention
 - **TUI dashboard** -- 4-panel Bubbletea interface (pipeline, agents, activity, escalations)
 - **Reputation scoring** -- per-agent performance tracking across assignments
@@ -59,7 +60,7 @@ vhs docs/demo.tape
 | Command | Description |
 |---------|-------------|
 | `vxd init` | Initialize workspace, create `~/.vxd/` dirs, copy default config, set up stores |
-| `vxd req <requirement>` | Submit a requirement for Tech Lead decomposition into stories |
+| `vxd req <requirement>` | Submit a requirement (supports `--file`/`-f` for file input) |
 | `vxd status [--req ID]` | Show requirement and story status, optionally filtered by requirement |
 | `vxd resume <req-id>` | Resume a paused pipeline, dispatch the next wave of ready stories |
 | `vxd agents [--status S]` | List all agents with current story, session, and status |
@@ -69,6 +70,24 @@ vhs docs/demo.tape
 | `vxd config validate` | Load and validate the configuration file |
 | `vxd events [--type T] [--story S] [--limit N]` | List events from the event store, newest first |
 | `vxd dashboard` | Launch the live TUI dashboard |
+
+### Submitting Requirements
+
+The `vxd req` command accepts requirements in three ways:
+
+```bash
+# Inline as a positional argument
+vxd req "Build a REST API for user management with CRUD endpoints"
+
+# From a file (--file or -f)
+vxd req --file requirements.md
+vxd req -f ~/specs/my-feature.md
+
+# From stdin
+cat spec.md | vxd req -f -
+```
+
+Using `--file` is recommended for complex requirements — write your full spec in a markdown file with acceptance criteria, constraints, and architecture notes, then hand it off to VXD.
 
 ## Configuration
 
@@ -108,7 +127,7 @@ Requirement
 [QA] --> Lint + build + test pipeline
     |
     v
-[Merge] --> PR creation + auto-merge
+[Merge] --> Rebase with LLM conflict resolution + PR creation + auto-merge
     |
     v
 [Cleanup] --> Worktree prune + branch GC

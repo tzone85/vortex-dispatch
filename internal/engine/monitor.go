@@ -21,14 +21,15 @@ import (
 // Monitor polls running agents and progresses completed stories through
 // review, QA, and merge.
 type Monitor struct {
-	registry   *runtime.Registry
-	watchdog   *Watchdog
-	reviewer   *Reviewer
-	qa         *QA
-	merger     *Merger
-	config     config.Config
-	eventStore state.EventStore
-	projStore  state.ProjectionStore
+	registry         *runtime.Registry
+	watchdog         *Watchdog
+	reviewer         *Reviewer
+	qa               *QA
+	merger           *Merger
+	conflictResolver *ConflictResolver
+	config           config.Config
+	eventStore       state.EventStore
+	projStore        state.ProjectionStore
 
 	// dispatcher + executor allow the monitor to automatically spawn the
 	// next wave of stories after merges complete, removing the need for
@@ -63,6 +64,12 @@ func NewMonitor(
 		eventStore: es,
 		projStore:  ps,
 	}
+}
+
+// SetConflictResolver enables LLM-based automatic conflict resolution during
+// rebase. Without this, rebase conflicts cause the story to be reset to draft.
+func (m *Monitor) SetConflictResolver(cr *ConflictResolver) {
+	m.conflictResolver = cr
 }
 
 // SetAutoResume enables automatic dispatch of the next wave when stories
@@ -286,7 +293,7 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 	if m.merger != nil {
 		m.mergeMu.Lock()
 		defer m.mergeMu.Unlock()
-		result, err := m.rebaseAndMerge(storyID, branch, repoDir, ag.WorktreePath)
+		result, err := m.rebaseAndMerge(ctx, storyID, branch, repoDir, ag.WorktreePath)
 
 		if err != nil {
 			log.Printf("[pipeline] merge error for %s: %v", storyID, err)
@@ -320,7 +327,10 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 // it, then delegates to the merger for push + PR + auto-merge. This must be
 // called while holding mergeMu so that each story sees the result of any
 // prior merge before rebasing.
-func (m *Monitor) rebaseAndMerge(storyID, branch, repoDir, worktreePath string) (MergeResult, error) {
+//
+// If a ConflictResolver is configured, rebase conflicts are automatically
+// resolved via LLM instead of failing immediately.
+func (m *Monitor) rebaseAndMerge(ctx context.Context, storyID, branch, repoDir, worktreePath string) (MergeResult, error) {
 	baseBranch := m.config.Merge.BaseBranch
 	if baseBranch == "" {
 		baseBranch = "main"
@@ -332,8 +342,18 @@ func (m *Monitor) rebaseAndMerge(storyID, branch, repoDir, worktreePath string) 
 		return MergeResult{}, fmt.Errorf("fetch %s: %w", baseBranch, err)
 	}
 
-	if err := vxdgit.RebaseOnto(worktreePath, "origin/"+baseBranch); err != nil {
-		return MergeResult{}, fmt.Errorf("rebase onto %s: %w", baseBranch, err)
+	upstream := "origin/" + baseBranch
+
+	if m.conflictResolver != nil {
+		// Use LLM-powered conflict resolution during rebase.
+		if err := m.conflictResolver.RebaseWithResolution(ctx, storyID, worktreePath, upstream); err != nil {
+			return MergeResult{}, fmt.Errorf("rebase onto %s: %w", baseBranch, err)
+		}
+	} else {
+		// Fall back to the original abort-on-conflict behavior.
+		if err := vxdgit.RebaseOnto(worktreePath, upstream); err != nil {
+			return MergeResult{}, fmt.Errorf("rebase onto %s: %w", baseBranch, err)
+		}
 	}
 
 	log.Printf("[pipeline] rebase succeeded for %s, proceeding to merge", storyID)
@@ -404,6 +424,14 @@ func (m *Monitor) resetStoryToDraft(storyID, fromAgent, reason string) {
 // dispatchNextWave determines which stories are now ready (dependencies met)
 // and dispatches a new wave of agents. Returns the newly spawned ActiveAgents.
 func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir string) []ActiveAgent {
+	// Bail out immediately if the requirement has been paused (e.g. by
+	// billing exhaustion in a prior pipeline). Without this check, the
+	// monitor would re-dispatch the same story in an infinite loop.
+	if req, err := m.projStore.GetRequirement(rc.ReqID); err == nil && req.Status == "paused" {
+		log.Printf("[auto-resume] requirement %s is paused, stopping auto-resume", rc.ReqID)
+		return nil
+	}
+
 	// Build completed set from the projection store.
 	stories, err := m.projStore.ListStories(state.StoryFilter{ReqID: rc.ReqID})
 	if err != nil {

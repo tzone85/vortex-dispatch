@@ -21,20 +21,29 @@ You also need at least one AI runtime CLI installed:
 | **Codex** | `npm install -g @openai/codex` | o3, o4-mini |
 | **Gemini CLI** | `npm install -g @google/gemini-cli` | Gemini 2.5 Pro, Flash |
 
-### API Keys
+### Authentication
 
-Set the appropriate environment variables for your chosen providers:
+VXD uses two authentication paths:
+
+**1. Spawned agents (Claude Code, Codex, Gemini CLI)** — authenticate via their own built-in sessions. For Claude Code, this means your existing subscription (Max/Pro) logged in via `claude login`. No API key needed — agents run at no additional cost beyond your subscription.
+
+**2. VXD's internal operations (planning, code review, QA)** — use API keys for direct LLM calls. These are lightweight (one call per story per stage), so API usage is minimal.
 
 ```bash
-# For Anthropic models (Claude Code, default for most roles)
+# Authenticate Claude Code CLI (uses your Max/Pro subscription)
+claude login
+
+# API key for VXD's internal planner/reviewer/QA calls
 export ANTHROPIC_API_KEY="sk-ant-..."
 
-# For OpenAI models (Codex, or if using OpenAI for junior role)
+# For OpenAI models (Codex runtime, or if using OpenAI for planner)
 export OPENAI_API_KEY="sk-..."
 
 # For GitHub CLI (needed for PR creation)
 gh auth login
 ```
+
+> **Cost note:** The ANTHROPIC_API_KEY is only used for VXD's internal operations (a few API calls per story). The spawned coding agents — which do the heavy work — use your Claude Code subscription at no extra cost. If you only use OpenAI for internal operations, you don't need ANTHROPIC_API_KEY at all.
 
 ## Before You Install: PATH Setup (required)
 
@@ -160,7 +169,7 @@ If everything is configured correctly, you'll see a success message. Common issu
 | `tmux not found` | Install tmux: `brew install tmux` |
 | `gh not found` | Install GitHub CLI and run `gh auth login` |
 | `config not found` | Copy `vxd.config.example.yaml` to `vxd.yaml` in your project |
-| `ANTHROPIC_API_KEY not set` | Export your API key in your shell profile |
+| `ANTHROPIC_API_KEY not set` | Only needed for VXD's internal operations (planner, reviewer, QA). Export it in your shell profile. Spawned agents use your Claude subscription instead. |
 
 ### Step 5: Submit your first requirement
 

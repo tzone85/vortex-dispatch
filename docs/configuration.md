@@ -35,7 +35,9 @@ workspace:
 
 ### models
 
-Binds each agent role to an LLM provider, model, and token limit.
+Binds each agent role to an LLM provider, model, and token limit. These models are used for VXD's **internal operations** only — planning, code review, and QA. They make direct API calls, so they require an API key (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`).
+
+> **Important:** These are **not** the models used by the spawned coding agents. The runtimes (Claude Code, Codex, Gemini CLI) authenticate via their own sessions — for Claude Code, that's your Max/Pro subscription via `claude login`. No API key is passed to spawned agents, so they run at no additional cost beyond your subscription. See [Getting Started — Authentication](getting-started.md#authentication) for details.
 
 ```yaml
 models:

@@ -200,6 +200,13 @@ func runResume(cmd *cobra.Command, args []string) error {
 
 	monitor := engine.NewMonitor(reg, watchdog, reviewer, qaRunner, merger, s.Config, s.Events, s.Proj)
 
+	// Enable LLM-powered conflict resolution during rebase.
+	if llmClient != nil {
+		seniorModel := s.Config.Models.Senior
+		conflictResolver := engine.NewConflictResolver(llmClient, seniorModel.Model, seniorModel.MaxTokens, s.Events)
+		monitor.SetConflictResolver(conflictResolver)
+	}
+
 	// Enable auto-resume: when a wave completes, the monitor automatically
 	// dispatches the next wave of ready stories instead of exiting.
 	monitor.SetAutoResume(dispatcher, executor)

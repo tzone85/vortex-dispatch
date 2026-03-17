@@ -424,6 +424,14 @@ func (m *Monitor) resetStoryToDraft(storyID, fromAgent, reason string) {
 // dispatchNextWave determines which stories are now ready (dependencies met)
 // and dispatches a new wave of agents. Returns the newly spawned ActiveAgents.
 func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir string) []ActiveAgent {
+	// Bail out immediately if the requirement has been paused (e.g. by
+	// billing exhaustion in a prior pipeline). Without this check, the
+	// monitor would re-dispatch the same story in an infinite loop.
+	if req, err := m.projStore.GetRequirement(rc.ReqID); err == nil && req.Status == "paused" {
+		log.Printf("[auto-resume] requirement %s is paused, stopping auto-resume", rc.ReqID)
+		return nil
+	}
+
 	// Build completed set from the projection store.
 	stories, err := m.projStore.ListStories(state.StoryFilter{ReqID: rc.ReqID})
 	if err != nil {

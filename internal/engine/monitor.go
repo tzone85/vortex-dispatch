@@ -250,12 +250,12 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 
 		result, err := m.reviewer.Review(ctx, storyID, storyTitle, storyAC, diff, fileTree)
 		if err != nil {
-			// Billing / balance exhaustion is fatal — pause the entire
-			// requirement instead of resetting the story (which would
-			// cause an infinite retry loop).
-			if llm.IsInsufficientBalance(err) {
-				log.Printf("[pipeline] FATAL: API credit balance exhausted — pausing requirement for %s", storyID)
-				m.pauseRequirement(storyID, "API credit balance too low to continue")
+			// Fatal API errors (auth failures, billing exhaustion,
+			// permission denied) will never succeed on retry — pause
+			// the entire requirement to stop the infinite loop.
+			if llm.IsFatalAPIError(err) {
+				log.Printf("[pipeline] FATAL: non-retryable API error — pausing requirement for %s: %v", storyID, err)
+				m.pauseRequirement(storyID, fmt.Sprintf("fatal API error: %v", err))
 				return
 			}
 			log.Printf("[pipeline] review error for %s: %v", storyID, err)

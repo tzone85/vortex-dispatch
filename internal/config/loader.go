@@ -38,6 +38,10 @@ func DefaultConfig() Config {
 			AutoMerge:  true,
 			BaseBranch: "main",
 		},
+		Planning: PlanningConfig{
+			SequentialFilePatterns: []string{"package.json", "*.config.*", "src/core/*"},
+			MaxStoryComplexity:     5,
+		},
 	}
 }
 

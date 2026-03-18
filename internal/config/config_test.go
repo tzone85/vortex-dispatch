@@ -150,6 +150,24 @@ runtimes:
 	}
 }
 
+func TestConfig_PlanningDefaults(t *testing.T) {
+	cfg := config.DefaultConfig()
+
+	if len(cfg.Planning.SequentialFilePatterns) != 3 {
+		t.Fatalf("expected 3 sequential file patterns, got %d", len(cfg.Planning.SequentialFilePatterns))
+	}
+	expectedPatterns := []string{"package.json", "*.config.*", "src/core/*"}
+	for i, p := range expectedPatterns {
+		if cfg.Planning.SequentialFilePatterns[i] != p {
+			t.Fatalf("expected pattern %q at index %d, got %q", p, i, cfg.Planning.SequentialFilePatterns[i])
+		}
+	}
+
+	if cfg.Planning.MaxStoryComplexity != 5 {
+		t.Fatalf("expected max story complexity 5, got %d", cfg.Planning.MaxStoryComplexity)
+	}
+}
+
 func TestLoadFromFile_FileNotFound(t *testing.T) {
 	_, err := config.LoadFromFile("/nonexistent/path.yaml")
 	if err == nil {

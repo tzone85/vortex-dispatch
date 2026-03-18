@@ -30,6 +30,7 @@ The requirement text can be provided as:
 		RunE: runReq,
 	}
 	cmd.Flags().StringP("file", "f", "", "read requirement from a file (use - for stdin)")
+	cmd.Flags().Bool("godmode", false, "skip permission prompts on LLM calls (fully autonomous)")
 	cmd.SilenceUsage = true
 	return cmd
 }
@@ -47,8 +48,12 @@ func runReq(cmd *cobra.Command, args []string) error {
 	}
 	defer s.Close()
 
-	// Determine LLM client from config
-	client, err := buildLLMClient(s.Config.Models.TechLead.Provider, s.Config.Planning.Godmode)
+	// Determine LLM client — --godmode flag takes precedence over config
+	godmode, _ := cmd.Flags().GetBool("godmode")
+	if !godmode {
+		godmode = s.Config.Planning.Godmode
+	}
+	client, err := buildLLMClient(s.Config.Models.TechLead.Provider, godmode)
 	if err != nil {
 		return err
 	}

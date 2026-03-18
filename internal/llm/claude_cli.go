@@ -80,9 +80,15 @@ func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (
 
 	// Parse the JSON envelope from --output-format json.
 	// The actual LLM response is in the "result" field.
+	// Claude Code may write the JSON to either stdout or stderr depending on version.
 	raw := strings.TrimSpace(stdout.String())
+	stderrStr := strings.TrimSpace(stderr.String())
 	if raw == "" {
-		raw = strings.TrimSpace(stderr.String())
+		raw = stderrStr
+	}
+	// If stdout had non-JSON content and stderr has the JSON, prefer stderr.
+	if !strings.HasPrefix(raw, "{") && strings.HasPrefix(stderrStr, "{") {
+		raw = stderrStr
 	}
 
 	var envelope struct {

@@ -493,6 +493,24 @@ func (s *SQLiteStore) BackfillAcceptanceCriteria(events []Event) {
 	}
 }
 
+// ArchiveRequirement sets a requirement's status to "archived".
+func (s *SQLiteStore) ArchiveRequirement(reqID string) error {
+	_, err := s.db.Exec(
+		`UPDATE requirements SET status = 'archived', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		reqID,
+	)
+	return err
+}
+
+// ArchiveStoriesByReq sets all stories for a given requirement to "archived".
+func (s *SQLiteStore) ArchiveStoriesByReq(reqID string) error {
+	_, err := s.db.Exec(
+		`UPDATE stories SET status = 'archived', updated_at = CURRENT_TIMESTAMP WHERE req_id = ?`,
+		reqID,
+	)
+	return err
+}
+
 // --- payload extraction helpers ---
 
 func payloadStr(m map[string]any, key string) string {

@@ -64,13 +64,27 @@ func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (
 		}
 	}
 	cmd.Env = filtered
-	out, err := cmd.CombinedOutput()
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
 	if err != nil {
-		return CompletionResponse{}, classifyCLIError(err, out)
+		// Use stderr for error classification, fall back to stdout
+		errOutput := stderr.String()
+		if errOutput == "" {
+			errOutput = stdout.String()
+		}
+		return CompletionResponse{}, classifyCLIError(err, []byte(errOutput))
+	}
+
+	content := strings.TrimSpace(stdout.String())
+	if content == "" {
+		// Some Claude Code versions write to stderr even on success
+		content = strings.TrimSpace(stderr.String())
 	}
 
 	return CompletionResponse{
-		Content: strings.TrimSpace(string(out)),
+		Content: content,
 		Model:   req.Model,
 	}, nil
 }

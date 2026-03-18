@@ -48,7 +48,7 @@ func runReq(cmd *cobra.Command, args []string) error {
 	defer s.Close()
 
 	// Determine LLM client from config
-	client, err := buildLLMClient(s.Config.Models.TechLead.Provider)
+	client, err := buildLLMClient(s.Config.Models.TechLead.Provider, s.Config.Planning.Godmode)
 	if err != nil {
 		return err
 	}
@@ -135,14 +135,24 @@ func resolveRequirement(cmd *cobra.Command, args []string) (string, error) {
 // For the "anthropic" provider, it prefers the Claude Code CLI (which uses
 // the user's subscription at no per-token cost) and falls back to direct API
 // calls only when the CLI is not installed.
-func buildLLMClient(provider string) (llm.Client, error) {
+func buildLLMClient(provider string, godmode ...bool) (llm.Client, error) {
+	skipPerms := len(godmode) > 0 && godmode[0]
+
 	switch provider {
 	case "cli", "claude-cli":
-		return llm.NewClaudeCLIClient(), nil
+		c := llm.NewClaudeCLIClient()
+		if skipPerms {
+			c = c.WithSkipPermissions()
+		}
+		return c, nil
 	case "anthropic":
 		// Prefer Claude CLI (uses subscription, no API credits).
 		if _, err := exec.LookPath("claude"); err == nil {
-			return llm.NewClaudeCLIClient(), nil
+			c := llm.NewClaudeCLIClient()
+			if skipPerms {
+				c = c.WithSkipPermissions()
+			}
+			return c, nil
 		}
 		// Fall back to direct API if CLI not available.
 		apiKey := os.Getenv("ANTHROPIC_API_KEY")

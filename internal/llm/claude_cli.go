@@ -11,20 +11,28 @@ import (
 // CLI tool instead of making direct API calls. This routes LLM completions
 // through the user's Claude subscription rather than per-token API credits.
 type ClaudeCLIClient struct {
-	cliPath string // path to claude binary, default "claude"
+	cliPath    string // path to claude binary, default "claude"
+	skipPerms  bool   // if true, adds --dangerously-skip-permissions
 }
 
 // NewClaudeCLIClient creates a client that invokes Claude Code CLI for
 // completions. The claude binary must be on $PATH or installed at the
-// default location.
+// default location. By default, permission prompts are enabled (safe mode).
 func NewClaudeCLIClient() *ClaudeCLIClient {
-	return &ClaudeCLIClient{cliPath: "claude"}
+	return &ClaudeCLIClient{cliPath: "claude", skipPerms: false}
 }
 
 // NewClaudeCLIClientWithPath creates a client that invokes the Claude Code CLI
 // at the specified path.
 func NewClaudeCLIClientWithPath(cliPath string) *ClaudeCLIClient {
-	return &ClaudeCLIClient{cliPath: cliPath}
+	return &ClaudeCLIClient{cliPath: cliPath, skipPerms: false}
+}
+
+// WithSkipPermissions returns a copy with --dangerously-skip-permissions
+// enabled (godmode). Use when you want fully autonomous operation without
+// approval prompts.
+func (c *ClaudeCLIClient) WithSkipPermissions() *ClaudeCLIClient {
+	return &ClaudeCLIClient{cliPath: c.cliPath, skipPerms: true}
 }
 
 // Complete builds a prompt from the request and invokes
@@ -33,11 +41,11 @@ func NewClaudeCLIClientWithPath(cliPath string) *ClaudeCLIClient {
 func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {
 	prompt := buildCLIPrompt(req)
 
-	args := []string{
-		"--dangerously-skip-permissions",
-		"-p", prompt,
-		"--output-format", "text",
+	args := []string{}
+	if c.skipPerms {
+		args = append(args, "--dangerously-skip-permissions")
 	}
+	args = append(args, "-p", prompt, "--output-format", "text")
 	if req.Model != "" {
 		args = append(args, "--model", req.Model)
 	}

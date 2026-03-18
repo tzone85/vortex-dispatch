@@ -296,6 +296,13 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 		result, err := m.rebaseAndMerge(ctx, storyID, branch, repoDir, ag.WorktreePath)
 
 		if err != nil {
+			// Fatal API errors during conflict resolution (credits exhausted,
+			// auth failure) must pause the requirement immediately.
+			if llm.IsFatalAPIError(err) {
+				log.Printf("[pipeline] FATAL: non-retryable API error during merge for %s: %v", storyID, err)
+				m.pauseRequirement(storyID, fmt.Sprintf("fatal API error during merge: %v", err))
+				return
+			}
 			log.Printf("[pipeline] merge error for %s: %v", storyID, err)
 			m.resetStoryToDraft(storyID, "merger", fmt.Sprintf("merge/rebase error: %v", err))
 			return

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -131,12 +132,22 @@ func resolveRequirement(cmd *cobra.Command, args []string) (string, error) {
 }
 
 // buildLLMClient creates an LLM client based on the provider name.
+// For the "anthropic" provider, it prefers the Claude Code CLI (which uses
+// the user's subscription at no per-token cost) and falls back to direct API
+// calls only when the CLI is not installed.
 func buildLLMClient(provider string) (llm.Client, error) {
 	switch provider {
+	case "cli", "claude-cli":
+		return llm.NewClaudeCLIClient(), nil
 	case "anthropic":
+		// Prefer Claude CLI (uses subscription, no API credits).
+		if _, err := exec.LookPath("claude"); err == nil {
+			return llm.NewClaudeCLIClient(), nil
+		}
+		// Fall back to direct API if CLI not available.
 		apiKey := os.Getenv("ANTHROPIC_API_KEY")
 		if apiKey == "" {
-			return nil, fmt.Errorf("ANTHROPIC_API_KEY environment variable is required")
+			return nil, fmt.Errorf("claude CLI not found and ANTHROPIC_API_KEY not set")
 		}
 		return llm.NewRetryClient(llm.NewAnthropicClient(apiKey), 3), nil
 	case "openai":

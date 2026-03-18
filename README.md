@@ -15,6 +15,16 @@ VXD is a Go CLI that orchestrates autonomous AI agents through the full software
 - **Pluggable AI runtimes** -- Claude Code, Codex, Gemini CLI (configured via YAML)
 - **Wave-based parallel execution** with topological dependency resolution
 
+## Cost Model
+
+VXD uses your existing Claude Code subscription for ALL operations:
+- **Agent development work** — via Claude Code CLI in tmux sessions
+- **Code review, conflict resolution, and planning** — via Claude Code CLI
+
+No separate API credits needed. If you have Claude Code installed and authenticated, VXD is free to use.
+
+For users without Claude Code CLI, VXD falls back to direct API calls using `ANTHROPIC_API_KEY`.
+
 ## Quick Start
 
 ```bash
@@ -166,7 +176,7 @@ internal/
     reaper.go         Tiered cleanup and GC
   git/                Branch, worktree, and GitHub PR operations
   graph/              Dependency DAG with topological sort
-  llm/                Anthropic and OpenAI API clients
+  llm/                LLM clients (Claude CLI, Anthropic API, OpenAI API)
   runtime/            Pluggable runtime registry
   state/              Event store (file-based) + SQLite projections
   tmux/               Session management (create, capture, send-keys)

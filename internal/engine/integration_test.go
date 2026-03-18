@@ -392,6 +392,7 @@ func TestIntegration_MultiStoryPipeline(t *testing.T) {
 	})
 
 	cfg := config.DefaultConfig()
+	cfg.Planning.MaxStoryComplexity = 13
 	planner := engine.NewPlanner(client, cfg, es, ps)
 	planResult, err := planner.Plan(context.Background(), "r-multi", "Build multi-story feature", repoDir)
 	if err != nil {
@@ -574,6 +575,7 @@ func TestIntegration_DependencyStorageAndDAGReconstruction(t *testing.T) {
 	})
 
 	cfg := config.DefaultConfig()
+	cfg.Planning.MaxStoryComplexity = 13
 	planner := engine.NewPlanner(client, cfg, es, ps)
 
 	// --- Phase 1: Plan ---

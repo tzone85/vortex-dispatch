@@ -47,7 +47,8 @@ func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (
 	if c.skipPerms {
 		args = append(args, "--dangerously-skip-permissions")
 	}
-	args = append(args, "-p", prompt, "--output-format", "json")
+	// Pipe prompt via stdin to avoid shell argument length limits.
+	args = append(args, "-p", "-", "--output-format", "json")
 	if req.Model != "" {
 		args = append(args, "--model", req.Model)
 	}
@@ -55,6 +56,7 @@ func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (
 	args = append(args, "--max-turns", "1")
 
 	cmd := exec.CommandContext(ctx, c.cliPath, args...)
+	cmd.Stdin = strings.NewReader(prompt)
 	// Clear ANTHROPIC_API_KEY so Claude Code uses the user's subscription
 	// instead of a potentially expired/empty API key from the environment.
 	env := os.Environ()

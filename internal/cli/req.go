@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -48,12 +49,13 @@ func runReq(cmd *cobra.Command, args []string) error {
 	}
 	defer s.Close()
 
-	// Determine LLM client — --godmode flag takes precedence over config
+	// Planning tries API first (handles large prompts), falls back to CLI
+	// if API fails (no credits, auth issues, etc.).
 	godmode, _ := cmd.Flags().GetBool("godmode")
 	if !godmode {
 		godmode = s.Config.Planning.Godmode
 	}
-	client, err := buildLLMClient(s.Config.Models.TechLead.Provider, godmode)
+	client, err := buildPlanningClient(s.Config.Models.TechLead.Provider, godmode)
 	if err != nil {
 		return err
 	}
@@ -134,6 +136,78 @@ func resolveRequirement(cmd *cobra.Command, args []string) (string, error) {
 	default:
 		return "", fmt.Errorf("provide a requirement as an argument or via --file")
 	}
+}
+
+// planningFallbackClient wraps an API client and falls back to a CLI client
+// when the API fails. If the CLI also fails (e.g. prompt too long), it returns
+// a helpful error suggesting the user shorten their requirement.
+type planningFallbackClient struct {
+	apiClient llm.Client
+	cliClient llm.Client
+}
+
+func (p *planningFallbackClient) Complete(ctx context.Context, req llm.CompletionRequest) (llm.CompletionResponse, error) {
+	// Try API first (handles large prompts natively).
+	if p.apiClient != nil {
+		resp, err := p.apiClient.Complete(ctx, req)
+		if err == nil {
+			return resp, nil
+		}
+		log.Printf("[planning] API call failed (%v), falling back to Claude CLI", err)
+	}
+
+	// Fall back to CLI.
+	if p.cliClient != nil {
+		resp, err := p.cliClient.Complete(ctx, req)
+		if err == nil && resp.Content != "" {
+			return resp, nil
+		}
+		if err != nil {
+			log.Printf("[planning] CLI call also failed: %v", err)
+		}
+		if resp.Content == "" {
+			log.Printf("[planning] CLI returned empty response (prompt may be too long for -p flag)")
+			return llm.CompletionResponse{}, fmt.Errorf(
+				"planning failed: prompt too large for CLI mode. Try shortening your requirement or splitting it into smaller submissions")
+		}
+	}
+
+	return llm.CompletionResponse{}, fmt.Errorf("no LLM client available for planning — set ANTHROPIC_API_KEY or install claude CLI")
+}
+
+// buildPlanningClient creates a client that tries API first, then falls back
+// to CLI. Planning prompts can be large, so the API is preferred.
+func buildPlanningClient(provider string, godmode bool) (llm.Client, error) {
+	var apiClient llm.Client
+	var cliClient llm.Client
+
+	switch provider {
+	case "anthropic", "cli", "claude-cli":
+		// Try to build API client (may fail if no key).
+		if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
+			apiClient = llm.NewRetryClient(llm.NewAnthropicClient(apiKey), 3)
+		}
+		// Try to build CLI client.
+		if _, err := exec.LookPath("claude"); err == nil {
+			c := llm.NewClaudeCLIClient()
+			if godmode {
+				c = c.WithSkipPermissions()
+			}
+			cliClient = c
+		}
+	case "openai":
+		if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
+			apiClient = llm.NewRetryClient(llm.NewOpenAIClient(apiKey), 3)
+		}
+	default:
+		return nil, fmt.Errorf("unsupported LLM provider: %s", provider)
+	}
+
+	if apiClient == nil && cliClient == nil {
+		return nil, fmt.Errorf("no LLM available: set ANTHROPIC_API_KEY or install claude CLI")
+	}
+
+	return &planningFallbackClient{apiClient: apiClient, cliClient: cliClient}, nil
 }
 
 // buildLLMClient creates an LLM client based on the provider name.

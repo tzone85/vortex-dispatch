@@ -57,6 +57,13 @@ merge:
     ### Acceptance Criteria
     {acceptance_criteria}
 
+planning:
+  sequential_file_patterns:
+    - "package.json"
+    - "*.config.*"
+    - "src/core/*"
+  max_story_complexity: 5
+
 runtimes:
   claude-code:
     command: claude

@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -46,7 +47,7 @@ func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (
 	if c.skipPerms {
 		args = append(args, "--dangerously-skip-permissions")
 	}
-	args = append(args, "-p", prompt, "--output-format", "text")
+	args = append(args, "-p", prompt, "--output-format", "json")
 	if req.Model != "" {
 		args = append(args, "--model", req.Model)
 	}
@@ -77,14 +78,31 @@ func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (
 		return CompletionResponse{}, classifyCLIError(err, []byte(errOutput))
 	}
 
-	content := strings.TrimSpace(stdout.String())
-	if content == "" {
-		// Some Claude Code versions write to stderr even on success
-		content = strings.TrimSpace(stderr.String())
+	// Parse the JSON envelope from --output-format json.
+	// The actual LLM response is in the "result" field.
+	raw := strings.TrimSpace(stdout.String())
+	if raw == "" {
+		raw = strings.TrimSpace(stderr.String())
+	}
+
+	var envelope struct {
+		Result  string `json:"result"`
+		IsError bool   `json:"is_error"`
+	}
+	if jsonErr := json.Unmarshal([]byte(raw), &envelope); jsonErr != nil {
+		// Not JSON — return raw output (fallback for older CLI versions)
+		return CompletionResponse{
+			Content: trimCodeFences(raw),
+			Model:   req.Model,
+		}, nil
+	}
+
+	if envelope.IsError {
+		return CompletionResponse{}, fmt.Errorf("claude CLI returned error: %s", envelope.Result)
 	}
 
 	return CompletionResponse{
-		Content: content,
+		Content: trimCodeFences(strings.TrimSpace(envelope.Result)),
 		Model:   req.Model,
 	}, nil
 }
@@ -139,4 +157,21 @@ func classifyCLIError(err error, output []byte) error {
 	}
 
 	return fmt.Errorf("claude CLI error: %w (output: %s)", err, text)
+}
+
+// trimCodeFences removes leading/trailing markdown code fences from LLM output.
+func trimCodeFences(s string) string {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "```") {
+		lines := strings.Split(s, "\n")
+		if len(lines) >= 2 {
+			start := 1
+			end := len(lines)
+			if strings.TrimSpace(lines[end-1]) == "```" {
+				end--
+			}
+			s = strings.Join(lines[start:end], "\n")
+		}
+	}
+	return s
 }

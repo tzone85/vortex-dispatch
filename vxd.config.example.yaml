@@ -63,6 +63,7 @@ planning:
     - "*.config.*"
     - "src/core/*"
   max_story_complexity: 5
+  godmode: false  # Set to true to skip permission prompts on CLI LLM calls
 
 runtimes:
   claude-code:

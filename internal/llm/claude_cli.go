@@ -91,6 +91,9 @@ func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (
 		raw = stderrStr
 	}
 
+	// Debug: uncomment to trace CLI output
+	// log.Printf("[claude-cli] stdout len=%d, stderr len=%d", len(stdout.String()), len(stderrStr))
+
 	var envelope struct {
 		Result  string `json:"result"`
 		IsError bool   `json:"is_error"`
@@ -107,8 +110,10 @@ func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (
 		return CompletionResponse{}, fmt.Errorf("claude CLI returned error: %s", envelope.Result)
 	}
 
+	result := trimCodeFences(strings.TrimSpace(envelope.Result))
+
 	return CompletionResponse{
-		Content: trimCodeFences(strings.TrimSpace(envelope.Result)),
+		Content: result,
 		Model:   req.Model,
 	}, nil
 }

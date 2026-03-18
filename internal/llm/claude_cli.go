@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -53,6 +54,16 @@ func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (
 	args = append(args, "--max-turns", "1")
 
 	cmd := exec.CommandContext(ctx, c.cliPath, args...)
+	// Clear ANTHROPIC_API_KEY so Claude Code uses the user's subscription
+	// instead of a potentially expired/empty API key from the environment.
+	env := os.Environ()
+	filtered := make([]string, 0, len(env))
+	for _, e := range env {
+		if !strings.HasPrefix(e, "ANTHROPIC_API_KEY=") {
+			filtered = append(filtered, e)
+		}
+	}
+	cmd.Env = filtered
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return CompletionResponse{}, classifyCLIError(err, out)

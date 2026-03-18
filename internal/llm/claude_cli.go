@@ -34,6 +34,7 @@ func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (
 	prompt := buildCLIPrompt(req)
 
 	args := []string{
+		"--dangerously-skip-permissions",
 		"-p", prompt,
 		"--output-format", "text",
 	}

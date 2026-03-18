@@ -23,6 +23,8 @@ type PlannedStory struct {
 	AcceptanceCriteria FlexibleString `json:"acceptance_criteria"`
 	Complexity         int            `json:"complexity"`
 	DependsOn          []string       `json:"depends_on"`
+	OwnedFiles         []string       `json:"owned_files"`
+	WaveHint           string         `json:"wave_hint"`
 }
 
 // PlanResult holds the output of a planning session: stories and their

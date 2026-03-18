@@ -143,6 +143,42 @@ func TestPlanner_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestPlannedStory_HasFileOwnership(t *testing.T) {
+	story := engine.PlannedStory{
+		ID:          "s-001",
+		Title:       "Add user model",
+		Description: "Create user struct",
+		Complexity:  3,
+		OwnedFiles:  []string{"src/models/user.go", "src/models/user_test.go"},
+		WaveHint:    "parallel",
+	}
+
+	if len(story.OwnedFiles) != 2 {
+		t.Fatalf("expected 2 owned files, got %d", len(story.OwnedFiles))
+	}
+	if story.OwnedFiles[0] != "src/models/user.go" {
+		t.Fatalf("expected 'src/models/user.go', got %s", story.OwnedFiles[0])
+	}
+	if story.OwnedFiles[1] != "src/models/user_test.go" {
+		t.Fatalf("expected 'src/models/user_test.go', got %s", story.OwnedFiles[1])
+	}
+	if story.WaveHint != "parallel" {
+		t.Fatalf("expected wave_hint 'parallel', got %s", story.WaveHint)
+	}
+
+	// Verify JSON marshaling round-trip
+	storySeq := engine.PlannedStory{
+		ID:         "s-002",
+		Title:      "Config setup",
+		Complexity: 2,
+		OwnedFiles: []string{"package.json"},
+		WaveHint:   "sequential",
+	}
+	if storySeq.WaveHint != "sequential" {
+		t.Fatalf("expected wave_hint 'sequential', got %s", storySeq.WaveHint)
+	}
+}
+
 func TestPlanner_LLMError(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0644)

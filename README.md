@@ -70,9 +70,9 @@ vhs docs/demo.tape
 | Command | Description |
 |---------|-------------|
 | `vxd init` | Initialize workspace, create `~/.vxd/` dirs, copy default config, set up stores |
-| `vxd req <requirement>` | Submit a requirement (supports `--file`/`-f` for file input) |
+| `vxd req <requirement>` | Submit a requirement (supports `--file`/`-f` for file input, `--godmode` for autonomous) |
 | `vxd status [--req ID]` | Show requirement and story status, optionally filtered by requirement |
-| `vxd resume <req-id>` | Resume a paused pipeline, dispatch the next wave of ready stories |
+| `vxd resume <req-id>` | Resume a paused pipeline (supports `--godmode` for autonomous) |
 | `vxd agents [--status S]` | List all agents with current story, session, and status |
 | `vxd escalations` | List all escalation events with story, agent, reason, and status |
 | `vxd gc [--dry-run]` | Garbage-collect merged branches and worktrees past retention |
@@ -98,6 +98,26 @@ cat spec.md | vxd req -f -
 ```
 
 Using `--file` is recommended for complex requirements — write your full spec in a markdown file with acceptance criteria, constraints, and architecture notes, then hand it off to VXD.
+
+### Godmode (Autonomous Operation)
+
+By default, VXD's LLM calls (planning, review, conflict resolution) may prompt for permission. Pass `--godmode` to run fully autonomously without approval prompts:
+
+```bash
+# Submit a requirement in godmode
+vxd req --file requirements.md --godmode
+
+# Resume a pipeline in godmode
+vxd resume 01KM035Y --godmode
+```
+
+Godmode can also be set permanently in `vxd.yaml`:
+```yaml
+planning:
+  godmode: true
+```
+
+The `--godmode` flag takes precedence over the config value. When not passed, the config value is used (default: `false`).
 
 ## Configuration
 

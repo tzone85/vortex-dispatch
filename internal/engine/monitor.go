@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -263,7 +264,7 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 			return
 		}
 		if !result.Passed {
-			log.Printf("[pipeline] review rejected %s: %s", storyID, result.Summary)
+			m.handleReviewFailure(storyID, result)
 			return
 		}
 		log.Printf("[pipeline] review passed for %s", storyID)
@@ -454,6 +455,87 @@ func (m *Monitor) resetStoryToDraft(storyID, fromAgent, reason string) {
 		log.Printf("[pipeline] failed to project reset event for %s: %v", storyID, err)
 	}
 	log.Printf("[pipeline] reset %s to draft (attempt %d/%d): %s", storyID, resetCount+1, maxRetries, reason)
+}
+
+// handleReviewFailure implements retry-with-feedback and senior escalation
+// for code review rejections. On the first failure, the story is reset to
+// draft so the same agent can retry with feedback attached. On the second
+// failure, the story is escalated to a senior agent. On the third failure
+// (senior also fails), the requirement is paused for human intervention.
+//
+// Note: by the time this method is called, the Reviewer has already emitted
+// one STORY_REVIEW_FAILED event (agent_id="reviewer") for this rejection.
+func (m *Monitor) handleReviewFailure(storyID string, result ReviewResult) {
+	// Count review-specific failures (emitted by the Reviewer, agent_id="reviewer").
+	reviewFailCount, err := m.eventStore.Count(state.EventFilter{
+		Type:    state.EventStoryReviewFailed,
+		AgentID: "reviewer",
+		StoryID: storyID,
+	})
+	if err != nil {
+		log.Printf("[pipeline] failed to count review failures for %s: %v", storyID, err)
+		reviewFailCount = 1 // assume first failure on error
+	}
+
+	// Marshal review comments for the event payload.
+	commentsJSON := marshalReviewComments(result.Comments)
+
+	switch {
+	case reviewFailCount <= 1:
+		// First failure: reset to draft with feedback so the dispatcher
+		// re-dispatches the same agent with review comments attached.
+		log.Printf("[pipeline] review rejected %s (attempt 1), will retry with feedback", storyID)
+		evt := state.NewEvent(state.EventStoryReviewFailed, "monitor", storyID, map[string]any{
+			"reason":   "review rejected",
+			"feedback": result.Summary,
+			"comments": commentsJSON,
+		})
+		m.eventStore.Append(evt)
+		m.projStore.Project(evt)
+
+	case reviewFailCount == 2:
+		// Second failure: retry also failed — escalate to senior agent.
+		log.Printf("[pipeline] review rejected %s (attempt 2), escalating to senior", storyID)
+
+		// Emit escalation event.
+		escEvt := state.NewEvent(state.EventEscalationCreated, "monitor", storyID, map[string]any{
+			"reason":   "review failed twice",
+			"feedback": result.Summary,
+			"comments": commentsJSON,
+		})
+		m.eventStore.Append(escEvt)
+		m.projStore.Project(escEvt)
+
+		// Reset to draft so the dispatcher picks it up and routes to senior.
+		resetEvt := state.NewEvent(state.EventStoryReviewFailed, "monitor", storyID, map[string]any{
+			"reason":   "review rejected, escalating to senior",
+			"feedback": result.Summary,
+			"comments": commentsJSON,
+		})
+		m.eventStore.Append(resetEvt)
+		m.projStore.Project(resetEvt)
+
+	default:
+		// Third+ failure (senior also failed): pause the requirement.
+		log.Printf("[pipeline] review rejected %s (attempt 3+), pausing requirement", storyID)
+		m.pauseRequirement(storyID, fmt.Sprintf(
+			"review failed %d times (including senior escalation): %s",
+			reviewFailCount, result.Summary,
+		))
+	}
+}
+
+// marshalReviewComments serializes review comments to a JSON string for
+// storage in event payloads.
+func marshalReviewComments(comments []ReviewComment) string {
+	if len(comments) == 0 {
+		return "[]"
+	}
+	data, err := json.Marshal(comments)
+	if err != nil {
+		return "[]"
+	}
+	return string(data)
 }
 
 // dispatchNextWave determines which stories are now ready (dependencies met)

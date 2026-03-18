@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -113,6 +114,7 @@ If you have superpowers or skills available, IGNORE them. Your only job is to wr
 		AcceptanceCriteria: string(story.AcceptanceCriteria),
 		RepoPath:           worktreePath,
 		Complexity:         story.Complexity,
+		ReviewFeedback:     e.latestReviewFeedback(a.StoryID),
 	}
 
 	// Resolve model for this role
@@ -153,6 +155,35 @@ If you have superpowers or skills available, IGNORE them. Your only job is to wr
 	}
 
 	return result
+}
+
+// latestReviewFeedback queries the event store for the most recent
+// STORY_REVIEW_FAILED event (emitted by "monitor") for the given story
+// and extracts the "feedback" field from its payload. Returns an empty
+// string if no feedback is found.
+func (e *Executor) latestReviewFeedback(storyID string) string {
+	events, err := e.eventStore.List(state.EventFilter{
+		Type:    state.EventStoryReviewFailed,
+		AgentID: "monitor",
+		StoryID: storyID,
+	})
+	if err != nil || len(events) == 0 {
+		return ""
+	}
+
+	// Take the most recent event (last in the list).
+	latest := events[len(events)-1]
+	if latest.Payload == nil {
+		return ""
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(latest.Payload, &payload); err != nil {
+		return ""
+	}
+
+	feedback, _ := payload["feedback"].(string)
+	return feedback
 }
 
 // runtimeForRole selects the configured runtime whose CLI can serve the

@@ -69,7 +69,7 @@ vhs docs/demo.tape
 
 | Command | Description |
 |---------|-------------|
-| `vxd init` | Initialize workspace, create `~/.vxd/` dirs, copy default config, set up stores |
+| `vxd init` | Initialize workspace, create `~/.vxd/` dirs, generate default config, set up stores |
 | `vxd req <requirement>` | Submit a requirement (supports `--file`/`-f` for file input, `--godmode` for autonomous) |
 | `vxd status [--req ID]` | Show requirement and story status, optionally filtered by requirement |
 | `vxd resume <req-id>` | Resume a paused pipeline (supports `--godmode` for autonomous) |
@@ -121,7 +121,7 @@ The `--godmode` flag takes precedence over the config value. When not passed, th
 
 ## Configuration
 
-Copy `vxd.config.example.yaml` to `vxd.yaml` (or run `vxd init`) and customize:
+Run `vxd init` to generate `vxd.yaml` with sensible defaults, then customize:
 
 | Section | Purpose |
 |---------|---------|
@@ -258,7 +258,6 @@ VXD works in **any** git repository — you don't need to be in the source direc
 
 ```bash
 mkdir ~/my-project && cd ~/my-project && git init
-cp ~/path/to/vortex-dispatch/vxd.config.example.yaml vxd.yaml
 vxd init
 vxd req "Your requirement here"
 ```

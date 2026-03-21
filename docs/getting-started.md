@@ -129,25 +129,13 @@ cd ~/my-project
 git init
 ```
 
-### Step 2: Copy the config file
-
-VXD needs a `vxd.yaml` config file in your project root. Copy it from the source repo:
-
-```bash
-cp ~/path/to/vortex-dispatch/vxd.config.example.yaml vxd.yaml
-```
-
-> **Known issue:** `vxd init` currently does not generate the config file when run outside the source repo ([#6](https://github.com/tzone85/vortex-dispatch/issues/6)). Until this is fixed, copy the file manually.
-
-Customize it as needed — see [Configuration](configuration.md) for all available options.
-
-### Step 3: Initialize the workspace
+### Step 2: Initialize the workspace
 
 ```bash
 vxd init
 ```
 
-This creates the global state directory:
+This creates the global state directory and generates a `vxd.yaml` config file in your project root with sensible defaults:
 
 ```
 ~/.vxd/
@@ -155,7 +143,9 @@ This creates the global state directory:
   vxd.db             # SQLite projection store
 ```
 
-### Step 4: Validate your setup
+Customize `vxd.yaml` as needed — see [Configuration](configuration.md) for all available options.
+
+### Step 3: Validate your setup
 
 ```bash
 vxd config validate
@@ -168,10 +158,10 @@ If everything is configured correctly, you'll see a success message. Common issu
 | `command not found: vxd` | Complete the [PATH setup](#before-you-install-path-setup-required) |
 | `tmux not found` | Install tmux: `brew install tmux` |
 | `gh not found` | Install GitHub CLI and run `gh auth login` |
-| `config not found` | Copy `vxd.config.example.yaml` to `vxd.yaml` in your project |
+| `config not found` | Run `vxd init` in your project directory to generate `vxd.yaml` |
 | `ANTHROPIC_API_KEY not set` | Only needed for VXD's internal operations (planner, reviewer, QA). Export it in your shell profile. Spawned agents use your Claude subscription instead. |
 
-### Step 5: Submit your first requirement
+### Step 4: Submit your first requirement
 
 ```bash
 vxd req "Build a REST API for user management with CRUD endpoints"

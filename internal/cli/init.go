@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/tzone85/vortex-dispatch/internal/config"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
 
@@ -13,7 +14,7 @@ func newInitCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize the VXD workspace",
-		Long:  "Creates the ~/.vxd/ directory structure, copies the default config, and initializes stores.",
+		Long:  "Creates the ~/.vxd/ directory structure, generates a default vxd.yaml config, and initializes stores.",
 		RunE:  runInit,
 	}
 	cmd.SilenceUsage = true
@@ -42,19 +43,17 @@ func runInit(cmd *cobra.Command, _ []string) error {
 
 	out := cmd.OutOrStdout()
 
-	// Copy example config to vxd.yaml if not present
+	// Generate vxd.yaml from defaults if not present
 	localCfg := "vxd.yaml"
 	if _, err := os.Stat(localCfg); os.IsNotExist(err) {
-		exampleCfg := "vxd.config.example.yaml"
-		data, readErr := os.ReadFile(exampleCfg)
-		if readErr != nil {
-			fmt.Fprintf(out, "Warning: could not read %s, skipping config copy: %v\n", exampleCfg, readErr)
-		} else {
-			if writeErr := os.WriteFile(localCfg, data, 0644); writeErr != nil {
-				return fmt.Errorf("write %s: %w", localCfg, writeErr)
-			}
-			fmt.Fprintf(out, "Created %s from example config\n", localCfg)
+		data, genErr := config.DefaultYAML()
+		if genErr != nil {
+			return fmt.Errorf("generate default config: %w", genErr)
 		}
+		if writeErr := os.WriteFile(localCfg, data, 0644); writeErr != nil {
+			return fmt.Errorf("write %s: %w", localCfg, writeErr)
+		}
+		fmt.Fprintf(out, "Created %s with default configuration\n", localCfg)
 	} else {
 		fmt.Fprintf(out, "Config %s already exists, skipping\n", localCfg)
 	}

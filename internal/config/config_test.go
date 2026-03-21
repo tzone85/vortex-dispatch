@@ -174,3 +174,88 @@ func TestLoadFromFile_FileNotFound(t *testing.T) {
 		t.Fatal("expected error for missing file")
 	}
 }
+
+func TestDefaultConfig_IncludesModels(t *testing.T) {
+	cfg := config.DefaultConfig()
+
+	if cfg.Models.TechLead.Provider != "anthropic" {
+		t.Fatalf("expected tech_lead provider 'anthropic', got %s", cfg.Models.TechLead.Provider)
+	}
+	if cfg.Models.Junior.Provider != "openai" {
+		t.Fatalf("expected junior provider 'openai', got %s", cfg.Models.Junior.Provider)
+	}
+	if cfg.Models.TechLead.MaxTokens != 16000 {
+		t.Fatalf("expected tech_lead max_tokens 16000, got %d", cfg.Models.TechLead.MaxTokens)
+	}
+}
+
+func TestDefaultConfig_IncludesRuntimes(t *testing.T) {
+	cfg := config.DefaultConfig()
+
+	if len(cfg.Runtimes) != 3 {
+		t.Fatalf("expected 3 runtimes, got %d", len(cfg.Runtimes))
+	}
+	rt, ok := cfg.Runtimes["claude-code"]
+	if !ok {
+		t.Fatal("expected claude-code runtime in defaults")
+	}
+	if rt.Command != "claude" {
+		t.Fatalf("expected command 'claude', got %s", rt.Command)
+	}
+}
+
+func TestDefaultConfig_IncludesPRTemplate(t *testing.T) {
+	cfg := config.DefaultConfig()
+
+	if cfg.Merge.PRTemplate == "" {
+		t.Fatal("expected non-empty PR template in defaults")
+	}
+}
+
+func TestDefaultYAML_RoundTrip(t *testing.T) {
+	data, err := config.DefaultYAML()
+	if err != nil {
+		t.Fatalf("DefaultYAML: %v", err)
+	}
+
+	// Write to a temp file and load it back — should produce a valid config
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vxd.yaml")
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cfg, err := config.LoadFromFile(path)
+	if err != nil {
+		t.Fatalf("LoadFromFile on generated YAML: %v", err)
+	}
+
+	// Verify key fields survived the roundtrip
+	if cfg.Version != "1.0" {
+		t.Fatalf("expected version '1.0', got %s", cfg.Version)
+	}
+	if cfg.Workspace.Backend != "dolt" {
+		t.Fatalf("expected backend 'dolt', got %s", cfg.Workspace.Backend)
+	}
+	if cfg.Models.TechLead.Provider != "anthropic" {
+		t.Fatalf("expected tech_lead provider 'anthropic', got %s", cfg.Models.TechLead.Provider)
+	}
+	if len(cfg.Runtimes) != 3 {
+		t.Fatalf("expected 3 runtimes, got %d", len(cfg.Runtimes))
+	}
+	if cfg.Merge.PRTemplate == "" {
+		t.Fatal("expected non-empty PR template after roundtrip")
+	}
+}
+
+func TestDefaultYAML_HasHeader(t *testing.T) {
+	data, err := config.DefaultYAML()
+	if err != nil {
+		t.Fatalf("DefaultYAML: %v", err)
+	}
+
+	header := "# VXD configuration"
+	if len(data) < len(header) || string(data[:len(header)]) != header {
+		t.Fatalf("expected YAML to start with %q, got %q", header, string(data[:40]))
+	}
+}

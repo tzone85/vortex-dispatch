@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -31,6 +30,7 @@ type Monitor struct {
 	config           config.Config
 	eventStore       state.EventStore
 	projStore        state.ProjectionStore
+	escalation       *EscalationMachine
 
 	// dispatcher + executor allow the monitor to automatically spawn the
 	// next wave of stories after merges complete, removing the need for
@@ -42,6 +42,10 @@ type Monitor struct {
 	// rebases onto the latest main before merging, preventing conflicts
 	// when parallel agents touch the same files.
 	mergeMu sync.Mutex
+
+	// dagMu serializes DAG mutations (e.g. story splits) so that
+	// concurrent pipelines don't corrupt the graph.
+	dagMu sync.Mutex
 }
 
 // NewMonitor creates a Monitor wired to all pipeline components.
@@ -64,6 +68,7 @@ func NewMonitor(
 		config:     cfg,
 		eventStore: es,
 		projStore:  ps,
+		escalation: NewEscalationMachine(es, cfg.Routing),
 	}
 }
 
@@ -265,7 +270,7 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 			return
 		}
 		if !result.Passed {
-			m.handleReviewFailure(storyID, result)
+			m.resetStoryToDraft(storyID, "reviewer", fmt.Sprintf("review rejected: %s", result.Summary))
 			return
 		}
 		log.Printf("[pipeline] review passed for %s", storyID)
@@ -281,11 +286,7 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 		}
 		if !result.Passed {
 			log.Printf("[pipeline] QA failed for %s", storyID)
-			failEvt := state.NewEvent(state.EventStoryReviewFailed, "qa", storyID, map[string]any{
-				"reason": "QA checks failed",
-			})
-			m.eventStore.Append(failEvt)
-			m.projStore.Project(failEvt)
+			m.resetStoryToDraft(storyID, "qa", "QA checks failed")
 			return
 		}
 		log.Printf("[pipeline] QA passed for %s", storyID)
@@ -413,123 +414,53 @@ func (m *Monitor) pauseRequirement(storyID, reason string) {
 	log.Printf("[pipeline] top up your API credits and run 'vxd resume %s' to continue", story.ReqID)
 }
 
-// resetStoryToDraft emits a STORY_REVIEW_FAILED event to move a story back
-// to "draft" so it can be re-dispatched. This handles error paths (review
-// errors, QA errors, rebase conflicts) that would otherwise leave the story
-// stuck in an intermediate status.
-//
-// Before resetting, it checks how many times this story has already been
-// reset. If the count exceeds the configured max_retries_before_escalation,
-// the entire requirement is paused instead of resetting — preventing infinite
-// retry loops that drain credits.
+// resetStoryToDraft uses the EscalationMachine to decide whether the story
+// should be retried at the current tier, escalated to the next tier, or
+// paused (all tiers exhausted). It emits the appropriate events so the
+// dispatcher picks the story back up with the correct routing.
 func (m *Monitor) resetStoryToDraft(storyID, fromAgent, reason string) {
-	// Count existing STORY_REVIEW_FAILED events for this story to detect
-	// infinite retry loops (e.g. persistent merge conflicts, repeated QA
-	// failures, credit exhaustion).
-	maxRetries := m.config.Routing.MaxRetriesBeforeEscalation
-	if maxRetries <= 0 {
-		maxRetries = 3
+	shouldEsc, nextTier, err := m.escalation.ShouldEscalate(storyID)
+	if err != nil {
+		log.Printf("[pipeline] escalation check error for %s: %v", storyID, err)
 	}
 
-	resetCount, err := m.eventStore.Count(state.EventFilter{
-		Type:    state.EventStoryReviewFailed,
-		StoryID: storyID,
-	})
-	if err != nil {
-		log.Printf("[pipeline] failed to count reset events for %s: %v", storyID, err)
-		// On error, proceed with reset rather than silently pausing.
-	} else if resetCount >= maxRetries {
-		log.Printf("[pipeline] story %s exceeded max retries (%d), pausing requirement", storyID, maxRetries)
-		m.pauseRequirement(storyID, fmt.Sprintf(
-			"story exceeded max retries (%d/%d): %s", resetCount, maxRetries, reason,
-		))
+	if shouldEsc {
+		currentTier, _ := m.escalation.CurrentTier(storyID)
+		if nextTier >= 4 {
+			m.pauseRequirement(storyID, fmt.Sprintf(
+				"story exhausted all escalation tiers (%d): %s", currentTier, reason,
+			))
+			return
+		}
+		log.Printf("[pipeline] escalating %s from tier %d to tier %d: %s", storyID, currentTier, nextTier, reason)
+		escEvt := state.NewEvent(state.EventStoryEscalated, fromAgent, storyID, map[string]any{
+			"from_tier": currentTier,
+			"to_tier":   nextTier,
+			"reason":    reason,
+		})
+		m.eventStore.Append(escEvt)
+		m.projStore.Project(escEvt)
+		// Also reset to draft so the dispatcher picks it up at the new tier.
+		resetEvt := state.NewEvent(state.EventStoryReviewFailed, fromAgent, storyID, map[string]any{
+			"reason": fmt.Sprintf("escalated to tier %d: %s", nextTier, reason),
+		})
+		m.eventStore.Append(resetEvt)
+		m.projStore.Project(resetEvt)
 		return
 	}
+
+	// Normal reset within current tier.
+	retryCount, _ := m.escalation.RetryCountAtCurrentTier(storyID)
+	currentTier, _ := m.escalation.CurrentTier(storyID)
+	maxRetries := m.escalation.MaxRetriesForTier(currentTier)
+	log.Printf("[pipeline] reset %s to draft (attempt %d/%d at tier %d): %s",
+		storyID, retryCount+1, maxRetries, currentTier, reason)
 
 	evt := state.NewEvent(state.EventStoryReviewFailed, fromAgent, storyID, map[string]any{
 		"reason": reason,
 	})
-	if err := m.eventStore.Append(evt); err != nil {
-		log.Printf("[pipeline] failed to append reset event for %s: %v", storyID, err)
-	}
-	if err := m.projStore.Project(evt); err != nil {
-		log.Printf("[pipeline] failed to project reset event for %s: %v", storyID, err)
-	}
-	log.Printf("[pipeline] reset %s to draft (attempt %d/%d): %s", storyID, resetCount+1, maxRetries, reason)
-}
-
-// handleReviewFailure implements retry-with-feedback and senior escalation
-// for code review rejections. On the first failure, the story is reset to
-// draft so the same agent can retry with feedback attached. On the second
-// failure, the story is escalated to a senior agent. On the third failure
-// (senior also fails), the requirement is paused for human intervention.
-//
-// Note: by the time this method is called, the Reviewer has already emitted
-// one STORY_REVIEW_FAILED event (agent_id="reviewer") for this rejection.
-func (m *Monitor) handleReviewFailure(storyID string, result ReviewResult) {
-	// Count review-specific failures (emitted by the Reviewer, agent_id="reviewer").
-	reviewFailCount, err := m.eventStore.Count(state.EventFilter{
-		Type:    state.EventStoryReviewFailed,
-		AgentID: "reviewer",
-		StoryID: storyID,
-	})
-	if err != nil {
-		log.Printf("[pipeline] failed to count review failures for %s: %v", storyID, err)
-		reviewFailCount = 1 // assume first failure on error
-	}
-
-	// Marshal review comments for the event payload.
-	commentsJSON := marshalReviewComments(result.Comments)
-
-	switch {
-	case reviewFailCount <= 1:
-		// First failure: reset to draft with feedback so the dispatcher
-		// re-dispatches the same agent with review comments attached.
-		log.Printf("[pipeline] review rejected %s (attempt 1), will retry with feedback", storyID)
-		evt := state.NewEvent(state.EventStoryReviewFailed, "monitor", storyID, map[string]any{
-			"reason":   "review rejected",
-			"feedback": result.Summary,
-			"comments": commentsJSON,
-		})
-		m.eventStore.Append(evt)
-		m.projStore.Project(evt)
-
-	case reviewFailCount == 2:
-		// Second failure: retry also failed — escalate to senior agent.
-		log.Printf("[pipeline] review rejected %s (attempt 2), escalating to senior", storyID)
-
-		// TODO: escalation — emit EventStoryEscalated with tier info here
-
-		// Reset to draft so the dispatcher picks it up and routes to senior.
-		resetEvt := state.NewEvent(state.EventStoryReviewFailed, "monitor", storyID, map[string]any{
-			"reason":   "review rejected, escalating to senior",
-			"feedback": result.Summary,
-			"comments": commentsJSON,
-		})
-		m.eventStore.Append(resetEvt)
-		m.projStore.Project(resetEvt)
-
-	default:
-		// Third+ failure (senior also failed): pause the requirement.
-		log.Printf("[pipeline] review rejected %s (attempt 3+), pausing requirement", storyID)
-		m.pauseRequirement(storyID, fmt.Sprintf(
-			"review failed %d times (including senior escalation): %s",
-			reviewFailCount, result.Summary,
-		))
-	}
-}
-
-// marshalReviewComments serializes review comments to a JSON string for
-// storage in event payloads.
-func marshalReviewComments(comments []ReviewComment) string {
-	if len(comments) == 0 {
-		return "[]"
-	}
-	data, err := json.Marshal(comments)
-	if err != nil {
-		return "[]"
-	}
-	return string(data)
+	m.eventStore.Append(evt)
+	m.projStore.Project(evt)
 }
 
 // dispatchNextWave determines which stories are now ready (dependencies met)
@@ -553,7 +484,7 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 	completed := make(map[string]bool)
 	allDone := true
 	for _, s := range stories {
-		if s.Status == "merged" || s.Status == "pr_submitted" {
+		if s.Status == "merged" || s.Status == "pr_submitted" || s.Status == "split" {
 			completed[s.ID] = true
 		} else {
 			allDone = false

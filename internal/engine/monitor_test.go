@@ -188,9 +188,10 @@ func TestMonitor_Run_DefaultPollInterval(t *testing.T) {
 }
 
 // TestMonitor_PostExecution_ReviewRejection_ResetsWithFeedback verifies that
-// when a review rejects a story for the first time, the monitor emits a
-// STORY_REVIEW_FAILED event with feedback (from "monitor") in addition to the
-// one from the Reviewer, resetting the story to draft for retry.
+// when a review rejects a story for the first time, the tier-aware
+// resetStoryToDraft emits a STORY_REVIEW_FAILED event (in addition to the
+// one from the Reviewer), resetting the story to draft for retry within
+// the same tier.
 func TestMonitor_PostExecution_ReviewRejection_ResetsWithFeedback(t *testing.T) {
 	es, ps, cleanup := newTestStores(t)
 	defer cleanup()
@@ -237,8 +238,8 @@ func TestMonitor_PostExecution_ReviewRejection_ResetsWithFeedback(t *testing.T) 
 
 	// Two EventStoryReviewFailed events:
 	// 1. From Reviewer.Review() (agent_id="reviewer")
-	// 2. From handleReviewFailure() (agent_id="monitor") with feedback
-	events, err := es.List(state.EventFilter{Type: state.EventStoryReviewFailed})
+	// 2. From resetStoryToDraft() (agent_id="reviewer") — normal retry at tier 0
+	events, err := es.List(state.EventFilter{Type: state.EventStoryReviewFailed, StoryID: "s-rej-001"})
 	if err != nil {
 		t.Fatalf("list events: %v", err)
 	}
@@ -246,17 +247,23 @@ func TestMonitor_PostExecution_ReviewRejection_ResetsWithFeedback(t *testing.T) 
 		t.Fatalf("expected 2 EventStoryReviewFailed events, got %d", len(events))
 	}
 
-	// Verify the monitor event has feedback in the payload.
-	monitorEvents, err := es.List(state.EventFilter{
-		Type:    state.EventStoryReviewFailed,
-		AgentID: "monitor",
-		StoryID: "s-rej-001",
-	})
-	if err != nil {
-		t.Fatalf("list monitor events: %v", err)
+	// Verify the reset event has a reason in the payload.
+	// The second event is the one from resetStoryToDraft.
+	var payload map[string]any
+	if err := json.Unmarshal(events[1].Payload, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
 	}
-	if len(monitorEvents) != 1 {
-		t.Fatalf("expected 1 monitor review-failed event, got %d", len(monitorEvents))
+	if reason, ok := payload["reason"].(string); !ok || reason == "" {
+		t.Fatal("expected non-empty reason in reset event payload")
+	}
+
+	// No escalation events should exist (first failure stays at tier 0).
+	escEvents, err := es.List(state.EventFilter{Type: state.EventStoryEscalated, StoryID: "s-rej-001"})
+	if err != nil {
+		t.Fatalf("list escalation events: %v", err)
+	}
+	if len(escEvents) != 0 {
+		t.Fatalf("expected 0 escalation events on first failure, got %d", len(escEvents))
 	}
 
 	// Verify story is reset to draft for re-dispatch.
@@ -269,10 +276,11 @@ func TestMonitor_PostExecution_ReviewRejection_ResetsWithFeedback(t *testing.T) 
 	}
 }
 
-// TestPostExecution_ReviewRejected_RetriesWithFeedback verifies that when a
-// story fails code review for the first time, a STORY_REVIEW_FAILED event is
-// emitted with feedback and comments in its payload.
-func TestPostExecution_ReviewRejected_RetriesWithFeedback(t *testing.T) {
+// TestPostExecution_ReviewRejected_RetriesAtSameTier verifies that when a
+// story fails code review for the first time, resetStoryToDraft emits a
+// STORY_REVIEW_FAILED event with a reason, and no escalation occurs because
+// the tier-0 retry limit has not been reached.
+func TestPostExecution_ReviewRejected_RetriesAtSameTier(t *testing.T) {
 	es, ps, cleanup := newTestStores(t)
 	defer cleanup()
 
@@ -313,32 +321,36 @@ func TestPostExecution_ReviewRejected_RetriesWithFeedback(t *testing.T) {
 	defer cancel()
 	_ = mon.Run(ctx, agents, repoDir)
 
-	// Verify monitor emitted a STORY_REVIEW_FAILED with feedback.
-	monitorEvents, err := es.List(state.EventFilter{
+	// Two STORY_REVIEW_FAILED events total:
+	// 1. From Reviewer.Review() (agent="reviewer")
+	// 2. From resetStoryToDraft() (agent="reviewer") — normal retry at tier 0
+	allFailEvents, err := es.List(state.EventFilter{
 		Type:    state.EventStoryReviewFailed,
-		AgentID: "monitor",
 		StoryID: storyID,
 	})
 	if err != nil {
-		t.Fatalf("list monitor events: %v", err)
+		t.Fatalf("list events: %v", err)
 	}
-	if len(monitorEvents) != 1 {
-		t.Fatalf("expected 1 monitor STORY_REVIEW_FAILED event, got %d", len(monitorEvents))
+	if len(allFailEvents) != 2 {
+		t.Fatalf("expected 2 STORY_REVIEW_FAILED events, got %d", len(allFailEvents))
 	}
 
-	// Verify the event has feedback in the payload.
+	// Verify the reset event (second one) has a reason.
 	var payload map[string]any
-	if err := json.Unmarshal(monitorEvents[0].Payload, &payload); err != nil {
+	if err := json.Unmarshal(allFailEvents[1].Payload, &payload); err != nil {
 		t.Fatalf("unmarshal payload: %v", err)
 	}
-	if feedback, ok := payload["feedback"].(string); !ok || feedback == "" {
-		t.Fatal("expected non-empty feedback in event payload")
+	if reason, ok := payload["reason"].(string); !ok || reason == "" {
+		t.Fatal("expected non-empty reason in reset event payload")
 	}
-	if comments, ok := payload["comments"].(string); !ok || comments == "[]" {
-		t.Fatal("expected non-empty comments in event payload")
+
+	// No escalation at tier 0 first attempt.
+	escEvents, err := es.List(state.EventFilter{Type: state.EventStoryEscalated, StoryID: storyID})
+	if err != nil {
+		t.Fatalf("list escalation events: %v", err)
 	}
-	if reason, ok := payload["reason"].(string); !ok || reason != "review rejected" {
-		t.Fatalf("expected reason 'review rejected', got %q", payload["reason"])
+	if len(escEvents) != 0 {
+		t.Fatalf("expected 0 escalation events, got %d", len(escEvents))
 	}
 
 	// Story should be reset to draft.
@@ -351,10 +363,11 @@ func TestPostExecution_ReviewRejected_RetriesWithFeedback(t *testing.T) {
 	}
 }
 
-// TestPostExecution_ReviewRejected_EscalatesOnSecondFailure verifies that when
-// a story fails code review twice, an ESCALATION_CREATED event is emitted and
-// the story is reset to draft for senior agent dispatch.
-func TestPostExecution_ReviewRejected_EscalatesOnSecondFailure(t *testing.T) {
+// TestPostExecution_ReviewRejected_EscalatesToTier1 verifies that when a
+// story's review failures at tier 0 reach the max_retries_before_escalation
+// limit, the monitor emits STORY_ESCALATED (tier 0 -> 1) and a
+// STORY_REVIEW_FAILED to reset the story to draft for senior dispatch.
+func TestPostExecution_ReviewRejected_EscalatesToTier1(t *testing.T) {
 	es, ps, cleanup := newTestStores(t)
 	defer cleanup()
 
@@ -363,34 +376,18 @@ func TestPostExecution_ReviewRejected_EscalatesOnSecondFailure(t *testing.T) {
 		"id": storyID, "req_id": "r-001", "title": "Escalation task", "description": "desc", "complexity": 3,
 	}))
 
-	// Simulate that the reviewer already rejected this story once before
-	// (the first STORY_REVIEW_FAILED from reviewer).
-	firstReviewEvt := state.NewEvent(state.EventStoryReviewFailed, "reviewer", storyID, map[string]any{
-		"passed":        false,
-		"comment_count": 1,
-		"summary":       "first rejection",
+	// Pre-seed 1 prior STORY_REVIEW_FAILED at tier 0 (from a previous
+	// review cycle). The Reviewer will emit another one during this run,
+	// making the total = 2, which equals MaxRetriesBeforeEscalation (2).
+	priorEvt := state.NewEvent(state.EventStoryReviewFailed, "reviewer", storyID, map[string]any{
+		"reason": "prior rejection",
 	})
-	es.Append(firstReviewEvt)
-	ps.Project(firstReviewEvt)
-
-	// And the monitor already emitted a retry event (feedback from first failure).
-	monitorRetryEvt := state.NewEvent(state.EventStoryReviewFailed, "monitor", storyID, map[string]any{
-		"reason":   "review rejected",
-		"feedback": "first rejection",
-		"comments": "[]",
-	})
-	es.Append(monitorRetryEvt)
-	ps.Project(monitorRetryEvt)
-
-	// Story was retried and agent started again, then completed.
-	es.Append(state.NewEvent(state.EventStoryStarted, "agent-2", storyID, nil))
-	ps.Project(state.NewEvent(state.EventStoryStarted, "agent-2", storyID, nil))
-	es.Append(state.NewEvent(state.EventStoryCompleted, "agent-2", storyID, nil))
-	ps.Project(state.NewEvent(state.EventStoryCompleted, "agent-2", storyID, nil))
+	es.Append(priorEvt)
+	ps.Project(priorEvt)
 
 	repoDir := setupGitRepoWithFeature(t)
 
-	// Second review also rejects.
+	// This review also rejects.
 	replayClient := llm.NewReplayClient(llm.CompletionResponse{
 		Content: `{"passed": false, "comments": [{"file": "feature.go", "line": 1, "severity": "major", "comment": "still broken"}], "summary": "Still has issues"}`,
 	})
@@ -398,6 +395,7 @@ func TestPostExecution_ReviewRejected_EscalatesOnSecondFailure(t *testing.T) {
 
 	cfg := config.DefaultConfig()
 	cfg.Monitor.PollIntervalMs = 10
+	// Default: MaxRetriesBeforeEscalation = 2
 
 	reg, err := newTestRegistryWithDone()
 	if err != nil {
@@ -421,22 +419,24 @@ func TestPostExecution_ReviewRejected_EscalatesOnSecondFailure(t *testing.T) {
 	defer cancel()
 	_ = mon.Run(ctx, agents, repoDir)
 
-	// TODO: escalation — verify EventStoryEscalated once tier-aware monitor is wired
+	// Verify STORY_ESCALATED event was emitted (tier 0 -> 1).
 	escalationEvents, err := es.List(state.EventFilter{Type: state.EventStoryEscalated, StoryID: storyID})
 	if err != nil {
 		t.Fatalf("list escalation events: %v", err)
 	}
 	if len(escalationEvents) != 1 {
-		t.Fatalf("expected 1 ESCALATION_CREATED event, got %d", len(escalationEvents))
+		t.Fatalf("expected 1 STORY_ESCALATED event, got %d", len(escalationEvents))
 	}
 
-	// Verify the escalation event has the correct reason.
 	var escPayload map[string]any
 	if err := json.Unmarshal(escalationEvents[0].Payload, &escPayload); err != nil {
 		t.Fatalf("unmarshal escalation payload: %v", err)
 	}
-	if reason, ok := escPayload["reason"].(string); !ok || reason != "review failed twice" {
-		t.Fatalf("expected escalation reason 'review failed twice', got %q", escPayload["reason"])
+	if fromTier, ok := escPayload["from_tier"].(float64); !ok || int(fromTier) != 0 {
+		t.Fatalf("expected from_tier 0, got %v", escPayload["from_tier"])
+	}
+	if toTier, ok := escPayload["to_tier"].(float64); !ok || int(toTier) != 1 {
+		t.Fatalf("expected to_tier 1, got %v", escPayload["to_tier"])
 	}
 
 	// Story should be reset to draft for senior dispatch.
@@ -449,10 +449,11 @@ func TestPostExecution_ReviewRejected_EscalatesOnSecondFailure(t *testing.T) {
 	}
 }
 
-// TestPostExecution_ReviewRejected_PausesOnThirdFailure verifies that when
-// a story fails code review three times (including the senior escalation),
-// the requirement is paused for human intervention.
-func TestPostExecution_ReviewRejected_PausesOnThirdFailure(t *testing.T) {
+// TestPostExecution_ReviewRejected_PausesWhenAllTiersExhausted verifies that
+// when a story has been escalated through all tiers (0 -> 1 -> 2 -> 3) and
+// the final tier also fails, the requirement is paused for human intervention
+// because nextTier (4) exceeds the maximum.
+func TestPostExecution_ReviewRejected_PausesWhenAllTiersExhausted(t *testing.T) {
 	es, ps, cleanup := newTestStores(t)
 	defer cleanup()
 
@@ -467,34 +468,26 @@ func TestPostExecution_ReviewRejected_PausesOnThirdFailure(t *testing.T) {
 		"id": storyID, "req_id": "r-pause", "title": "Pause task", "description": "desc", "complexity": 3,
 	}))
 
-	// Simulate 2 prior reviewer rejections.
-	for i := 0; i < 2; i++ {
-		evt := state.NewEvent(state.EventStoryReviewFailed, "reviewer", storyID, map[string]any{
-			"passed":        false,
-			"comment_count": 1,
-			"summary":       "rejection",
+	// Simulate prior escalation through all tiers: 0->1, 1->2, 2->3.
+	for _, esc := range []struct{ from, to int }{{0, 1}, {1, 2}, {2, 3}} {
+		evt := state.NewEvent(state.EventStoryEscalated, "reviewer", storyID, map[string]any{
+			"from_tier": esc.from,
+			"to_tier":   esc.to,
+			"reason":    "review failed at tier",
 		})
 		es.Append(evt)
+		ps.Project(evt)
 	}
 
-	// Simulate 2 prior monitor retry/escalation events.
-	for _, reason := range []string{"review rejected", "review rejected, escalating to senior"} {
-		evt := state.NewEvent(state.EventStoryReviewFailed, "monitor", storyID, map[string]any{
-			"reason": reason,
-		})
-		es.Append(evt)
-	}
-
-	// TODO: escalation — use EventStoryEscalated once tier-aware monitor is wired
-	es.Append(state.NewEvent(state.EventStoryEscalated, "monitor", storyID, map[string]any{
-		"reason": "review failed twice",
-	}))
+	// The Reviewer will emit 1 new STORY_REVIEW_FAILED during this run.
+	// At tier 3, MaxRetriesForTier(3) = 1, so count(1) >= max(1) triggers
+	// escalation to tier 4, which causes a pause.
 
 	repoDir := setupGitRepoWithFeature(t)
 
-	// Third review (from senior) also rejects.
+	// Review at tier 3 also rejects.
 	replayClient := llm.NewReplayClient(llm.CompletionResponse{
-		Content: `{"passed": false, "comments": [], "summary": "Senior also cannot fix this"}`,
+		Content: `{"passed": false, "comments": [], "summary": "Tech lead also cannot fix this"}`,
 	})
 	reviewer := engine.NewReviewer(replayClient, "sonnet", 4000, es, ps)
 

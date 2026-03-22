@@ -5,13 +5,17 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/tzone85/vortex-dispatch/internal/state"
 )
 
-// renderEscalations renders Panel 4: active and recent escalations.
-func renderEscalations(escalations []state.Escalation, width, height int) string {
+// renderEscalations renders active and recent escalations.
+func (m Model) renderEscalations(width, maxRows int) string {
+	heading := headingStyle.Render("Escalations")
+	escalations := m.escalations
 	if len(escalations) == 0 {
-		return lipgloss.NewStyle().Foreground(colorGray).Render("  No escalations recorded.")
+		return lipgloss.JoinVertical(lipgloss.Left,
+			heading,
+			lipgloss.NewStyle().Foreground(colorGray).Render("  No escalations recorded."),
+		)
 	}
 
 	// Summary counts.
@@ -63,14 +67,14 @@ func renderEscalations(escalations []state.Escalation, width, height int) string
 	lines = append(lines, columnHeaderStyle.Render(header))
 	lines = append(lines, lipgloss.NewStyle().Foreground(colorDimGray).Render(separator))
 
-	maxRows := height - 6
-	if maxRows < 1 {
-		maxRows = 10
+	rowLimit := maxRows - 6
+	if rowLimit < 1 {
+		rowLimit = 10
 	}
 
 	for i, e := range escalations {
-		if i >= maxRows {
-			remaining := len(escalations) - maxRows
+		if i >= rowLimit {
+			remaining := len(escalations) - rowLimit
 			if remaining > 0 {
 				lines = append(lines, lipgloss.NewStyle().Foreground(colorGray).Render(
 					fmt.Sprintf("  ... and %d more", remaining),
@@ -104,5 +108,5 @@ func renderEscalations(escalations []state.Escalation, width, height int) string
 		lines = append(lines, row)
 	}
 
-	return strings.Join(lines, "\n")
+	return lipgloss.JoinVertical(lipgloss.Left, heading, strings.Join(lines, "\n"))
 }

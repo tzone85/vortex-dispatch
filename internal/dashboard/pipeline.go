@@ -23,40 +23,10 @@ var pipelineLabels = map[string]string{
 	"merged":      "MERGED",
 }
 
-// renderPipeline renders Panel 1: the story pipeline grouped by status.
-// If any requirements are paused, a banner is shown at the top.
-func renderPipeline(stories []state.Story, reqs []state.Requirement, width, height int) string {
-	var rows []string
-
-	// Show paused requirement banners
-	pausedBanner := renderPausedBanner(reqs, width)
-	if pausedBanner != "" {
-		rows = append(rows, pausedBanner)
-		height -= 2 // account for banner line + spacing
-	}
-
-	grouped := groupStoriesByStatus(stories)
-
-	columnCount := len(pipelineStatuses)
-	if columnCount == 0 {
-		return strings.Join(rows, "\n")
-	}
-
-	// Reserve space for borders and padding between columns.
-	availableWidth := width - 4 // panel padding
-	colWidth := availableWidth / columnCount
-	if colWidth < 14 {
-		colWidth = 14
-	}
-
-	var columns []string
-	for _, status := range pipelineStatuses {
-		col := renderPipelineColumn(status, grouped[status], colWidth, height-6)
-		columns = append(columns, col)
-	}
-
-	rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, columns...))
-	return lipgloss.JoinVertical(lipgloss.Left, rows...)
+// renderPipeline renders a pipeline summary section.
+// NOTE: Full implementation will be done in Task 2. This is a stub.
+func (m Model) renderPipeline(width int) string {
+	return "Pipeline"
 }
 
 // renderPausedBanner returns a warning banner for any paused requirements,

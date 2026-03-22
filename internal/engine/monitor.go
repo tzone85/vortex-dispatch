@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +32,7 @@ type Monitor struct {
 	eventStore       state.EventStore
 	projStore        state.ProjectionStore
 	escalation       *EscalationMachine
+	manager          *Manager
 
 	// dispatcher + executor allow the monitor to automatically spawn the
 	// next wave of stories after merges complete, removing the need for
@@ -84,6 +86,13 @@ func (m *Monitor) SetConflictResolver(cr *ConflictResolver) {
 func (m *Monitor) SetAutoResume(d *Dispatcher, e *Executor) {
 	m.dispatcher = d
 	m.executor = e
+}
+
+// SetManager enables tier-2 (manager) escalation handling. When set, the
+// monitor intercepts tier-2 stories before dispatch and routes them through
+// the Manager for LLM-powered failure diagnosis and corrective actions.
+func (m *Monitor) SetManager(mgr *Manager) {
+	m.manager = mgr
 }
 
 // RunContext carries the state needed for auto-resume across waves.
@@ -500,6 +509,49 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 		return nil
 	}
 
+	// Pre-dispatch interception: handle tier 2+ stories inline before
+	// they reach the dispatcher. Tier 2 goes to the Manager for LLM
+	// diagnosis; tier 3 goes to the tech-lead re-plan path.
+	if m.manager != nil {
+		readyIDs := rc.DAG.ReadyNodes(completed)
+		storyLookup := make(map[string]PlannedStory, len(rc.PlannedStories))
+		for _, ps := range rc.PlannedStories {
+			storyLookup[ps.ID] = ps
+		}
+
+		for _, id := range readyIDs {
+			if completed[id] {
+				continue
+			}
+			tier, err := m.escalation.CurrentTier(id)
+			if err != nil {
+				log.Printf("[auto-resume] tier lookup error for %s: %v", id, err)
+				continue
+			}
+			if tier < 2 {
+				continue
+			}
+
+			story, ok := storyLookup[id]
+			if !ok {
+				log.Printf("[auto-resume] story %s not found in planned stories", id)
+				continue
+			}
+
+			// Mark as completed so DispatchWave skips this story.
+			completed[id] = true
+
+			switch tier {
+			case 2:
+				log.Printf("[auto-resume] intercepting tier-2 story %s for manager diagnosis", id)
+				m.handleManagerEscalation(ctx, story, repoDir, rc)
+			default: // tier 3+
+				log.Printf("[auto-resume] intercepting tier-%d story %s for tech-lead escalation", tier, id)
+				m.handleTechLeadEscalation(ctx, story, repoDir, rc)
+			}
+		}
+	}
+
 	rc.WaveNumber++
 	assignments, err := m.dispatcher.DispatchWave(rc.DAG, completed, rc.ReqID, rc.PlannedStories, rc.WaveNumber)
 	if err != nil {
@@ -536,6 +588,220 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 	}
 
 	return active
+}
+
+// handleManagerEscalation runs the Manager LLM to diagnose a tier-2 story
+// and executes the recommended corrective action (retry, rewrite, split,
+// or escalate to tech lead).
+func (m *Monitor) handleManagerEscalation(ctx context.Context, story PlannedStory, repoDir string, rc *RunContext) {
+	storyID := story.ID
+	stateDir := execExpandHome(m.config.Workspace.StateDir)
+	worktreePath := filepath.Join(stateDir, "worktrees", storyID)
+	logDir := filepath.Join(stateDir, "logs")
+
+	dc, err := m.manager.BuildDiagnosticContext(storyID, worktreePath, logDir)
+	if err != nil {
+		log.Printf("[manager] context build error for %s: %v", storyID, err)
+		m.resetStoryToDraft(storyID, "manager", fmt.Sprintf("context build error: %v", err))
+		return
+	}
+
+	action, err := m.manager.Diagnose(ctx, dc)
+	if err != nil {
+		log.Printf("[manager] diagnosis failed for %s: %v", storyID, err)
+		if llm.IsFatalAPIError(err) {
+			m.pauseRequirement(storyID, fmt.Sprintf("fatal API error in manager: %v", err))
+			return
+		}
+		m.resetStoryToDraft(storyID, "manager", fmt.Sprintf("diagnosis error: %v", err))
+		return
+	}
+
+	log.Printf("[manager] %s: diagnosis=%q action=%s", storyID, action.Diagnosis, action.Action)
+
+	// Persist the diagnosis for post-mortem review.
+	logPath := filepath.Join(logDir, storyID+"-manager.log")
+	os.WriteFile(logPath, []byte(fmt.Sprintf("Diagnosis: %s\nCategory: %s\nAction: %s\n",
+		action.Diagnosis, action.Category, action.Action)), 0o644)
+
+	switch action.Action {
+	case "retry":
+		m.executeRetryAction(storyID, action, worktreePath)
+	case "rewrite":
+		m.executeRewriteAction(storyID, action)
+	case "split":
+		m.executeSplitAction(ctx, storyID, action, rc, story)
+	case "escalate_to_techlead":
+		m.escalateToTier(storyID, 3, "manager escalated: "+action.Diagnosis)
+	default:
+		m.resetStoryToDraft(storyID, "manager", "unknown action: "+action.Action)
+	}
+}
+
+// executeRetryAction resets a story to a lower tier for re-dispatch,
+// optionally removing the worktree for a clean start.
+func (m *Monitor) executeRetryAction(storyID string, action ManagerAction, worktreePath string) {
+	if action.RetryConfig != nil && action.RetryConfig.WorktreeReset {
+		os.RemoveAll(worktreePath)
+	}
+
+	resetTier := 0
+	if action.RetryConfig != nil {
+		resetTier = action.RetryConfig.ResetTier
+	}
+
+	evt := state.NewEvent(state.EventStoryEscalated, "manager", storyID, map[string]any{
+		"from_tier": 2,
+		"to_tier":   resetTier,
+		"reason":    "manager retry: " + action.Diagnosis,
+	})
+	m.eventStore.Append(evt)
+	m.projStore.Project(evt)
+
+	resetEvt := state.NewEvent(state.EventStoryReviewFailed, "manager", storyID, map[string]any{
+		"reason": "manager retry with fixes",
+	})
+	m.eventStore.Append(resetEvt)
+	m.projStore.Project(resetEvt)
+}
+
+// executeRewriteAction emits a STORY_REWRITTEN event to update the story
+// definition with the Manager's revised title, description, acceptance
+// criteria, and/or complexity.
+func (m *Monitor) executeRewriteAction(storyID string, action ManagerAction) {
+	if action.RewriteConfig == nil {
+		m.resetStoryToDraft(storyID, "manager", "rewrite action with no config")
+		return
+	}
+
+	changes := map[string]any{}
+	if action.RewriteConfig.Title != "" {
+		changes["title"] = action.RewriteConfig.Title
+	}
+	if action.RewriteConfig.Description != "" {
+		changes["description"] = action.RewriteConfig.Description
+	}
+	if action.RewriteConfig.AcceptanceCriteria != "" {
+		changes["acceptance_criteria"] = action.RewriteConfig.AcceptanceCriteria
+	}
+	if action.RewriteConfig.Complexity > 0 {
+		changes["complexity"] = action.RewriteConfig.Complexity
+	}
+
+	evt := state.NewEvent(state.EventStoryRewritten, "manager", storyID, map[string]any{
+		"changes": changes,
+		"reason":  action.Diagnosis,
+	})
+	m.eventStore.Append(evt)
+	m.projStore.Project(evt)
+}
+
+// executeSplitAction validates and applies a split, creating child stories
+// in the event store and mutating the DAG.
+func (m *Monitor) executeSplitAction(ctx context.Context, storyID string, action ManagerAction, rc *RunContext, story PlannedStory) {
+	if action.SplitConfig == nil || len(action.SplitConfig.Children) == 0 {
+		m.resetStoryToDraft(storyID, "manager", "split with no children")
+		return
+	}
+
+	storyData, err := m.projStore.GetStory(storyID)
+	if err != nil {
+		m.resetStoryToDraft(storyID, "manager", fmt.Sprintf("cannot look up story for split: %v", err))
+		return
+	}
+
+	children := make([]SplitChild, 0, len(action.SplitConfig.Children))
+	for _, c := range action.SplitConfig.Children {
+		children = append(children, SplitChild{
+			ID:                 storyID + "-" + c.Suffix,
+			Suffix:             c.Suffix,
+			Title:              c.Title,
+			Description:        c.Description,
+			AcceptanceCriteria: c.AcceptanceCriteria,
+			Complexity:         c.Complexity,
+			OwnedFiles:         c.OwnedFiles,
+		})
+	}
+
+	if err := m.escalation.ValidateSplit(storyData.SplitDepth, children, m.config.Planning.MaxStoryComplexity); err != nil {
+		log.Printf("[manager] split validation failed for %s: %v", storyID, err)
+		m.resetStoryToDraft(storyID, "manager", fmt.Sprintf("invalid split: %v", err))
+		return
+	}
+
+	m.dagMu.Lock()
+	defer m.dagMu.Unlock()
+
+	// Create child stories in the event store.
+	for _, child := range children {
+		childEvt := state.NewEvent(state.EventStoryCreated, "manager", child.ID, map[string]any{
+			"id":                  child.ID,
+			"req_id":              rc.ReqID,
+			"title":               child.Title,
+			"description":         child.Description,
+			"acceptance_criteria": child.AcceptanceCriteria,
+			"complexity":          child.Complexity,
+			"owned_files":         child.OwnedFiles,
+			"split_depth":         storyData.SplitDepth + 1,
+		})
+		m.eventStore.Append(childEvt)
+		m.projStore.Project(childEvt)
+	}
+
+	// Emit STORY_SPLIT for the parent.
+	childIDs := make([]string, len(children))
+	for i, c := range children {
+		childIDs[i] = c.ID
+	}
+	splitEvt := state.NewEvent(state.EventStorySplit, "manager", storyID, map[string]any{
+		"child_story_ids": childIDs,
+		"reason":          action.Diagnosis,
+	})
+	m.eventStore.Append(splitEvt)
+	m.projStore.Project(splitEvt)
+
+	// Mutate the DAG to replace the parent with children.
+	m.escalation.ApplySplit(
+		rc.DAG, rc, storyID, children,
+		action.SplitConfig.DependencyEdges,
+		story.DependsOn,
+		FindDependents(rc.PlannedStories, storyID),
+	)
+}
+
+// escalateToTier emits a STORY_ESCALATED event moving the story to the
+// specified tier.
+func (m *Monitor) escalateToTier(storyID string, tier int, reason string) {
+	currentTier, _ := m.escalation.CurrentTier(storyID)
+	evt := state.NewEvent(state.EventStoryEscalated, "monitor", storyID, map[string]any{
+		"from_tier": currentTier,
+		"to_tier":   tier,
+		"reason":    reason,
+	})
+	m.eventStore.Append(evt)
+	m.projStore.Project(evt)
+}
+
+// handleTechLeadEscalation handles tier-3 stories that require a tech-lead
+// re-plan. This is a stub — the full implementation is in Task 9.
+func (m *Monitor) handleTechLeadEscalation(ctx context.Context, story PlannedStory, repoDir string, rc *RunContext) {
+	// TODO: Task 9 will implement tech-lead re-plan.
+	log.Printf("[tech-lead] escalation for %s — not yet implemented, pausing", story.ID)
+	m.pauseRequirement(story.ID, "tech lead escalation not yet implemented")
+}
+
+// FindDependents returns the IDs of stories that depend on the given storyID.
+func FindDependents(stories []PlannedStory, storyID string) []string {
+	var deps []string
+	for _, s := range stories {
+		for _, d := range s.DependsOn {
+			if d == storyID {
+				deps = append(deps, s.ID)
+				break
+			}
+		}
+	}
+	return deps
 }
 
 // autoCommit stages and commits any uncommitted changes in the worktree.

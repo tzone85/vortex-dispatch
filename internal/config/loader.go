@@ -64,7 +64,7 @@ func DefaultConfig() Config {
 			},
 			"codex": {
 				Command: "codex",
-				Args:    []string{"--approval-mode", "full-auto"},
+				Args:    []string{"--full-auto"},
 				Models:  []string{"o3", "o4-mini"},
 				Detection: RuntimeDetection{
 					IdlePattern:       "Codex>",

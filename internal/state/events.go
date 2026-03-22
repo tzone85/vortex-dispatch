@@ -32,9 +32,11 @@ const (
 	EventStoryReviewFailed    EventType = "STORY_REVIEW_FAILED"
 	EventStoryQAStarted       EventType = "STORY_QA_STARTED"
 	EventStoryQAPassed        EventType = "STORY_QA_PASSED"
-	EventStoryQAFailed        EventType = "STORY_QA_FAILED"
 	EventStoryPRCreated       EventType = "STORY_PR_CREATED"
 	EventStoryMerged          EventType = "STORY_MERGED"
+	EventStoryEscalated       EventType = "STORY_ESCALATED"
+	EventStoryRewritten       EventType = "STORY_REWRITTEN"
+	EventStorySplit           EventType = "STORY_SPLIT"
 
 	// Agent lifecycle events.
 	EventAgentSpawned    EventType = "AGENT_SPAWNED"
@@ -42,10 +44,6 @@ const (
 	EventAgentResumed    EventType = "AGENT_RESUMED"
 	EventAgentStuck      EventType = "AGENT_STUCK"
 	EventAgentTerminated EventType = "AGENT_TERMINATED"
-
-	// Escalation events.
-	EventEscalationCreated  EventType = "ESCALATION_CREATED"
-	EventEscalationResolved EventType = "ESCALATION_RESOLVED"
 
 	// Supervisor events.
 	EventSupervisorCheck         EventType = "SUPERVISOR_CHECK"

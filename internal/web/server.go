@@ -4,7 +4,6 @@ package web
 import (
 	"context"
 	"embed"
-	"encoding/json"
 	"fmt"
 	"io/fs"
 	"log"
@@ -93,12 +92,3 @@ func openBrowser(url string) {
 	cmd.Start() //nolint:errcheck
 }
 
-// HandleCommand stub — full implementation in Task 7.
-func (s *Server) HandleCommand(action string, payload json.RawMessage) WSResponse {
-	return WSResponse{
-		Type:    "command_result",
-		Action:  action,
-		Success: false,
-		Message: "commands not yet implemented",
-	}
-}

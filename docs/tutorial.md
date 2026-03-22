@@ -109,23 +109,13 @@ Agents working...
 vxd dashboard
 ```
 
-The TUI dashboard shows four panels updated every 2 seconds:
+The TUI dashboard is a single-pane layout — all five sections (agents, pipeline summary, stories, activity, escalations) are visible at once, updated every 2 seconds. Use `j`/`k` to scroll the stories table, `w` to open the web dashboard in a browser, and `q` to quit.
 
-```
-┌─ Pipeline ──────────────┐┌─ Agents ──────────────────┐
-│ REQ-01HXYZ              ││ junior-01  STORY-001       │
-│  STORY-001 ██████░░ wip ││   status: working          │
-│  STORY-002 ████░░░░ wip ││ junior-02  STORY-002       │
-│  STORY-003 ░░░░░░░░ blk ││   status: working          │
-└─────────────────────────┘└────────────────────────────┘
-┌─ Activity ──────────────┐┌─ Escalations ──────────────┐
-│ 14:02 AGENT_SPAWNED     ││ (none)                      │
-│ 14:02 STORY_ASSIGNED    ││                              │
-│ 14:02 STORY_STARTED     ││                              │
-└─────────────────────────┘└────────────────────────────┘
-```
+If you prefer a browser-based view with full control capabilities (pause, retry, reassign, escalate, kill, edit), launch the web dashboard instead:
 
-Press `q` to exit the dashboard.
+```bash
+vxd dashboard --web   # opens http://localhost:8787
+```
 
 ### Quick Status Checks
 

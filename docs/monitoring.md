@@ -129,49 +129,95 @@ vxd escalations
 
 Escalations also appear in the Dashboard's Escalation panel.
 
-## TUI Dashboard
+## Dashboard
 
-The live terminal dashboard gives a real-time view of the entire pipeline.
+VXD ships two dashboard modes: a terminal UI (TUI) and a browser-based web dashboard. Both show the same five sections and refresh every 2 seconds.
 
-### Launching
+### TUI Dashboard
 
 ```bash
 vxd dashboard
 ```
 
-### Panels
+The TUI is a single-pane layout — all five sections are visible simultaneously without switching tabs.
 
 ```
-┌─ Pipeline ──────────────────┐┌─ Agents ───────────────────────┐
-│ Shows all requirements and  ││ Lists all agents with their    │
-│ their stories with current  ││ current role, assigned story,  │
-│ status indicators.          ││ and session status.            │
-│                             ││                                │
-│ REQ-01: planned             ││ junior-01  STORY-001  working  │
-│  STORY-001  in_progress     ││ junior-02  STORY-002  working  │
-│  STORY-002  review          ││ senior-01  (idle)     idle     │
-│  STORY-003  blocked         ││                                │
-└─────────────────────────────┘└────────────────────────────────┘
-┌─ Activity ──────────────────┐┌─ Escalations ──────────────────┐
-│ Live feed of recent events  ││ All escalation events with     │
-│ from the event store.       ││ story, agent, reason, and      │
-│                             ││ current resolution status.     │
-│ 14:05 STORY_REVIEW_PASSED  ││                                │
-│ 14:04 STORY_COMPLETED      ││ (none)                         │
-│ 14:02 AGENT_SPAWNED        ││                                │
-└─────────────────────────────┘└────────────────────────────────┘
+┌─ Agents ────────────────────────────────────────────────────────┐
+│ junior-01  STORY-001  working    senior-01  (idle)  idle        │
+│ junior-02  STORY-002  working                                    │
+└─────────────────────────────────────────────────────────────────┘
+Pipeline: REQ-01HXYZ  ████████████░░░░░░░░  8/13 stories  in_progress
+┌─ Stories ───────────────────────────────────────────────────────┐
+│ STORY-001  [2]  Add /healthz route           in_progress        │
+│ STORY-002  [3]  Implement uptime tracking    in_progress        │
+│ STORY-003  [2]  Add integration tests        blocked            │
+│ ...                                                             │
+└─────────────────────────────────────────────────────────────────┘
+┌─ Activity ──────────────────────────────────────────────────────┐
+│ 14:05  STORY_REVIEW_PASSED   STORY-001                         │
+│ 14:04  STORY_COMPLETED       STORY-002                         │
+│ 14:02  AGENT_SPAWNED         junior-01                         │
+└─────────────────────────────────────────────────────────────────┘
+┌─ Escalations ───────────────────────────────────────────────────┐
+│ (none)                                                          │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-### Refresh Rate
-
-The dashboard polls stores every 2 seconds. This is not currently configurable (hardcoded in `dashboard/app.go`).
-
-### Controls
+#### TUI Controls
 
 | Key | Action |
 |-----|--------|
-| `q` / `Ctrl+C` | Quit dashboard |
-| Arrow keys | Navigate between panels |
+| `j` / `k` | Scroll the stories table down / up |
+| `w` | Open the web dashboard in your browser |
+| `q` / `Ctrl+C` | Quit |
+
+### Web Dashboard
+
+```bash
+vxd dashboard --web
+vxd dashboard --web --port 9090   # custom port (default: 8787)
+```
+
+Opens a browser-based dashboard at `http://localhost:8787`. Binds to localhost only — no external access.
+
+#### Sections
+
+The web dashboard mirrors the TUI: agents, a pipeline summary bar with progress, a stories table, an activity log, and an escalations panel (collapsible).
+
+#### Available Commands
+
+From the web dashboard you can issue commands directly to the running pipeline:
+
+| Command | Description |
+|---------|-------------|
+| Pause | Pause requirement intake — no new stories are dispatched |
+| Resume | Resume a paused requirement |
+| Retry | Retry a failed or stuck story with the same agent |
+| Reassign | Reassign a story to a different agent tier |
+| Escalate | Manually escalate a story to the next agent tier |
+| Kill agent | Terminate an agent's tmux session |
+| Edit story | Update a story's description before re-dispatch |
+
+Destructive actions (kill, reassign, edit) show a confirmation dialog before executing.
+
+Command results appear as toast notifications.
+
+#### WebSocket Protocol
+
+The web dashboard connects to VXD over WebSocket on the same port. Three message types are used:
+
+- **State broadcast** — full dashboard snapshot sent every 2 seconds to all connected clients
+- **Event push** — individual events pushed immediately when they are emitted (e.g., `STORY_COMPLETED`)
+- **Command / result** — client sends a JSON command object; server replies with a result message
+
+The client reconnects automatically on disconnect with exponential backoff.
+
+#### Implementation Notes
+
+- Vanilla HTML, CSS, and JavaScript — no external dependencies or build step
+- Dark theme
+- No authentication in v1 — restrict network access at the OS level if needed
+- Empty states are shown for each section when there is no data yet
 
 ## CLI Monitoring Commands
 

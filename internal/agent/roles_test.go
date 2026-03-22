@@ -78,3 +78,21 @@ func TestRole_String(t *testing.T) {
 		t.Fatalf("expected 'tech_lead', got %s", agent.RoleTechLead.String())
 	}
 }
+
+func TestRoleManagerModelConfig(t *testing.T) {
+	models := config.ModelsConfig{
+		Manager: config.ModelConfig{
+			Provider: "anthropic", Model: "claude-sonnet-4-20250514", MaxTokens: 8000,
+		},
+	}
+	mc := agent.RoleManager.ModelConfig(models)
+	if mc.Provider != "anthropic" {
+		t.Errorf("expected anthropic, got %s", mc.Provider)
+	}
+}
+
+func TestRoleManagerExecutionMode(t *testing.T) {
+	if agent.RoleManager.ExecutionMode() != agent.ExecAPI {
+		t.Errorf("manager should use API mode")
+	}
+}

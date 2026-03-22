@@ -25,12 +25,15 @@ func DefaultConfig() Config {
 			Junior:       ModelConfig{Provider: "openai", Model: "gpt-4o-mini", MaxTokens: 4000},
 			QA:           ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-20250514", MaxTokens: 8000},
 			Supervisor:   ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-20250514", MaxTokens: 4000},
+			Manager:      ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-20250514", MaxTokens: 8000},
 		},
 		Routing: RoutingConfig{
 			JuniorMaxComplexity:           3,
 			IntermediateMaxComplexity:     5,
 			MaxRetriesBeforeEscalation:    2,
 			MaxQAFailuresBeforeEscalation: 3,
+			MaxSeniorRetries:              2,
+			MaxManagerAttempts:            2,
 		},
 		Monitor: MonitorConfig{
 			PollIntervalMs:         10000,

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"log"
 	"path/filepath"
 
 	"github.com/tzone85/vortex-dispatch/internal/agent"
@@ -206,7 +207,31 @@ func (d *Dispatcher) hasFileConflict(story PlannedStory, claimed map[string]bool
 }
 
 // routeStory determines the agent role for a story.
-// TODO: escalation — re-implement tier-based routing using EventStoryEscalated
+// It reads STORY_ESCALATED events to find the highest escalation tier reached:
+//   - Tier 0 (no escalation): route by complexity via RouteByComplexity
+//   - Tier 1: route to RoleSenior
+//   - Tier 2+: defensive fallback to RoleSenior with a warning (these should
+//     be intercepted by the monitor before reaching the dispatcher)
 func (d *Dispatcher) routeStory(story PlannedStory) agent.Role {
+	events, err := d.eventStore.List(state.EventFilter{
+		Type:    state.EventStoryEscalated,
+		StoryID: story.ID,
+	})
+	if err == nil && len(events) > 0 {
+		maxTier := 0
+		for _, evt := range events {
+			payload := state.DecodePayload(evt.Payload)
+			if toTier, ok := payload["to_tier"].(float64); ok && int(toTier) > maxTier {
+				maxTier = int(toTier)
+			}
+		}
+		switch {
+		case maxTier >= 2:
+			log.Printf("[dispatcher] WARNING: story %s at tier %d reached routeStory, expected monitor interception", story.ID, maxTier)
+			return agent.RoleSenior
+		case maxTier == 1:
+			return agent.RoleSenior
+		}
+	}
 	return agent.RouteByComplexity(story.Complexity, d.config.Routing)
 }

@@ -220,19 +220,19 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 	// the work before checking the diff.
 	autoCommit(ag.WorktreePath, storyID)
 
-	// Check if agent produced any changes
+	// Check if agent produced any changes.
+	// Distinguish between git infrastructure errors (which count toward
+	// the retry limit) and genuinely empty diffs so that broken worktrees
+	// don't loop forever.
 	diff, err := gitDiff(ag.WorktreePath)
 	if err != nil {
 		log.Printf("[pipeline] git diff error for %s: %v", storyID, err)
+		m.resetStoryToDraft(storyID, "monitor", fmt.Sprintf("git diff error: %v", err))
+		return
 	}
 	if diff == "" {
 		log.Printf("[pipeline] no changes produced for %s, resetting to draft for re-dispatch", storyID)
-		// Reset story status so it can be re-dispatched in a future wave.
-		resetEvt := state.NewEvent(state.EventStoryReviewFailed, "monitor", storyID, map[string]any{
-			"reason": "agent produced no code changes",
-		})
-		m.eventStore.Append(resetEvt)
-		m.projStore.Project(resetEvt)
+		m.resetStoryToDraft(storyID, "monitor", "agent produced no code changes")
 		return
 	}
 
@@ -694,24 +694,35 @@ func captureFileTree(worktreePath string) string {
 }
 
 // gitDiff returns the git diff for committed changes in a worktree.
-// It compares HEAD against the merge-base with origin/main so that it
+// It compares HEAD against the merge-base with the base branch so that it
 // captures all changes since the worktree branch diverged, rather than
 // only the last commit (which misses truly-empty agent runs).
+//
+// Tries merge-base candidates in order: origin/<base>, local <base>, then
+// falls back to the repo root commit so repos without a remote still work.
 func gitDiff(worktreePath string) (string, error) {
-	// Find the branch point where this worktree diverged from origin/main.
-	mbCmd := exec.Command("git", "merge-base", "HEAD", "origin/main")
-	mbCmd.Dir = worktreePath
-	mbOut, mbErr := mbCmd.Output()
-	if mbErr != nil {
-		// Fallback: diff against the empty tree (no merge-base available).
-		emptyTree := "4b825dc642cb6eb9a060e54bf899d69f7cb46a0"
-		cmd := exec.Command("git", "diff", emptyTree, "HEAD")
-		cmd.Dir = worktreePath
-		out, err := cmd.Output()
-		if err != nil {
-			return "", fmt.Errorf("git diff fallback: %w", err)
+	// Try merge-base candidates in order of preference.
+	candidates := []string{"origin/main", "main"}
+	var mbOut []byte
+	var mbErr error
+	for _, ref := range candidates {
+		mbCmd := exec.Command("git", "merge-base", "HEAD", ref)
+		mbCmd.Dir = worktreePath
+		mbOut, mbErr = mbCmd.Output()
+		if mbErr == nil {
+			break
 		}
-		return string(out), nil
+	}
+	if mbErr != nil {
+		// No merge-base found — fall back to the root commit of the
+		// current branch so we diff all changes since the initial commit.
+		rootCmd := exec.Command("git", "rev-list", "--max-parents=0", "HEAD")
+		rootCmd.Dir = worktreePath
+		rootOut, rootErr := rootCmd.Output()
+		if rootErr != nil {
+			return "", fmt.Errorf("git diff: cannot find merge-base or root commit: %w", rootErr)
+		}
+		mbOut = rootOut
 	}
 
 	mergeBase := strings.TrimSpace(string(mbOut))

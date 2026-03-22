@@ -205,16 +205,8 @@ func (d *Dispatcher) hasFileConflict(story PlannedStory, claimed map[string]bool
 	return false
 }
 
-// routeStory determines the agent role for a story. If the story has an
-// ESCALATION_CREATED event, it is routed to a senior agent regardless of
-// complexity. Otherwise, it falls back to complexity-based routing.
+// routeStory determines the agent role for a story.
+// TODO: escalation — re-implement tier-based routing using EventStoryEscalated
 func (d *Dispatcher) routeStory(story PlannedStory) agent.Role {
-	escalationCount, err := d.eventStore.Count(state.EventFilter{
-		Type:    state.EventEscalationCreated,
-		StoryID: story.ID,
-	})
-	if err == nil && escalationCount > 0 {
-		return agent.RoleSenior
-	}
 	return agent.RouteByComplexity(story.Complexity, d.config.Routing)
 }

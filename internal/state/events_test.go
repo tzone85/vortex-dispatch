@@ -2,6 +2,7 @@ package state_test
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -56,7 +57,6 @@ func TestEventTypeConstants(t *testing.T) {
 		state.EventStoryReviewFailed,
 		state.EventStoryQAStarted,
 		state.EventStoryQAPassed,
-		state.EventStoryQAFailed,
 		state.EventStoryPRCreated,
 		state.EventStoryMerged,
 		state.EventAgentSpawned,
@@ -64,8 +64,6 @@ func TestEventTypeConstants(t *testing.T) {
 		state.EventAgentResumed,
 		state.EventAgentStuck,
 		state.EventAgentTerminated,
-		state.EventEscalationCreated,
-		state.EventEscalationResolved,
 		state.EventSupervisorCheck,
 		state.EventSupervisorReprioritize,
 		state.EventSupervisorDriftDetected,
@@ -89,5 +87,47 @@ func TestNewEvent_NilPayload(t *testing.T) {
 	evt := state.NewEvent(state.EventReqSubmitted, "system", "", nil)
 	if evt.Payload != nil {
 		t.Fatal("expected nil payload")
+	}
+}
+
+func TestEscalationEventTypes(t *testing.T) {
+	types := []state.EventType{
+		state.EventStoryEscalated,
+		state.EventStoryRewritten,
+		state.EventStorySplit,
+	}
+	for _, et := range types {
+		if et == "" {
+			t.Errorf("event type should not be empty")
+		}
+	}
+}
+
+func TestEventFilterAfter(t *testing.T) {
+	dir := t.TempDir()
+	fs, err := state.NewFileStore(filepath.Join(dir, "events.jsonl"))
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	defer fs.Close()
+
+	e1 := state.NewEvent(state.EventStoryReviewFailed, "agent1", "s-001", nil)
+	fs.Append(e1)
+	time.Sleep(10 * time.Millisecond)
+	cutoff := time.Now()
+	time.Sleep(10 * time.Millisecond)
+	e2 := state.NewEvent(state.EventStoryReviewFailed, "agent2", "s-001", nil)
+	fs.Append(e2)
+
+	count, err := fs.Count(state.EventFilter{
+		Type:    state.EventStoryReviewFailed,
+		StoryID: "s-001",
+		After:   cutoff,
+	})
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 event after cutoff, got %d", count)
 	}
 }

@@ -125,10 +125,44 @@ func (m Model) renderHeader() string {
 	return title
 }
 
-// renderStories renders the stories table section.
-// NOTE: Full implementation will be done in Task 2. This is a stub.
+// renderStories renders the stories table section with a scrollable list.
 func (m Model) renderStories(width, maxRows int) string {
-	return "Stories"
+	header := headingStyle.Render("─ Stories ")
+	colHeader := fmt.Sprintf("  %-20s %-16s %-4s %-4s %s",
+		columnHeaderStyle.Render("ID"),
+		columnHeaderStyle.Render("STATUS"),
+		columnHeaderStyle.Render("C"),
+		columnHeaderStyle.Render("T"),
+		columnHeaderStyle.Render("TITLE"))
+
+	var rows []string
+	start := m.storyScrollOffset
+	end := min(start+maxRows-3, len(m.stories))
+	if end < start {
+		end = start
+	}
+	for i := start; i < end; i++ {
+		s := m.stories[i]
+		statusStr := storyStatusStyle(s.Status).Render(s.Status)
+		if s.EscalationTier > 0 {
+			statusStr += fmt.Sprintf("|T%d", s.EscalationTier)
+		}
+		row := fmt.Sprintf("  %-20s %-16s [C%d] %-4d %s",
+			truncateStr(s.ID, 20), statusStr, s.Complexity, s.EscalationTier,
+			truncateStr(s.Title, width-60))
+		rows = append(rows, row)
+	}
+
+	if len(m.stories) == 0 {
+		rows = append(rows, lipgloss.NewStyle().Foreground(colorGray).Render("  No stories — run 'vxd plan' to create a requirement"))
+	}
+
+	scrollInfo := ""
+	if len(m.stories) > maxRows-3 {
+		scrollInfo = fmt.Sprintf(" (%d-%d of %d)", start+1, end, len(m.stories))
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, append([]string{header + scrollInfo, colHeader}, rows...)...)
 }
 
 // pendingEscalations returns the count of escalations with status "pending".

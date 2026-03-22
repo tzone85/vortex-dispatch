@@ -34,6 +34,10 @@ type Monitor struct {
 	escalation       *EscalationMachine
 	manager          *Manager
 
+	// planner enables tier-3 (tech lead) re-planning. When set, the
+	// monitor can decompose failing stories into smaller replacements.
+	planner *Planner
+
 	// dispatcher + executor allow the monitor to automatically spawn the
 	// next wave of stories after merges complete, removing the need for
 	// the user to manually run "vxd resume" between waves.
@@ -93,6 +97,13 @@ func (m *Monitor) SetAutoResume(d *Dispatcher, e *Executor) {
 // the Manager for LLM-powered failure diagnosis and corrective actions.
 func (m *Monitor) SetManager(mgr *Manager) {
 	m.manager = mgr
+}
+
+// SetPlanner enables tier-3 (tech lead) re-planning. When set, the monitor
+// can decompose failing stories into smaller replacement stories via the
+// Planner's RePlan method.
+func (m *Monitor) SetPlanner(p *Planner) {
+	m.planner = p
 }
 
 // RunContext carries the state needed for auto-resume across waves.
@@ -782,12 +793,109 @@ func (m *Monitor) escalateToTier(storyID string, tier int, reason string) {
 	m.projStore.Project(evt)
 }
 
-// handleTechLeadEscalation handles tier-3 stories that require a tech-lead
-// re-plan. This is a stub — the full implementation is in Task 9.
+// handleTechLeadEscalation handles tier-3 stories by calling the Planner's
+// RePlan method to decompose the failing story into smaller replacements,
+// then emitting STORY_SPLIT and mutating the DAG via ApplySplit.
 func (m *Monitor) handleTechLeadEscalation(ctx context.Context, story PlannedStory, repoDir string, rc *RunContext) {
-	// TODO: Task 9 will implement tech-lead re-plan.
-	log.Printf("[tech-lead] escalation for %s — not yet implemented, pausing", story.ID)
-	m.pauseRequirement(story.ID, "tech lead escalation not yet implemented")
+	storyID := story.ID
+	stateDir := execExpandHome(m.config.Workspace.StateDir)
+	logDir := filepath.Join(stateDir, "logs")
+
+	// Build failure context from events and logs.
+	events, _ := m.eventStore.List(state.EventFilter{StoryID: storyID})
+	var failureContext strings.Builder
+	for _, evt := range events {
+		fmt.Fprintf(&failureContext, "%s %s (agent: %s)\n", evt.Type, evt.Timestamp.Format("15:04:05"), evt.AgentID)
+	}
+	logPath := filepath.Join(logDir, storyID+".log")
+	if data, err := os.ReadFile(logPath); err == nil {
+		failureContext.WriteString("\nAgent log:\n")
+		failureContext.Write(data)
+	}
+
+	// Check if planner is available.
+	if m.planner == nil {
+		log.Printf("[tech-lead] no planner available for %s, pausing", storyID)
+		m.pauseRequirement(storyID, "tech lead escalation: no planner configured")
+		return
+	}
+
+	// Call RePlan to get replacement stories.
+	replacements, err := m.planner.RePlan(ctx, storyID, rc.ReqID, failureContext.String())
+	if err != nil {
+		log.Printf("[tech-lead] re-plan failed for %s: %v", storyID, err)
+		m.pauseRequirement(storyID, fmt.Sprintf("tech lead re-plan failed: %v", err))
+		return
+	}
+
+	if len(replacements) == 0 {
+		log.Printf("[tech-lead] re-plan produced no stories for %s", storyID)
+		m.pauseRequirement(storyID, "tech lead re-plan produced no replacement stories")
+		return
+	}
+
+	// Build SplitChild list from replacements.
+	storyData, _ := m.projStore.GetStory(storyID)
+	children := make([]SplitChild, 0, len(replacements))
+	for _, r := range replacements {
+		children = append(children, SplitChild{
+			ID:                 r.ID,
+			Title:              r.Title,
+			Description:        r.Description,
+			AcceptanceCriteria: string(r.AcceptanceCriteria),
+			Complexity:         r.Complexity,
+			OwnedFiles:         r.OwnedFiles,
+		})
+	}
+
+	// Validate split constraints before mutating.
+	if err := m.escalation.ValidateSplit(storyData.SplitDepth, children, m.config.Planning.MaxStoryComplexity); err != nil {
+		log.Printf("[tech-lead] split validation failed for %s: %v", storyID, err)
+		m.pauseRequirement(storyID, fmt.Sprintf("tech lead split invalid: %v", err))
+		return
+	}
+
+	// Emit STORY_SPLIT + mutate DAG (same pattern as executeSplitAction).
+	m.dagMu.Lock()
+	defer m.dagMu.Unlock()
+
+	// Create child stories in the event store (with split_depth).
+	for _, child := range children {
+		childEvt := state.NewEvent(state.EventStoryCreated, "tech_lead", child.ID, map[string]any{
+			"id":                  child.ID,
+			"req_id":              rc.ReqID,
+			"title":               child.Title,
+			"description":         child.Description,
+			"acceptance_criteria": child.AcceptanceCriteria,
+			"complexity":          child.Complexity,
+			"owned_files":         child.OwnedFiles,
+			"split_depth":         storyData.SplitDepth + 1,
+		})
+		m.eventStore.Append(childEvt)
+		m.projStore.Project(childEvt)
+	}
+
+	childIDs := make([]string, len(children))
+	for i, c := range children {
+		childIDs[i] = c.ID
+	}
+	splitEvt := state.NewEvent(state.EventStorySplit, "tech_lead", storyID, map[string]any{
+		"child_story_ids": childIDs,
+		"reason":          "tech lead re-plan",
+	})
+	m.eventStore.Append(splitEvt)
+	m.projStore.Project(splitEvt)
+
+	// Build sequential dependency edges for re-planned stories.
+	var depEdges [][]string
+	for i := 1; i < len(children); i++ {
+		depEdges = append(depEdges, []string{children[i].ID, children[i-1].ID})
+	}
+
+	m.escalation.ApplySplit(rc.DAG, rc, storyID, children, depEdges,
+		story.DependsOn, FindDependents(rc.PlannedStories, storyID))
+
+	log.Printf("[tech-lead] re-planned %s into %d replacement stories", storyID, len(children))
 }
 
 // FindDependents returns the IDs of stories that depend on the given storyID.

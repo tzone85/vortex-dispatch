@@ -21,21 +21,15 @@ const (
 
 	colorBgDark      = lipgloss.Color("#1A1A2E")
 	colorBgPanel     = lipgloss.Color("#16213E")
-	colorBgActiveTab = lipgloss.Color("#0F3460")
 	colorBgStatusBar = lipgloss.Color("#0A0A1A")
 )
 
 var (
-	// Tab styles.
-	tabStyle = lipgloss.NewStyle().
-			Padding(0, 2).
-			Foreground(colorGray)
-
-	activeTabStyle = lipgloss.NewStyle().
-			Padding(0, 2).
-			Foreground(colorWhite).
-			Background(colorBgActiveTab).
-			Bold(true)
+	// Header style for the dashboard title bar.
+	headerStyle = lipgloss.NewStyle().
+			Foreground(colorCyan).
+			Bold(true).
+			Padding(0, 1)
 
 	// Panel container with a border.
 	panelStyle = lipgloss.NewStyle().

@@ -294,6 +294,143 @@ func TestPlan_RejectsFileOverlap(t *testing.T) {
 	}
 }
 
+func TestRePlan_CreatesReplacementStories(t *testing.T) {
+	dir := t.TempDir()
+
+	eventStore, err := state.NewFileStore(filepath.Join(dir, "events.jsonl"))
+	if err != nil {
+		t.Fatalf("create event store: %v", err)
+	}
+	defer eventStore.Close()
+
+	projStore, err := state.NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("create proj store: %v", err)
+	}
+	defer projStore.Close()
+
+	replanResponse := `[
+		{"id": "s-001-a", "title": "Part A: Data layer", "description": "Implement data models", "acceptance_criteria": "Models exist with tests", "complexity": 3, "depends_on": [], "owned_files": ["src/models/data.go"]},
+		{"id": "s-001-b", "title": "Part B: API layer", "description": "Implement API handlers", "acceptance_criteria": "Handlers work", "complexity": 3, "depends_on": ["s-001-a"], "owned_files": ["src/api/handler.go"]}
+	]`
+
+	client := llm.NewReplayClient(llm.CompletionResponse{
+		Content: replanResponse,
+		Model:   "claude-opus-4",
+	})
+
+	cfg := config.DefaultConfig()
+	planner := engine.NewPlanner(client, cfg, eventStore, projStore)
+
+	stories, err := planner.RePlan(context.Background(), "s-001", "r-001", "Story failed 3 times: test compilation error in handler.go")
+	if err != nil {
+		t.Fatalf("replan: %v", err)
+	}
+
+	// 1. Verify correct number of replacement stories
+	if len(stories) != 2 {
+		t.Fatalf("expected 2 replacement stories, got %d", len(stories))
+	}
+
+	// 2. Verify story fields
+	if stories[0].ID != "s-001-a" {
+		t.Fatalf("expected first story ID 's-001-a', got %s", stories[0].ID)
+	}
+	if stories[0].Title != "Part A: Data layer" {
+		t.Fatalf("expected first story title 'Part A: Data layer', got %s", stories[0].Title)
+	}
+	if stories[1].ID != "s-001-b" {
+		t.Fatalf("expected second story ID 's-001-b', got %s", stories[1].ID)
+	}
+	if stories[0].Complexity != 3 {
+		t.Fatalf("expected complexity 3, got %d", stories[0].Complexity)
+	}
+	if len(stories[0].OwnedFiles) != 1 || stories[0].OwnedFiles[0] != "src/models/data.go" {
+		t.Fatalf("unexpected owned_files for first story: %v", stories[0].OwnedFiles)
+	}
+
+	// 3. Verify NO events were emitted by RePlan itself.
+	// The caller (monitor) is responsible for emitting STORY_CREATED with
+	// split_depth and STORY_SPLIT events. RePlan is a pure LLM + parse.
+	createdEvents, err := eventStore.List(state.EventFilter{Type: state.EventStoryCreated})
+	if err != nil {
+		t.Fatalf("list created events: %v", err)
+	}
+	if len(createdEvents) != 0 {
+		t.Fatalf("expected 0 STORY_CREATED events from RePlan, got %d", len(createdEvents))
+	}
+
+	reqSubmitted, err := eventStore.List(state.EventFilter{Type: state.EventReqSubmitted})
+	if err != nil {
+		t.Fatalf("list req submitted events: %v", err)
+	}
+	if len(reqSubmitted) != 0 {
+		t.Fatalf("expected 0 REQ_SUBMITTED events, got %d", len(reqSubmitted))
+	}
+
+	reqPlanned, err := eventStore.List(state.EventFilter{Type: state.EventReqPlanned})
+	if err != nil {
+		t.Fatalf("list req planned events: %v", err)
+	}
+	if len(reqPlanned) != 0 {
+		t.Fatalf("expected 0 REQ_PLANNED events, got %d", len(reqPlanned))
+	}
+
+	// 5. Verify LLM was called exactly once
+	if client.CallCount() != 1 {
+		t.Fatalf("expected 1 LLM call, got %d", client.CallCount())
+	}
+}
+
+func TestRePlan_LLMError(t *testing.T) {
+	dir := t.TempDir()
+
+	eventStore, err := state.NewFileStore(filepath.Join(dir, "events.jsonl"))
+	if err != nil {
+		t.Fatalf("create event store: %v", err)
+	}
+	defer eventStore.Close()
+
+	projStore, err := state.NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("create proj store: %v", err)
+	}
+	defer projStore.Close()
+
+	// No responses -> will error
+	client := llm.NewReplayClient()
+	planner := engine.NewPlanner(client, config.DefaultConfig(), eventStore, projStore)
+
+	_, err = planner.RePlan(context.Background(), "s-001", "r-001", "failure context")
+	if err == nil {
+		t.Fatal("expected error when LLM fails")
+	}
+}
+
+func TestRePlan_InvalidJSON(t *testing.T) {
+	dir := t.TempDir()
+
+	eventStore, err := state.NewFileStore(filepath.Join(dir, "events.jsonl"))
+	if err != nil {
+		t.Fatalf("create event store: %v", err)
+	}
+	defer eventStore.Close()
+
+	projStore, err := state.NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("create proj store: %v", err)
+	}
+	defer projStore.Close()
+
+	client := llm.NewReplayClient(llm.CompletionResponse{Content: "not valid json"})
+	planner := engine.NewPlanner(client, config.DefaultConfig(), eventStore, projStore)
+
+	_, err = planner.RePlan(context.Background(), "s-001", "r-001", "failure context")
+	if err == nil {
+		t.Fatal("expected parse error for invalid JSON")
+	}
+}
+
 func TestPlanner_LLMError(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0644)

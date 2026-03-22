@@ -100,7 +100,7 @@ go install github.com/tzone85/vortex-dispatch/cmd/vxd@latest
 vxd --help
 ```
 
-You should see the full command list: `init`, `req`, `status`, `resume`, `agents`, `escalations`, `gc`, `config`, `events`, `dashboard`.
+You should see the full command list: `init`, `req`, `status`, `resume`, `agents`, `escalations`, `gc`, `config`, `events`, `dashboard`. The `dashboard` command accepts `--web` and `--port` flags for the browser-based dashboard.
 
 If you see `zsh: command not found: vxd`, go back to the [PATH setup](#before-you-install-path-setup-required) section.
 
@@ -166,7 +166,8 @@ If everything is configured correctly, you'll see a success message. Common issu
 ```bash
 vxd req "Build a REST API for user management with CRUD endpoints"
 vxd status
-vxd dashboard
+vxd dashboard           # single-pane TUI (j/k scroll stories, w open web, q quit)
+vxd dashboard --web     # browser-based dashboard at localhost:8787
 ```
 
 ## Generating the Demo GIF (optional)

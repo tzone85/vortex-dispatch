@@ -62,7 +62,8 @@ vhs docs/demo.tape
 - **Auto-merge with PR creation** -- stories flow from code to merged PR hands-free
 - **LLM-powered conflict resolution** -- rebase conflicts auto-resolved via Senior model instead of blocking
 - **Tiered cleanup** -- worktree pruning, branch garbage collection with configurable retention
-- **TUI dashboard** -- 4-panel Bubbletea interface (pipeline, agents, activity, escalations)
+- **TUI dashboard** -- single-pane Bubbletea interface (all 5 sections visible at once: agents, pipeline, stories, activity, escalations)
+- **Web dashboard** -- browser-based dashboard via `vxd dashboard --web` with real-time WebSocket updates and full control panel
 - **Reputation scoring** -- per-agent performance tracking across assignments
 
 ## CLI Commands
@@ -80,6 +81,7 @@ vhs docs/demo.tape
 | `vxd config validate` | Load and validate the configuration file |
 | `vxd events [--type T] [--story S] [--limit N]` | List events from the event store, newest first |
 | `vxd dashboard` | Launch the live TUI dashboard |
+| `vxd dashboard --web [--port 8787]` | Launch the web dashboard (browser-based, default port 8787) |
 
 ### Submitting Requirements
 

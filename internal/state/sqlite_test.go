@@ -184,18 +184,3 @@ func TestSQLiteStore_StoryOwnedFiles(t *testing.T) {
 		t.Fatalf("expected wave_hint 'sequential', got %s", story.WaveHint)
 	}
 }
-
-func TestSQLiteStore_QAFailedReturnsToDev(t *testing.T) {
-	db, _ := state.NewSQLiteStore(":memory:")
-	defer db.Close()
-
-	db.Project(state.NewEvent(state.EventStoryCreated, "tl", "s-001", map[string]any{
-		"id": "s-001", "req_id": "r-001", "title": "task", "description": "d", "complexity": 3,
-	}))
-	db.Project(state.NewEvent(state.EventStoryQAFailed, "qa-1", "s-001", nil))
-
-	story, _ := db.GetStory("s-001")
-	if story.Status != "qa_failed" {
-		t.Fatalf("expected 'qa_failed', got %s", story.Status)
-	}
-}

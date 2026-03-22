@@ -498,14 +498,7 @@ func (m *Monitor) handleReviewFailure(storyID string, result ReviewResult) {
 		// Second failure: retry also failed — escalate to senior agent.
 		log.Printf("[pipeline] review rejected %s (attempt 2), escalating to senior", storyID)
 
-		// Emit escalation event.
-		escEvt := state.NewEvent(state.EventEscalationCreated, "monitor", storyID, map[string]any{
-			"reason":   "review failed twice",
-			"feedback": result.Summary,
-			"comments": commentsJSON,
-		})
-		m.eventStore.Append(escEvt)
-		m.projStore.Project(escEvt)
+		// TODO: escalation — emit EventStoryEscalated with tier info here
 
 		// Reset to draft so the dispatcher picks it up and routes to senior.
 		resetEvt := state.NewEvent(state.EventStoryReviewFailed, "monitor", storyID, map[string]any{

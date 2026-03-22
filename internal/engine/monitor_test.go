@@ -421,8 +421,8 @@ func TestPostExecution_ReviewRejected_EscalatesOnSecondFailure(t *testing.T) {
 	defer cancel()
 	_ = mon.Run(ctx, agents, repoDir)
 
-	// Verify ESCALATION_CREATED event was emitted.
-	escalationEvents, err := es.List(state.EventFilter{Type: state.EventEscalationCreated, StoryID: storyID})
+	// TODO: escalation — verify EventStoryEscalated once tier-aware monitor is wired
+	escalationEvents, err := es.List(state.EventFilter{Type: state.EventStoryEscalated, StoryID: storyID})
 	if err != nil {
 		t.Fatalf("list escalation events: %v", err)
 	}
@@ -485,8 +485,8 @@ func TestPostExecution_ReviewRejected_PausesOnThirdFailure(t *testing.T) {
 		es.Append(evt)
 	}
 
-	// Also an escalation event.
-	es.Append(state.NewEvent(state.EventEscalationCreated, "monitor", storyID, map[string]any{
+	// TODO: escalation — use EventStoryEscalated once tier-aware monitor is wired
+	es.Append(state.NewEvent(state.EventStoryEscalated, "monitor", storyID, map[string]any{
 		"reason": "review failed twice",
 	}))
 

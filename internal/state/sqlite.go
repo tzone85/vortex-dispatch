@@ -157,8 +157,6 @@ func (s *SQLiteStore) Project(evt Event) error {
 		return s.updateStoryStatus(evt.StoryID, "qa")
 	case EventStoryQAPassed:
 		return s.updateStoryStatus(evt.StoryID, "pr_submitted")
-	case EventStoryQAFailed:
-		return s.updateStoryStatus(evt.StoryID, "qa_failed")
 	case EventStoryPRCreated:
 		return s.projectStoryPRCreated(evt.StoryID, payload)
 	case EventStoryMerged:

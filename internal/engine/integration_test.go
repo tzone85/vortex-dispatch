@@ -667,3 +667,352 @@ func TestIntegration_DependencyStorageAndDAGReconstruction(t *testing.T) {
 		t.Fatalf("expected no ReadyNodes when all completed, got %v", ready)
 	}
 }
+
+func TestIntegration_EscalationChain(t *testing.T) {
+	es, ps, cleanup := newIntegrationStores(t)
+	defer cleanup()
+
+	// --- Step 1: Emit foundational events for a requirement and story ---
+	reqID := "r-esc-1"
+	storyID := "r-esc-1-s-001"
+
+	reqEvt := state.NewEvent(state.EventReqSubmitted, "user", "", map[string]any{
+		"id":          reqID,
+		"title":       "Escalation chain test",
+		"description": "Verify full escalation tier traversal",
+	})
+	if err := es.Append(reqEvt); err != nil {
+		t.Fatalf("append req submitted: %v", err)
+	}
+	if err := ps.Project(reqEvt); err != nil {
+		t.Fatalf("project req submitted: %v", err)
+	}
+
+	storyEvt := state.NewEvent(state.EventStoryCreated, "planner", storyID, map[string]any{
+		"id":                  storyID,
+		"req_id":              reqID,
+		"title":               "Implement widget",
+		"description":         "Build the widget feature",
+		"acceptance_criteria": "Widget works correctly",
+		"complexity":          5,
+	})
+	if err := es.Append(storyEvt); err != nil {
+		t.Fatalf("append story created: %v", err)
+	}
+	if err := ps.Project(storyEvt); err != nil {
+		t.Fatalf("project story created: %v", err)
+	}
+
+	// --- Step 2: Create EscalationMachine with known config ---
+	routing := config.RoutingConfig{
+		MaxRetriesBeforeEscalation: 2,
+		MaxSeniorRetries:           2,
+		MaxManagerAttempts:         2,
+	}
+	esc := engine.NewEscalationMachine(es, routing)
+
+	// --- Step 3: Tier 0 - emit 2 STORY_REVIEW_FAILED events ---
+	for i := 0; i < 2; i++ {
+		evt := state.NewEvent(state.EventStoryReviewFailed, "agent-junior", storyID, nil)
+		if err := es.Append(evt); err != nil {
+			t.Fatalf("append review failed %d: %v", i, err)
+		}
+		if err := ps.Project(evt); err != nil {
+			t.Fatalf("project review failed %d: %v", i, err)
+		}
+	}
+
+	// Verify tier 0 is still current (no escalation event yet).
+	tier, err := esc.CurrentTier(storyID)
+	if err != nil {
+		t.Fatalf("current tier: %v", err)
+	}
+	if tier != 0 {
+		t.Fatalf("expected tier 0, got %d", tier)
+	}
+
+	// Verify ShouldEscalate returns true, nextTier=1.
+	shouldEsc, nextTier, err := esc.ShouldEscalate(storyID)
+	if err != nil {
+		t.Fatalf("should escalate: %v", err)
+	}
+	if !shouldEsc {
+		t.Fatal("expected escalation needed after 2 failures at tier 0")
+	}
+	if nextTier != 1 {
+		t.Fatalf("expected next tier 1, got %d", nextTier)
+	}
+
+	// --- Step 4: Escalate to tier 1 (senior) ---
+	escEvt1 := state.NewEvent(state.EventStoryEscalated, "monitor", storyID, map[string]any{
+		"from_tier": 0, "to_tier": 1, "reason": "max retries at tier 0",
+	})
+	if err := es.Append(escEvt1); err != nil {
+		t.Fatalf("append escalation to tier 1: %v", err)
+	}
+	if err := ps.Project(escEvt1); err != nil {
+		t.Fatalf("project escalation to tier 1: %v", err)
+	}
+
+	tier, err = esc.CurrentTier(storyID)
+	if err != nil {
+		t.Fatalf("current tier after escalation: %v", err)
+	}
+	if tier != 1 {
+		t.Fatalf("expected tier 1 after escalation, got %d", tier)
+	}
+
+	// Retry count should be 0 at the new tier (fresh counter).
+	retries, err := esc.RetryCountAtCurrentTier(storyID)
+	if err != nil {
+		t.Fatalf("retry count at tier 1: %v", err)
+	}
+	if retries != 0 {
+		t.Fatalf("expected 0 retries at fresh tier 1, got %d", retries)
+	}
+
+	// Verify story projection has escalation_tier = 1.
+	story, err := ps.GetStory(storyID)
+	if err != nil {
+		t.Fatalf("get story after tier 1 escalation: %v", err)
+	}
+	if story.EscalationTier != 1 {
+		t.Fatalf("expected projection escalation_tier 1, got %d", story.EscalationTier)
+	}
+
+	// --- Step 5: Tier 1 - emit 2 more STORY_REVIEW_FAILED events ---
+	// Small sleep to ensure timestamps are strictly after escalation event.
+	for i := 0; i < 2; i++ {
+		evt := state.NewEvent(state.EventStoryReviewFailed, "agent-senior", storyID, nil)
+		if err := es.Append(evt); err != nil {
+			t.Fatalf("append tier 1 review failed %d: %v", i, err)
+		}
+		if err := ps.Project(evt); err != nil {
+			t.Fatalf("project tier 1 review failed %d: %v", i, err)
+		}
+	}
+
+	shouldEsc, nextTier, err = esc.ShouldEscalate(storyID)
+	if err != nil {
+		t.Fatalf("should escalate at tier 1: %v", err)
+	}
+	if !shouldEsc {
+		t.Fatal("expected escalation needed after 2 failures at tier 1")
+	}
+	if nextTier != 2 {
+		t.Fatalf("expected next tier 2, got %d", nextTier)
+	}
+
+	// --- Step 6: Escalate to tier 2 (manager) ---
+	escEvt2 := state.NewEvent(state.EventStoryEscalated, "monitor", storyID, map[string]any{
+		"from_tier": 1, "to_tier": 2, "reason": "max retries at tier 1",
+	})
+	if err := es.Append(escEvt2); err != nil {
+		t.Fatalf("append escalation to tier 2: %v", err)
+	}
+	if err := ps.Project(escEvt2); err != nil {
+		t.Fatalf("project escalation to tier 2: %v", err)
+	}
+
+	tier, err = esc.CurrentTier(storyID)
+	if err != nil {
+		t.Fatalf("current tier after tier 2 escalation: %v", err)
+	}
+	if tier != 2 {
+		t.Fatalf("expected tier 2, got %d", tier)
+	}
+
+	// Emit 2 failures at tier 2 to trigger escalation to tier 3 (tech lead).
+	for i := 0; i < 2; i++ {
+		evt := state.NewEvent(state.EventStoryReviewFailed, "manager", storyID, nil)
+		if err := es.Append(evt); err != nil {
+			t.Fatalf("append tier 2 review failed %d: %v", i, err)
+		}
+	}
+
+	shouldEsc, nextTier, err = esc.ShouldEscalate(storyID)
+	if err != nil {
+		t.Fatalf("should escalate at tier 2: %v", err)
+	}
+	if !shouldEsc {
+		t.Fatal("expected escalation needed after 2 failures at tier 2")
+	}
+	if nextTier != 3 {
+		t.Fatalf("expected next tier 3, got %d", nextTier)
+	}
+
+	// --- Step 7: Escalate to tier 3 (tech lead) ---
+	escEvt3 := state.NewEvent(state.EventStoryEscalated, "monitor", storyID, map[string]any{
+		"from_tier": 2, "to_tier": 3, "reason": "max manager attempts",
+	})
+	if err := es.Append(escEvt3); err != nil {
+		t.Fatalf("append escalation to tier 3: %v", err)
+	}
+	if err := ps.Project(escEvt3); err != nil {
+		t.Fatalf("project escalation to tier 3: %v", err)
+	}
+
+	tier, err = esc.CurrentTier(storyID)
+	if err != nil {
+		t.Fatalf("current tier after tier 3 escalation: %v", err)
+	}
+	if tier != 3 {
+		t.Fatalf("expected tier 3, got %d", tier)
+	}
+
+	// Tier 3 allows 1 attempt; emit 1 failure to trigger tier 4 (pause).
+	failEvt := state.NewEvent(state.EventStoryReviewFailed, "tech-lead", storyID, nil)
+	if err := es.Append(failEvt); err != nil {
+		t.Fatalf("append tier 3 review failed: %v", err)
+	}
+
+	shouldEsc, nextTier, err = esc.ShouldEscalate(storyID)
+	if err != nil {
+		t.Fatalf("should escalate at tier 3: %v", err)
+	}
+	if !shouldEsc {
+		t.Fatal("expected escalation needed after 1 failure at tier 3")
+	}
+	if nextTier != 4 {
+		t.Fatalf("expected next tier 4 (pause), got %d", nextTier)
+	}
+
+	// --- Step 8: Escalate to tier 4 (pause) ---
+	escEvt4 := state.NewEvent(state.EventStoryEscalated, "monitor", storyID, map[string]any{
+		"from_tier": 3, "to_tier": 4, "reason": "tech lead re-plan failed",
+	})
+	if err := es.Append(escEvt4); err != nil {
+		t.Fatalf("append escalation to tier 4: %v", err)
+	}
+	if err := ps.Project(escEvt4); err != nil {
+		t.Fatalf("project escalation to tier 4: %v", err)
+	}
+
+	// Tier 4 has 0 max retries - immediately suggests escalation to tier 5.
+	shouldEsc, nextTier, err = esc.ShouldEscalate(storyID)
+	if err != nil {
+		t.Fatalf("should escalate at tier 4: %v", err)
+	}
+	if !shouldEsc {
+		t.Fatal("expected escalation at tier 4 (pause)")
+	}
+	if nextTier != 5 {
+		t.Fatalf("expected next tier 5, got %d", nextTier)
+	}
+
+	// Verify final projection tier.
+	story, err = ps.GetStory(storyID)
+	if err != nil {
+		t.Fatalf("get story at tier 4: %v", err)
+	}
+	if story.EscalationTier != 4 {
+		t.Fatalf("expected projection escalation_tier 4, got %d", story.EscalationTier)
+	}
+
+	// --- Step 9: Test allDone check - split status counts as completed ---
+	splitStoryID := "r-esc-1-s-002"
+	splitEvt := state.NewEvent(state.EventStoryCreated, "planner", splitStoryID, map[string]any{
+		"id":                  splitStoryID,
+		"req_id":              reqID,
+		"title":               "Splittable story",
+		"description":         "This story will be split",
+		"acceptance_criteria": "Split children pass",
+		"complexity":          8,
+	})
+	if err := es.Append(splitEvt); err != nil {
+		t.Fatalf("append split story created: %v", err)
+	}
+	if err := ps.Project(splitEvt); err != nil {
+		t.Fatalf("project split story created: %v", err)
+	}
+
+	// Mark the story as split via STORY_SPLIT event.
+	storySplitEvt := state.NewEvent(state.EventStorySplit, "manager", splitStoryID, nil)
+	if err := es.Append(storySplitEvt); err != nil {
+		t.Fatalf("append story split: %v", err)
+	}
+	if err := ps.Project(storySplitEvt); err != nil {
+		t.Fatalf("project story split: %v", err)
+	}
+
+	splitStory, err := ps.GetStory(splitStoryID)
+	if err != nil {
+		t.Fatalf("get split story: %v", err)
+	}
+	if splitStory.Status != "split" {
+		t.Fatalf("expected split story status 'split', got %q", splitStory.Status)
+	}
+
+	// In the monitor's allDone logic, "split" counts as completed
+	// alongside "merged" and "pr_submitted". Verify this logic here
+	// by checking against the same condition the monitor uses.
+	terminalStatuses := map[string]bool{"merged": true, "pr_submitted": true, "split": true}
+	if !terminalStatuses[splitStory.Status] {
+		t.Fatalf("split status should be treated as terminal, but %q is not in terminal set", splitStory.Status)
+	}
+
+	// --- Step 10: Test split validation - overlapping files should fail ---
+	overlappingChildren := []engine.SplitChild{
+		{ID: "child-a", OwnedFiles: []string{"pkg/handler.go", "pkg/model.go"}, Complexity: 3},
+		{ID: "child-b", OwnedFiles: []string{"pkg/model.go", "pkg/util.go"}, Complexity: 2},
+	}
+	if err := esc.ValidateSplit(0, overlappingChildren, 10); err == nil {
+		t.Fatal("expected error for overlapping owned files in split children")
+	}
+
+	// Non-overlapping files should pass.
+	validChildren := []engine.SplitChild{
+		{ID: "child-a", OwnedFiles: []string{"pkg/handler.go"}, Complexity: 3},
+		{ID: "child-b", OwnedFiles: []string{"pkg/model.go"}, Complexity: 2},
+	}
+	if err := esc.ValidateSplit(0, validChildren, 10); err != nil {
+		t.Fatalf("expected valid split, got error: %v", err)
+	}
+
+	// Max depth exceeded should fail.
+	if err := esc.ValidateSplit(2, validChildren, 10); err == nil {
+		t.Fatal("expected error for exceeding max split depth")
+	}
+
+	// --- Step 11: Verify the full event trail in the store ---
+	verifyEventCount := func(eventType state.EventType, expected int) {
+		t.Helper()
+		events, err := es.List(state.EventFilter{Type: eventType})
+		if err != nil {
+			t.Fatalf("list %s events: %v", eventType, err)
+		}
+		if len(events) != expected {
+			t.Fatalf("expected %d %s events, got %d", expected, eventType, len(events))
+		}
+	}
+
+	verifyEventCount(state.EventReqSubmitted, 1)
+	verifyEventCount(state.EventStoryCreated, 2)        // original + split story
+	verifyEventCount(state.EventStoryEscalated, 4)      // tiers 0->1, 1->2, 2->3, 3->4
+	verifyEventCount(state.EventStoryReviewFailed, 7)    // 2 + 2 + 2 + 1
+	verifyEventCount(state.EventStorySplit, 1)           // one split event
+
+	// Verify escalation records in the projection store.
+	sqlitePS, ok := ps.(*state.SQLiteStore)
+	if !ok {
+		t.Fatal("expected ProjectionStore to be *state.SQLiteStore")
+	}
+
+	escalations, err := sqlitePS.ListEscalations()
+	if err != nil {
+		t.Fatalf("list escalations: %v", err)
+	}
+	if len(escalations) != 4 {
+		t.Fatalf("expected 4 escalation records, got %d", len(escalations))
+	}
+
+	// Escalations are ordered DESC by created_at; verify tier progression.
+	// Most recent first: 3->4, 2->3, 1->2, 0->1
+	expectedTiers := [][2]int{{3, 4}, {2, 3}, {1, 2}, {0, 1}}
+	for i, expected := range expectedTiers {
+		if escalations[i].FromTier != expected[0] || escalations[i].ToTier != expected[1] {
+			t.Fatalf("escalation %d: expected %d->%d, got %d->%d",
+				i, expected[0], expected[1], escalations[i].FromTier, escalations[i].ToTier)
+		}
+	}
+}

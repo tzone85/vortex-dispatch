@@ -20,7 +20,6 @@ const (
 	colorOrange  = lipgloss.Color("#FF9933")
 
 	colorBgDark      = lipgloss.Color("#1A1A2E")
-	colorBgPanel     = lipgloss.Color("#16213E")
 	colorBgStatusBar = lipgloss.Color("#0A0A1A")
 )
 
@@ -30,12 +29,6 @@ var (
 			Foreground(colorCyan).
 			Bold(true).
 			Padding(0, 1)
-
-	// Panel container with a border.
-	panelStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorDimGray).
-			Padding(1, 2)
 
 	// Status bar at the bottom.
 	statusBarStyle = lipgloss.NewStyle().

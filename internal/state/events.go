@@ -66,6 +66,19 @@ type Event struct {
 	Payload   []byte    `json:"payload,omitempty"`
 }
 
+// DecodePayload unmarshals a JSON-encoded event payload into a map.
+// Returns an empty map if the payload is nil or cannot be decoded.
+func DecodePayload(payload []byte) map[string]any {
+	if len(payload) == 0 {
+		return map[string]any{}
+	}
+	var m map[string]any
+	if err := json.Unmarshal(payload, &m); err != nil {
+		return map[string]any{}
+	}
+	return m
+}
+
 // NewEvent creates a new Event with a ULID identifier and current timestamp.
 // If data is nil, the payload will be nil (not an empty JSON object).
 func NewEvent(eventType EventType, agentID, storyID string, data map[string]any) Event {

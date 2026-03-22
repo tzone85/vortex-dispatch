@@ -1,6 +1,7 @@
 package state_test
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/tzone85/vortex-dispatch/internal/state"
@@ -182,5 +183,80 @@ func TestSQLiteStore_StoryOwnedFiles(t *testing.T) {
 	}
 	if story.WaveHint != "sequential" {
 		t.Fatalf("expected wave_hint 'sequential', got %s", story.WaveHint)
+	}
+}
+
+func TestEscalationProjection(t *testing.T) {
+	dir := t.TempDir()
+	store, err := state.NewSQLiteStore(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer store.Close()
+
+	store.Project(state.NewEvent(state.EventStoryCreated, "", "s-001", map[string]any{
+		"id": "s-001", "req_id": "req-1", "title": "Test", "complexity": 3,
+	}))
+	store.Project(state.NewEvent(state.EventStoryEscalated, "monitor", "s-001", map[string]any{
+		"from_tier": 0, "to_tier": 1, "reason": "max retries",
+	}))
+
+	story, err := store.GetStory("s-001")
+	if err != nil {
+		t.Fatalf("get story: %v", err)
+	}
+	if story.EscalationTier != 1 {
+		t.Errorf("expected escalation_tier=1, got %d", story.EscalationTier)
+	}
+
+	escalations, err := store.ListEscalations()
+	if err != nil {
+		t.Fatalf("list escalations: %v", err)
+	}
+	if len(escalations) != 1 {
+		t.Fatalf("expected 1 escalation, got %d", len(escalations))
+	}
+	if escalations[0].ToTier != 1 {
+		t.Errorf("expected to_tier=1, got %d", escalations[0].ToTier)
+	}
+}
+
+func TestSplitProjection(t *testing.T) {
+	dir := t.TempDir()
+	store, _ := state.NewSQLiteStore(filepath.Join(dir, "test.db"))
+	defer store.Close()
+
+	store.Project(state.NewEvent(state.EventStoryCreated, "", "s-001", map[string]any{
+		"id": "s-001", "req_id": "req-1", "title": "Parent", "complexity": 5,
+	}))
+	store.Project(state.NewEvent(state.EventStorySplit, "manager", "s-001", map[string]any{
+		"child_story_ids": []string{"s-001-a"}, "reason": "complex",
+	}))
+
+	story, _ := store.GetStory("s-001")
+	if story.Status != "split" {
+		t.Errorf("expected split, got %s", story.Status)
+	}
+}
+
+func TestRewriteResetsEscalationTier(t *testing.T) {
+	dir := t.TempDir()
+	store, _ := state.NewSQLiteStore(filepath.Join(dir, "test.db"))
+	defer store.Close()
+
+	store.Project(state.NewEvent(state.EventStoryCreated, "", "s-001", map[string]any{
+		"id": "s-001", "req_id": "req-1", "title": "Original", "complexity": 5,
+	}))
+	store.Project(state.NewEvent(state.EventStoryEscalated, "monitor", "s-001", map[string]any{
+		"from_tier": 0, "to_tier": 2,
+	}))
+	store.Project(state.NewEvent(state.EventStoryRewritten, "manager", "s-001", map[string]any{
+		"changes": map[string]any{"title": "Rewritten", "complexity": 3},
+		"reason":  "simplify",
+	}))
+
+	story, _ := store.GetStory("s-001")
+	if story.EscalationTier != 0 {
+		t.Errorf("expected escalation_tier=0 after rewrite, got %d", story.EscalationTier)
 	}
 }

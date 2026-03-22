@@ -12,7 +12,7 @@ const maxActivityEvents = 30
 
 // renderActivity renders the recent event activity feed.
 func (m Model) renderActivity(width, maxRows int) string {
-	heading := headingStyle.Render("Activity")
+	heading := headingStyle.Render("─ Activity ")
 	events := m.events
 	if len(events) == 0 {
 		return lipgloss.JoinVertical(lipgloss.Left,

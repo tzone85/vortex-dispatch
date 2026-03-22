@@ -472,9 +472,11 @@ func (s *SQLiteStore) projectStoryCreated(payload map[string]any) error {
 		waveHint = "parallel"
 	}
 
+	splitDepth := payloadInt(payload, "split_depth")
+
 	_, err := s.db.Exec(
-		`INSERT INTO stories (id, req_id, title, description, acceptance_criteria, complexity, status, owned_files, wave_hint)
-		 VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?)`,
+		`INSERT INTO stories (id, req_id, title, description, acceptance_criteria, complexity, status, owned_files, wave_hint, split_depth)
+		 VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)`,
 		storyID,
 		payloadStr(payload, "req_id"),
 		payloadStr(payload, "title"),
@@ -483,6 +485,7 @@ func (s *SQLiteStore) projectStoryCreated(payload map[string]any) error {
 		complexity,
 		ownedFilesJSON,
 		waveHint,
+		splitDepth,
 	)
 	if err != nil {
 		return err

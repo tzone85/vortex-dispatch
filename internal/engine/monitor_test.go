@@ -34,6 +34,50 @@ func TestNewMonitor(t *testing.T) {
 	}
 }
 
+func TestSetManager(t *testing.T) {
+	es, ps, cleanup := newTestStores(t)
+	defer cleanup()
+
+	cfg := config.DefaultConfig()
+	wd := engine.NewWatchdog(engine.WatchdogConfig{StuckThresholdS: 120}, es)
+
+	reg, err := newTestRegistry()
+	if err != nil {
+		t.Fatalf("create registry: %v", err)
+	}
+
+	mon := engine.NewMonitor(reg, wd, nil, nil, nil, cfg, es, ps)
+
+	// SetManager should not panic.
+	replayClient := llm.NewReplayClient(llm.CompletionResponse{Content: "{}"})
+	mgr := engine.NewManager(replayClient, "test-model", 4000, es, ps)
+	mon.SetManager(mgr)
+}
+
+func TestFindDependents(t *testing.T) {
+	stories := []engine.PlannedStory{
+		{ID: "s-001", DependsOn: nil},
+		{ID: "s-002", DependsOn: []string{"s-001"}},
+		{ID: "s-003", DependsOn: []string{"s-001", "s-002"}},
+		{ID: "s-004", DependsOn: []string{"s-003"}},
+	}
+
+	deps := engine.FindDependents(stories, "s-001")
+	if len(deps) != 2 {
+		t.Fatalf("expected 2 dependents of s-001, got %d: %v", len(deps), deps)
+	}
+
+	deps = engine.FindDependents(stories, "s-003")
+	if len(deps) != 1 || deps[0] != "s-004" {
+		t.Fatalf("expected [s-004], got %v", deps)
+	}
+
+	deps = engine.FindDependents(stories, "s-004")
+	if len(deps) != 0 {
+		t.Fatalf("expected 0 dependents of s-004, got %d", len(deps))
+	}
+}
+
 func TestMonitor_Run_EmptyAgents(t *testing.T) {
 	es, ps, cleanup := newTestStores(t)
 	defer cleanup()

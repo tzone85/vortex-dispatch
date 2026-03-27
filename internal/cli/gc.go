@@ -49,10 +49,14 @@ func runGC(cmd *cobra.Command, _ []string) error {
 		if story.Branch == "" {
 			continue
 		}
+		mergedAt := story.MergedAt
+		if mergedAt.IsZero() {
+			mergedAt = story.CreatedAt // fallback for legacy data
+		}
 		branches = append(branches, engine.BranchInfo{
 			Name:     story.Branch,
 			StoryID:  story.ID,
-			MergedAt: story.CreatedAt,
+			MergedAt: mergedAt,
 		})
 	}
 

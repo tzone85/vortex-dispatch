@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/tzone85/vortex-dispatch/internal/config"
 	"github.com/tzone85/vortex-dispatch/internal/state"
@@ -55,9 +56,9 @@ func (m *Merger) Merge(storyID, storyTitle, repoDir, branch string) (MergeResult
 		return MergeResult{}, fmt.Errorf("push branch %s: %w", branch, err)
 	}
 
-	// Create PR
+	// Create PR using the configured template when available.
 	prTitle := fmt.Sprintf("[VXD] %s", storyTitle)
-	prBody := fmt.Sprintf("Automated PR for story %s\n\n%s", storyID, storyTitle)
+	prBody := m.buildPRBody(storyID, storyTitle)
 
 	pr, err := m.ghOps.CreatePR(repoDir, prTitle, prBody, m.config.BaseBranch, branch)
 	if err != nil {
@@ -104,4 +105,33 @@ func (m *Merger) Merge(storyID, storyTitle, repoDir, branch string) (MergeResult
 	}
 
 	return result, nil
+}
+
+// buildPRBody interpolates the configured PR template with story data.
+// Falls back to a simple default if no template is configured.
+func (m *Merger) buildPRBody(storyID, storyTitle string) string {
+	tmpl := m.config.PRTemplate
+	if tmpl == "" {
+		return fmt.Sprintf("Automated PR for story %s\n\n%s", storyID, storyTitle)
+	}
+
+	description := storyTitle
+	ac := ""
+
+	// Look up richer story data from projection store if available.
+	if m.projStore != nil {
+		if story, err := m.projStore.GetStory(storyID); err == nil {
+			if story.Description != "" {
+				description = story.Description
+			}
+			ac = story.AcceptanceCriteria
+		}
+	}
+
+	r := strings.NewReplacer(
+		"{story_id}", storyID,
+		"{description}", description,
+		"{acceptance_criteria}", ac,
+	)
+	return r.Replace(tmpl)
 }

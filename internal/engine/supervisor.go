@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/tzone85/vortex-dispatch/internal/llm"
 	"github.com/tzone85/vortex-dispatch/internal/state"
@@ -82,14 +83,14 @@ Respond with JSON: {"on_track": bool, "concerns": ["..."], "reprioritize": ["sto
 
 // buildStatusSummary formats story statuses into a human-readable summary.
 func buildStatusSummary(stories []PlannedStory, storyStatuses map[string]string) string {
-	summary := ""
+	var b strings.Builder
 	for _, story := range stories {
 		status := storyStatuses[story.ID]
 		if status == "" {
 			status = "pending"
 		}
-		summary += fmt.Sprintf("- %s: %s (complexity: %d, status: %s)\n",
+		fmt.Fprintf(&b, "- %s: %s (complexity: %d, status: %s)\n",
 			story.ID, story.Title, story.Complexity, status)
 	}
-	return summary
+	return b.String()
 }

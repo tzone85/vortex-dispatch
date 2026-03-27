@@ -172,19 +172,5 @@ func classifyCLIError(err error, output []byte) error {
 	return fmt.Errorf("claude CLI error: %w (output: %s)", err, text)
 }
 
-// trimCodeFences removes leading/trailing markdown code fences from LLM output.
-func trimCodeFences(s string) string {
-	s = strings.TrimSpace(s)
-	if strings.HasPrefix(s, "```") {
-		lines := strings.Split(s, "\n")
-		if len(lines) >= 2 {
-			start := 1
-			end := len(lines)
-			if strings.TrimSpace(lines[end-1]) == "```" {
-				end--
-			}
-			s = strings.Join(lines[start:end], "\n")
-		}
-	}
-	return s
-}
+// trimCodeFences is a convenience alias for StripCodeFences.
+func trimCodeFences(s string) string { return StripCodeFences(s) }

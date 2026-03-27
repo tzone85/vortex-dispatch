@@ -84,7 +84,7 @@ func runResume(cmd *cobra.Command, args []string) error {
 	completed := make(map[string]bool)
 	maxWave := 0
 	for _, story := range stories {
-		if story.Status == "merged" || story.Status == "pr_submitted" {
+		if story.Status == "merged" || story.Status == "pr_submitted" || story.Status == "split" {
 			completed[story.ID] = true
 		}
 		if story.Wave > maxWave {

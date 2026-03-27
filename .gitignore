@@ -1,20 +1,24 @@
 # Binary
 /vxd
+/vxd.exe
 
 # Coverage
 *.out
 coverage.out
+coverage.html
 
-# State
+# State directory
 .vxd/
 
-# Database
+# Database files
 *.db
+*.db-journal
+*.db-wal
 
 # Dependencies (if vendored)
 # vendor/
 
-# Web frontend
+# Web frontend build
 node_modules/
 dist/
 
@@ -26,15 +30,17 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+*.swo
+*~
 
-# Claude
+# Claude Code
 .claude/
 
 # Generated artifacts
 docs/demo.gif
 **/firebase-debug.log
 
-# Config (local copy)
+# Config (local copy, not the example)
 vxd.yaml
 
 # Environment
@@ -43,5 +49,8 @@ vxd.yaml
 
 # Hive workspace artifacts
 .hive/
-repos/team-*/
+repos/
+
+# Stray files
 verification-plan.prompt
+*.prompt

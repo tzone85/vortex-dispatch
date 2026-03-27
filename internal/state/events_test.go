@@ -57,6 +57,7 @@ func TestEventTypeConstants(t *testing.T) {
 		state.EventStoryReviewFailed,
 		state.EventStoryQAStarted,
 		state.EventStoryQAPassed,
+		state.EventStoryQAFailed,
 		state.EventStoryPRCreated,
 		state.EventStoryMerged,
 		state.EventAgentSpawned,

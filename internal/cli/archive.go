@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/tzone85/vortex-dispatch/internal/config"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
 
@@ -55,7 +56,7 @@ func runArchive(cmd *cobra.Command, args []string) error {
 	if err == nil {
 		repoDir, _ := os.Getwd()
 		for _, story := range stories {
-			cleanupStoryBranch(repoDir, story)
+			cleanupStoryBranch(repoDir, s.Config, story)
 		}
 	}
 
@@ -73,13 +74,13 @@ func runArchive(cmd *cobra.Command, args []string) error {
 }
 
 // cleanupStoryBranch removes the worktree and branch for a story, if they exist.
-func cleanupStoryBranch(repoDir string, story state.Story) {
+func cleanupStoryBranch(repoDir string, cfg config.Config, story state.Story) {
 	if story.Branch == "" {
 		return
 	}
 
-	// Try to remove worktree (best-effort)
-	worktreePath := filepath.Join(repoDir, "repos", story.Branch)
+	// Try to remove worktree from the configured state dir (best-effort)
+	worktreePath := filepath.Join(expandHome(cfg.Workspace.StateDir), "worktrees", story.ID)
 	rmCmd := exec.Command("git", "worktree", "remove", "--force", worktreePath)
 	rmCmd.Dir = repoDir
 	rmCmd.Run() //nolint:errcheck // best-effort cleanup

@@ -74,7 +74,7 @@ echo $PATH | tr ':' '\n' | grep go/bin
 # Should show: /Users/<you>/go/bin
 ```
 
-> **Note:** Windows setup may differ — refer to the [Go installation docs](https://go.dev/doc/install) for platform-specific guidance on configuring `GOPATH` and `PATH`.
+> **Windows users:** See [Windows Setup (WSL)](#windows-setup-wsl) below for detailed instructions.
 
 ## Installation
 
@@ -180,6 +180,113 @@ vhs docs/demo.tape
 ```
 
 This produces `docs/demo.gif`.
+
+## Windows Setup (WSL)
+
+VXD uses **tmux** for agent session management, which is a Unix-only tool. Windows users must run VXD inside [WSL 2](https://learn.microsoft.com/en-us/windows/wsl/install) (Windows Subsystem for Linux).
+
+### Step 1: Install WSL 2
+
+Open **PowerShell as Administrator** and run:
+
+```powershell
+wsl --install -d Ubuntu
+```
+
+Restart your machine when prompted. After reboot, the Ubuntu terminal opens automatically — create your Unix username and password.
+
+### Step 2: Install prerequisites inside WSL
+
+Open your WSL terminal (search "Ubuntu" in Start menu) and install all dependencies:
+
+```bash
+# System tools
+sudo apt update && sudo apt install -y tmux sqlite3 git curl build-essential
+
+# Go (check https://go.dev/dl/ for latest version)
+wget https://go.dev/dl/go1.24.4.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.24.4.linux-amd64.tar.gz
+echo 'export PATH="/usr/local/go/bin:$HOME/go/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+# GitHub CLI
+(type -p wget >/dev/null || sudo apt install wget -y) \
+  && sudo mkdir -p -m 755 /etc/apt/keyrings \
+  && out=$(mktemp) && wget -nv -O$out https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+  && cat $out | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
+  && sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+  && sudo apt update \
+  && sudo apt install gh -y
+
+# Node.js (for Claude Code CLI)
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# Claude Code CLI
+npm install -g @anthropic-ai/claude-code
+```
+
+### Step 3: Authenticate
+
+```bash
+claude login          # Claude Code subscription (Max/Pro)
+gh auth login         # GitHub CLI
+export ANTHROPIC_API_KEY="sk-ant-..."   # For VXD internal LLM calls
+```
+
+Add the API key export to `~/.bashrc` so it persists across sessions:
+
+```bash
+echo 'export ANTHROPIC_API_KEY="sk-ant-..."' >> ~/.bashrc
+```
+
+### Step 4: Build and install VXD
+
+```bash
+git clone https://github.com/tzone85/vortex-dispatch.git
+cd vortex-dispatch
+make build && make install
+vxd --help    # Verify installation
+```
+
+### Step 5: Use VXD
+
+All VXD commands run inside WSL. Navigate to your project directory:
+
+```bash
+# Access your Windows files from WSL
+cd /mnt/c/Users/<YourName>/Projects/my-app
+
+# Or work in the WSL filesystem (faster I/O)
+mkdir -p ~/projects/my-app && cd ~/projects/my-app
+git init
+
+vxd init
+vxd req "Build a REST API for user management"
+vxd dashboard
+```
+
+### Web Dashboard on Windows
+
+`vxd dashboard --web` starts an HTTP server inside WSL. Your Windows browser can access it at the same `localhost` URL:
+
+```bash
+vxd dashboard --web --port 8787
+# Open http://localhost:8787 in your Windows browser
+```
+
+WSL 2 automatically forwards localhost ports to Windows, so no extra configuration is needed.
+
+### Windows Tips
+
+| Scenario | Solution |
+|----------|----------|
+| **Slow file I/O on `/mnt/c/`** | Work in the WSL filesystem (`~/projects/`) instead of the Windows mount. Git operations are 3-10x faster. |
+| **tmux not found** | Run `sudo apt install tmux` inside WSL |
+| **Browser doesn't open automatically** | Copy the URL from the terminal and paste it into your Windows browser |
+| **VS Code integration** | Install the [WSL extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-wsl), then `code .` from WSL opens VS Code connected to your WSL filesystem |
+| **Git credential sharing** | Run `git config --global credential.helper "/mnt/c/Program\ Files/Git/mingw64/bin/git-credential-manager.exe"` to share Windows Git credentials with WSL |
 
 ## Next Steps
 

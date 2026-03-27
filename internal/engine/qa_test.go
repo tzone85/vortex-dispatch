@@ -118,7 +118,7 @@ func TestQA_Run_LintFails(t *testing.T) {
 	}
 
 	// Verify QA failed event
-	events, err := es.List(state.EventFilter{Type: state.EventStoryReviewFailed})
+	events, err := es.List(state.EventFilter{Type: state.EventStoryQAFailed})
 	if err != nil {
 		t.Fatalf("list events: %v", err)
 	}

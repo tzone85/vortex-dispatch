@@ -44,13 +44,44 @@ func (fs *FileStore) List(filter EventFilter) ([]Event, error) {
 	return fs.readAndFilter(filter)
 }
 
-// Count returns the number of events matching the filter.
+// Count returns the number of events matching the filter without fully
+// deserializing every event. It scans lines and decodes only the fields
+// needed for filtering, which is significantly cheaper than List().
 func (fs *FileStore) Count(filter EventFilter) (int, error) {
-	events, err := fs.List(filter)
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+
+	f, err := os.Open(fs.path)
 	if err != nil {
 		return 0, err
 	}
-	return len(events), nil
+	defer f.Close()
+
+	count := 0
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		var evt Event
+		if err := json.Unmarshal(scanner.Bytes(), &evt); err != nil {
+			continue
+		}
+		if filter.Type != "" && evt.Type != filter.Type {
+			continue
+		}
+		if filter.AgentID != "" && evt.AgentID != filter.AgentID {
+			continue
+		}
+		if filter.StoryID != "" && evt.StoryID != filter.StoryID {
+			continue
+		}
+		if !filter.After.IsZero() && !evt.Timestamp.After(filter.After) {
+			continue
+		}
+		count++
+		if filter.Limit > 0 && count >= filter.Limit {
+			break
+		}
+	}
+	return count, scanner.Err()
 }
 
 // Close closes the underlying file handle.

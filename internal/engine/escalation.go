@@ -64,16 +64,29 @@ func (e *EscalationMachine) lastEscalationTime(storyID string) time.Time {
 	return latest
 }
 
-// RetryCountAtCurrentTier counts STORY_REVIEW_FAILED events that occurred
-// after the most recent escalation. This scopes retry counts to the
-// current tier so that failures from prior tiers are not double-counted.
+// RetryCountAtCurrentTier counts failure events (STORY_REVIEW_FAILED and
+// STORY_QA_FAILED) that occurred after the most recent escalation. This
+// scopes retry counts to the current tier so that failures from prior
+// tiers are not double-counted.
 func (e *EscalationMachine) RetryCountAtCurrentTier(storyID string) (int, error) {
 	after := e.lastEscalationTime(storyID)
-	return e.eventStore.Count(state.EventFilter{
+	reviewCount, err := e.eventStore.Count(state.EventFilter{
 		Type:    state.EventStoryReviewFailed,
 		StoryID: storyID,
 		After:   after,
 	})
+	if err != nil {
+		return 0, err
+	}
+	qaCount, err := e.eventStore.Count(state.EventFilter{
+		Type:    state.EventStoryQAFailed,
+		StoryID: storyID,
+		After:   after,
+	})
+	if err != nil {
+		return 0, err
+	}
+	return reviewCount + qaCount, nil
 }
 
 // MaxRetriesForTier returns the retry limit for a given escalation tier.

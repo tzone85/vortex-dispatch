@@ -173,23 +173,8 @@ File: %s
 	return resolved, nil
 }
 
-// stripCodeFences removes leading/trailing markdown code fences from LLM output.
-func stripCodeFences(s string) string {
-	s = strings.TrimSpace(s)
-	if strings.HasPrefix(s, "```") {
-		// Remove first line (```lang) and last line (```)
-		lines := strings.Split(s, "\n")
-		if len(lines) >= 2 {
-			start := 1
-			end := len(lines)
-			if strings.TrimSpace(lines[end-1]) == "```" {
-				end--
-			}
-			s = strings.Join(lines[start:end], "\n")
-		}
-	}
-	return s
-}
+// stripCodeFences is a convenience alias for llm.StripCodeFences.
+func stripCodeFences(s string) string { return llm.StripCodeFences(s) }
 
 func (cr *ConflictResolver) emitResolutionEvent(storyID string, files []string, rounds int) {
 	evt := state.NewEvent(state.EventStoryProgress, "conflict-resolver", storyID, map[string]any{

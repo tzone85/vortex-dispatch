@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS stories (
     agent_id TEXT NOT NULL DEFAULT '',
     branch TEXT NOT NULL DEFAULT '',
     pr_url TEXT NOT NULL DEFAULT '',
+    merged_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -110,6 +111,9 @@ func NewSQLiteStore(dsn string) (*SQLiteStore, error) {
 	db.Exec(`ALTER TABLE stories ADD COLUMN wave INTEGER NOT NULL DEFAULT 0`)
 	db.Exec(`ALTER TABLE stories ADD COLUMN pr_number INTEGER NOT NULL DEFAULT 0`)
 
+	// Migrate existing databases: add merged_at column if missing.
+	db.Exec(`ALTER TABLE stories ADD COLUMN merged_at TIMESTAMP`)
+
 	// Migrate existing databases: add escalation columns if missing.
 	escalationMigrations := []string{
 		"ALTER TABLE stories ADD COLUMN escalation_tier INTEGER DEFAULT 0",
@@ -170,10 +174,18 @@ func (s *SQLiteStore) Project(evt Event) error {
 		return s.updateStoryStatus(evt.StoryID, "qa")
 	case EventStoryQAPassed:
 		return s.updateStoryStatus(evt.StoryID, "pr_submitted")
+	case EventStoryQAFailed:
+		return s.updateStoryStatus(evt.StoryID, "draft")
 	case EventStoryPRCreated:
 		return s.projectStoryPRCreated(evt.StoryID, payload)
 	case EventStoryMerged:
-		return s.updateStoryStatus(evt.StoryID, "merged")
+		if _, err := s.db.Exec(
+			`UPDATE stories SET status = 'merged', merged_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+			evt.Timestamp, evt.StoryID,
+		); err != nil {
+			return err
+		}
+		return nil
 
 	case EventStoryEscalated:
 		return s.projectStoryEscalated(evt, payload)
@@ -206,18 +218,22 @@ func (s *SQLiteStore) GetRequirement(id string) (Requirement, error) {
 func (s *SQLiteStore) GetStory(id string) (Story, error) {
 	var story Story
 	var ownedFilesJSON string
+	var mergedAt sql.NullTime
 	err := s.db.QueryRow(
-		`SELECT id, req_id, title, description, acceptance_criteria, complexity, status, agent_id, branch, pr_url, pr_number, owned_files, wave_hint, wave, escalation_tier, split_depth, created_at
+		`SELECT id, req_id, title, description, acceptance_criteria, complexity, status, agent_id, branch, pr_url, pr_number, owned_files, wave_hint, wave, escalation_tier, split_depth, created_at, merged_at
 		 FROM stories WHERE id = ?`,
 		id,
 	).Scan(
 		&story.ID, &story.ReqID, &story.Title, &story.Description,
 		&story.AcceptanceCriteria, &story.Complexity, &story.Status, &story.AgentID, &story.Branch,
 		&story.PRUrl, &story.PRNumber, &ownedFilesJSON, &story.WaveHint, &story.Wave,
-		&story.EscalationTier, &story.SplitDepth, &story.CreatedAt,
+		&story.EscalationTier, &story.SplitDepth, &story.CreatedAt, &mergedAt,
 	)
 	if err != nil {
 		return Story{}, fmt.Errorf("get story %s: %w", id, err)
+	}
+	if mergedAt.Valid {
+		story.MergedAt = mergedAt.Time
 	}
 	if ownedFilesJSON != "" {
 		json.Unmarshal([]byte(ownedFilesJSON), &story.OwnedFiles)
@@ -230,7 +246,7 @@ func (s *SQLiteStore) GetStory(id string) (Story, error) {
 
 // ListStories returns stories matching the given filter.
 func (s *SQLiteStore) ListStories(filter StoryFilter) ([]Story, error) {
-	query := `SELECT id, req_id, title, description, acceptance_criteria, complexity, status, agent_id, branch, pr_url, pr_number, owned_files, wave_hint, wave, escalation_tier, split_depth, created_at FROM stories`
+	query := `SELECT id, req_id, title, description, acceptance_criteria, complexity, status, agent_id, branch, pr_url, pr_number, owned_files, wave_hint, wave, escalation_tier, split_depth, created_at, merged_at FROM stories`
 	var conditions []string
 	var args []any
 
@@ -258,13 +274,17 @@ func (s *SQLiteStore) ListStories(filter StoryFilter) ([]Story, error) {
 	for rows.Next() {
 		var story Story
 		var ownedFilesJSON string
+		var mergedAt sql.NullTime
 		if err := rows.Scan(
 			&story.ID, &story.ReqID, &story.Title, &story.Description,
 			&story.AcceptanceCriteria, &story.Complexity, &story.Status, &story.AgentID, &story.Branch,
 			&story.PRUrl, &story.PRNumber, &ownedFilesJSON, &story.WaveHint, &story.Wave,
-			&story.EscalationTier, &story.SplitDepth, &story.CreatedAt,
+			&story.EscalationTier, &story.SplitDepth, &story.CreatedAt, &mergedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan story: %w", err)
+		}
+		if mergedAt.Valid {
+			story.MergedAt = mergedAt.Time
 		}
 		if ownedFilesJSON != "" {
 			json.Unmarshal([]byte(ownedFilesJSON), &story.OwnedFiles)

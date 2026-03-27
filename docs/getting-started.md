@@ -288,6 +288,54 @@ WSL 2 automatically forwards localhost ports to Windows, so no extra configurati
 | **VS Code integration** | Install the [WSL extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-wsl), then `code .` from WSL opens VS Code connected to your WSL filesystem |
 | **Git credential sharing** | Run `git config --global credential.helper "/mnt/c/Program\ Files/Git/mingw64/bin/git-credential-manager.exe"` to share Windows Git credentials with WSL |
 
+## Troubleshooting
+
+### Common Issues
+
+| Problem | Cause | Solution |
+|---------|-------|----------|
+| `vxd: command not found` | `~/go/bin` not in PATH | Complete the [PATH setup](#before-you-install-path-setup-required) section |
+| `no LLM available` | No API key and no Claude CLI | Set `ANTHROPIC_API_KEY` or install Claude Code CLI (`npm install -g @anthropic-ai/claude-code`) |
+| `tmux not found` | tmux not installed | Install: `brew install tmux` (macOS) or `sudo apt install tmux` (Ubuntu/WSL) |
+| `gh not found` | GitHub CLI not installed | Install: `brew install gh` (macOS) or see [cli.github.com](https://cli.github.com) |
+| `repository has no commits` | Empty git repo | Run `git add . && git commit -m "initial commit"` before `vxd resume` |
+| `planning failed: prompt too large` | Requirement too long for CLI mode | Set `ANTHROPIC_API_KEY` for API-based planning, or split the requirement |
+| Agent stuck in permission prompt | Runtime permission denied | Use `--godmode` flag or set `planning.godmode: true` in vxd.yaml |
+| `config not found` | Missing vxd.yaml | Run `vxd init` in your project directory |
+| Agent sessions invisible | Wrong tmux server | Run `tmux list-sessions` to verify sessions exist |
+| Merge fails with conflicts | Parallel agents touched same files | VXD uses LLM-powered conflict resolution; if it fails repeatedly, try reducing parallel stories |
+
+### Verifying Your Setup
+
+Run this checklist before your first requirement:
+
+```bash
+# 1. Check VXD is installed
+vxd --help
+
+# 2. Check configuration is valid
+vxd config validate
+
+# 3. Check required tools
+which tmux && which gh && which git
+
+# 4. Check at least one AI runtime
+which claude || which codex || which gemini
+
+# 5. Check GitHub CLI auth
+gh auth status
+
+# 6. Check repo has at least one commit
+git log --oneline -1
+```
+
+### Getting Help
+
+- **Events log**: `vxd events --limit 20` shows what happened
+- **Agent sessions**: `tmux list-sessions` shows active agent sessions
+- **Agent output**: `tmux capture-pane -t <session-name> -p | tail -30` shows what an agent is doing
+- **Config check**: `vxd config show` prints the active configuration
+
 ## Next Steps
 
 You're ready to explore the full pipeline. Head to the [Tutorial](tutorial.md) for a detailed walkthrough.

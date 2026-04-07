@@ -186,7 +186,7 @@ func runResume(cmd *cobra.Command, args []string) error {
 	}
 
 	var reviewer *engine.Reviewer
-	llmClient, llmErr := buildLLMClient(s.Config.Models.Senior.Provider, godmode)
+	llmClient, llmErr := buildLLMClient(s.Config.Models.Senior.Provider, nil, godmode)
 	if llmErr != nil {
 		log.Printf("Warning: LLM client unavailable, skipping code review: %v", llmErr)
 	} else {

@@ -21,10 +21,10 @@ func DefaultConfig() Config {
 		Models: ModelsConfig{
 			TechLead:     ModelConfig{Provider: "anthropic", Model: "claude-opus-4-20250514", MaxTokens: 16000},
 			Senior:       ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-20250514", MaxTokens: 8000},
-			Intermediate: ModelConfig{Provider: "anthropic", Model: "claude-haiku-4-5-20251001", MaxTokens: 4000},
-			Junior:       ModelConfig{Provider: "openai", Model: "gpt-4o-mini", MaxTokens: 4000},
+			Intermediate: ModelConfig{Provider: "google", Model: "gemma-4-27b-it", MaxTokens: 4000},
+			Junior:       ModelConfig{Provider: "google", Model: "gemma-4-27b-it", MaxTokens: 4000},
 			QA:           ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-20250514", MaxTokens: 8000},
-			Supervisor:   ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-20250514", MaxTokens: 4000},
+			Supervisor:   ModelConfig{Provider: "google", Model: "gemma-4-27b-it", MaxTokens: 4000},
 			Manager:      ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-20250514", MaxTokens: 8000},
 		},
 		Routing: RoutingConfig{

@@ -23,7 +23,9 @@ func NewFileStore(path string) (*FileStore, error) {
 	return &FileStore{path: path, file: f}, nil
 }
 
-// Append writes a single event to the end of the JSONL file.
+// Append writes a single event to the end of the JSONL file and flushes
+// it to disk. The fsync ensures durability — critical for an event-sourced
+// system where the event log is the source of truth.
 func (fs *FileStore) Append(event Event) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
@@ -32,8 +34,10 @@ func (fs *FileStore) Append(event Event) error {
 	if err != nil {
 		return err
 	}
-	_, err = fs.file.Write(append(data, '\n'))
-	return err
+	if _, err = fs.file.Write(append(data, '\n')); err != nil {
+		return err
+	}
+	return fs.file.Sync()
 }
 
 // List reads all events from the file and returns those matching the filter.

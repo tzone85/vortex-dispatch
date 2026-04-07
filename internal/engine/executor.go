@@ -73,28 +73,10 @@ func (e *Executor) spawn(repoDir string, a Assignment, story PlannedStory) Spawn
 		return result
 	}
 
-	// Write a CLAUDE.md that suppresses brainstorming/skill plugins and
-	// instructs the agent to implement code directly without interaction.
-	claudeMDPath := filepath.Join(worktreePath, "CLAUDE.md")
-	{
-		claudeMD := `# Agent Instructions
-
-You are an autonomous coding agent. Implement code directly.
-
-CRITICAL RULES:
-- Do NOT brainstorm, ask questions, or request clarification
-- Do NOT invoke any skills or plugins (no /brainstorming, no /superpowers)
-- Do NOT enter plan mode or design mode
-- IMMEDIATELY start writing code based on your instructions
-- Make reasonable assumptions for any unspecified details
-- Create or modify files as needed
-- Write tests for your changes
-- Commit all changes to git when done
-
-If you have superpowers or skills available, IGNORE them. Your only job is to write code.
-`
-		os.WriteFile(claudeMDPath, []byte(claudeMD), 0o644)
-	}
+	// Note: CLAUDE.md is written by the runtime's Spawn() method (see
+	// registry.go) on every spawn so that reused worktrees always get
+	// fresh content. We do NOT write it here to avoid a duplicate write
+	// with conflicting content.
 
 	// Resolve runtime for this role
 	rtName := e.runtimeForRole(a.Role)
@@ -162,9 +144,12 @@ If you have superpowers or skills available, IGNORE them. Your only job is to wr
 // and extracts the "feedback" field from its payload. Returns an empty
 // string if no feedback is found.
 func (e *Executor) latestReviewFeedback(storyID string) string {
+	// Check review failed events (emitted by the reviewer and the
+	// monitor's resetStoryToDraft). The reviewer uses agentID="reviewer"
+	// and puts feedback in "summary"; the monitor uses varying agentIDs
+	// and puts it in "reason". Search without AgentID filter to catch both.
 	events, err := e.eventStore.List(state.EventFilter{
 		Type:    state.EventStoryReviewFailed,
-		AgentID: "monitor",
 		StoryID: storyID,
 	})
 	if err != nil || len(events) == 0 {
@@ -182,8 +167,12 @@ func (e *Executor) latestReviewFeedback(storyID string) string {
 		return ""
 	}
 
-	feedback, _ := payload["feedback"].(string)
-	return feedback
+	// Try "summary" (from reviewer) then "reason" (from monitor).
+	if summary, ok := payload["summary"].(string); ok && summary != "" {
+		return summary
+	}
+	reason, _ := payload["reason"].(string)
+	return reason
 }
 
 // runtimeForRole selects the configured runtime whose CLI can serve the

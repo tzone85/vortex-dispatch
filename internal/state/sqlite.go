@@ -97,6 +97,11 @@ func NewSQLiteStore(dsn string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("apply migration: %w", err)
 	}
 
+	// Enable WAL mode for concurrent read/write access. The monitor's
+	// pipeline goroutines write concurrently; without WAL, SQLite uses
+	// journal mode which returns "database is locked" under contention.
+	db.Exec("PRAGMA journal_mode=WAL")
+
 	// Migrate existing databases: add acceptance_criteria column if missing.
 	db.Exec(`ALTER TABLE stories ADD COLUMN acceptance_criteria TEXT NOT NULL DEFAULT ''`)
 

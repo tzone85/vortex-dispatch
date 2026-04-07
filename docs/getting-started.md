@@ -47,9 +47,11 @@ gh auth login
 
 ## Before You Install: PATH Setup (required)
 
-The VXD binary installs to `~/go/bin/`. You **must** ensure this directory exists and is on your PATH before proceeding.
+By default, `go install` places binaries in `~/go/bin/`. You can also build to `~/.local/bin/` if that is where your system resolves binaries. Either way, ensure the target directory is on your PATH.
 
-**1. Create the Go bin directory:**
+### macOS / Linux
+
+**1. Create the install directory:**
 
 ```bash
 mkdir -p "$(go env GOPATH)/bin"
@@ -71,10 +73,22 @@ source ~/.zshrc
 
 ```bash
 echo $PATH | tr ':' '\n' | grep go/bin
-# Should show: /Users/<you>/go/bin
+# Should show: /Users/<you>/go/bin (macOS) or /home/<you>/go/bin (Linux)
 ```
 
-> **Windows users:** See [Windows Setup (WSL)](#windows-setup-wsl) below for detailed instructions.
+### Windows (PowerShell — without WSL)
+
+If you prefer native Windows development without WSL, see the full [Windows Setup (WSL)](#windows-setup-wsl) section below. For a quick PowerShell PATH setup:
+
+```powershell
+# Add Go's bin directory to the current user's PATH
+$gobin = Join-Path $env:USERPROFILE "go\bin"
+[Environment]::SetEnvironmentVariable("PATH", "$gobin;$([Environment]::GetEnvironmentVariable('PATH', 'User'))", "User")
+# Reload in this session
+$env:PATH = "$gobin;$env:PATH"
+```
+
+> **Important:** VXD requires **tmux** for agent session management, which is only available on Unix. Windows users must use [WSL 2](#windows-setup-wsl) for the full pipeline. Native Windows works for `vxd status`, `vxd events`, and `vxd dashboard --web` (read-only commands) but not for `vxd req` or `vxd resume` which spawn tmux sessions.
 
 ## Installation
 
@@ -287,6 +301,10 @@ WSL 2 automatically forwards localhost ports to Windows, so no extra configurati
 | **Browser doesn't open automatically** | Copy the URL from the terminal and paste it into your Windows browser |
 | **VS Code integration** | Install the [WSL extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-wsl), then `code .` from WSL opens VS Code connected to your WSL filesystem |
 | **Git credential sharing** | Run `git config --global credential.helper "/mnt/c/Program\ Files/Git/mingw64/bin/git-credential-manager.exe"` to share Windows Git credentials with WSL |
+| **Windows Terminal (recommended)** | Use [Windows Terminal](https://aka.ms/terminal) for better multi-tab WSL sessions, proper color support, and split panes for monitoring tmux sessions alongside VXD output |
+| **Environment variables not persisting** | Add `export` lines to `~/.bashrc` inside WSL (not PowerShell). WSL does not inherit Windows environment variables unless configured via `/etc/wsl.conf` |
+| **WSL memory limit** | VXD + multiple AI agents can use significant memory. If WSL runs out of memory, create `%UserProfile%\.wslconfig` with `[wsl2]\nmemory=8GB` (adjust to your system) |
+| **Accessing WSL files from Windows** | Open File Explorer and navigate to `\\wsl$\Ubuntu\home\<you>\projects\` to browse WSL filesystem files from Windows |
 
 ## Troubleshooting
 
@@ -304,6 +322,10 @@ WSL 2 automatically forwards localhost ports to Windows, so no extra configurati
 | `config not found` | Missing vxd.yaml | Run `vxd init` in your project directory |
 | Agent sessions invisible | Wrong tmux server | Run `tmux list-sessions` to verify sessions exist |
 | Merge fails with conflicts | Parallel agents touched same files | VXD uses LLM-powered conflict resolution; if it fails repeatedly, try reducing parallel stories |
+| `database is locked` (SQLite) | Concurrent writes during pipeline | Fixed in latest version (WAL mode enabled). If upgrading, delete `~/.vxd/vxd.db` and replay events |
+| **WSL:** `localhost` not reachable from Windows | WSL 2 networking issue | Run `wsl --shutdown` from PowerShell and restart WSL. Alternatively, check `ip addr show eth0` in WSL and use that IP |
+| **WSL:** `npm: command not found` | Node.js not installed in WSL | Install Node.js inside WSL (not Windows Node.js): `curl -fsSL https://deb.nodesource.com/setup_22.x \| sudo -E bash - && sudo apt install -y nodejs` |
+| **WSL:** file permissions wrong | NTFS mount permissions | Add to `/etc/wsl.conf`: `[automount]\noptions = "metadata"` then restart WSL |
 
 ### Verifying Your Setup
 

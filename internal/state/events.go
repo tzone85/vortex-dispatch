@@ -82,18 +82,21 @@ func DecodePayload(payload []byte) map[string]any {
 
 // NewEvent creates a new Event with a ULID identifier and current timestamp.
 // If data is nil, the payload will be nil (not an empty JSON object).
+// A single time.Now() call is used for both the ULID and the event Timestamp
+// to prevent clock skew between the two.
 func NewEvent(eventType EventType, agentID, storyID string, data map[string]any) Event {
 	var payload []byte
 	if data != nil {
 		payload, _ = json.Marshal(data)
 	}
 
-	id := ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader)
+	now := time.Now().UTC()
+	id := ulid.MustNew(ulid.Timestamp(now), rand.Reader)
 
 	return Event{
 		ID:        id.String(),
 		Type:      eventType,
-		Timestamp: time.Now().UTC(),
+		Timestamp: now,
 		AgentID:   agentID,
 		StoryID:   storyID,
 		Payload:   payload,

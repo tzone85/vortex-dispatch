@@ -11,6 +11,8 @@ Welcome to the VXD (Vortex Dispatch) training guides. Whether you're a first-tim
 | [Pipeline Workflows](workflows.md) | How stories flow from planning through merge, stage by stage |
 | [Configuration Reference](configuration.md) | Every config knob explained with defaults and tuning advice |
 | [Agents and Roles](agents-and-roles.md) | Role hierarchy, complexity routing, model selection, reputation |
+| [Model Selection](model-selection.md) | Provider options, execution vs verification tiers, cost comparison |
+| [Gemma 4 Guide](gemma-4-guide.md) | Google AI Studio free tier setup, fallback behavior, configuration |
 | [Monitoring and Intervention](monitoring.md) | Watchdog, supervisor, dashboard, escalations |
 
 ## For Contributors

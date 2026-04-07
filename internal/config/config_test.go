@@ -181,8 +181,8 @@ func TestDefaultConfig_IncludesModels(t *testing.T) {
 	if cfg.Models.TechLead.Provider != "anthropic" {
 		t.Fatalf("expected tech_lead provider 'anthropic', got %s", cfg.Models.TechLead.Provider)
 	}
-	if cfg.Models.Junior.Provider != "openai" {
-		t.Fatalf("expected junior provider 'openai', got %s", cfg.Models.Junior.Provider)
+	if cfg.Models.Junior.Provider != "google" {
+		t.Fatalf("expected junior provider 'google', got %s", cfg.Models.Junior.Provider)
 	}
 	if cfg.Models.TechLead.MaxTokens != 16000 {
 		t.Fatalf("expected tech_lead max_tokens 16000, got %d", cfg.Models.TechLead.MaxTokens)

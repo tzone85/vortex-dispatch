@@ -196,9 +196,9 @@ Respond ONLY with the JSON array, no other text.`, requirement, p.config.Plannin
 	}
 
 	// Emit requirement planned
-	if err := p.eventStore.Append(state.NewEvent(state.EventReqPlanned, "tech-lead", "", map[string]any{
+	if err := p.emitAndProject(state.EventReqPlanned, "tech-lead", "", map[string]any{
 		"id": reqID,
-	})); err != nil {
+	}); err != nil {
 		return PlanResult{}, fmt.Errorf("emit req planned: %w", err)
 	}
 

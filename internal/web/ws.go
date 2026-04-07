@@ -89,10 +89,13 @@ func (h *Hub) Run(ctx context.Context) {
 }
 
 func (h *Hub) broadcast(ctx context.Context) {
-	// Event diff: detect and push new events before state snapshot
-	currentCount, _ := h.server.eventStore.Count(state.EventFilter{})
+	// Event diff: detect and push new events before state snapshot.
+	// FileStore.List reads from the start of the file, so we fetch ALL
+	// events and slice from the previous offset to get only the new ones.
+	allEvents, _ := h.server.eventStore.List(state.EventFilter{})
+	currentCount := len(allEvents)
 	if currentCount > h.lastEventCount && h.lastEventCount > 0 {
-		newEvents, _ := h.server.eventStore.List(state.EventFilter{Limit: currentCount - h.lastEventCount})
+		newEvents := allEvents[h.lastEventCount:]
 		for _, evt := range newEvents {
 			evtMsg := WSResponse{Type: "event", Data: EventSummary{
 				Type:      string(evt.Type),

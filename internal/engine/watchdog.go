@@ -82,9 +82,14 @@ func (w *Watchdog) Check(sessionName string, rt runtime.Runtime) CheckResult {
 
 		prev, exists := w.fingerprints[sessionName]
 		now := time.Now()
-		w.fingerprints[sessionName] = Fingerprint{Hash: hash, Timestamp: now}
 
-		if exists && prev.Hash == hash {
+		if !exists || prev.Hash != hash {
+			// Output changed — record the new hash and the time it was
+			// first observed so we measure how long the *same* output
+			// persists rather than just one poll interval.
+			w.fingerprints[sessionName] = Fingerprint{Hash: hash, Timestamp: now}
+		} else {
+			// Output unchanged — check accumulated idle time.
 			elapsed := now.Sub(prev.Timestamp)
 			if elapsed.Seconds() >= float64(w.config.StuckThresholdS) {
 				result.Status = runtime.StatusStuck

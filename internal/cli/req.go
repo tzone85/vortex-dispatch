@@ -13,6 +13,7 @@ import (
 
 	"github.com/oklog/ulid/v2"
 	"github.com/spf13/cobra"
+	"github.com/tzone85/vortex-dispatch/internal/agent"
 	"github.com/tzone85/vortex-dispatch/internal/engine"
 	"github.com/tzone85/vortex-dispatch/internal/llm"
 )
@@ -199,6 +200,18 @@ func buildPlanningClient(provider string, godmode bool) (llm.Client, error) {
 		if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
 			apiClient = llm.NewRetryClient(llm.NewOpenAIClient(apiKey), 3)
 		}
+	case "google":
+		if apiKey := os.Getenv("GOOGLE_AI_API_KEY"); apiKey != "" {
+			google := llm.NewToolCallAdapter(llm.NewGoogleAIClient(apiKey), llm.ToolSchemaFor(agent.RoleTechLead))
+			apiClient = llm.NewRetryClient(google, 2)
+		}
+		if _, err := exec.LookPath("claude"); err == nil {
+			c := llm.NewClaudeCLIClient()
+			if godmode {
+				c = c.WithSkipPermissions()
+			}
+			cliClient = c
+		}
 	default:
 		return nil, fmt.Errorf("unsupported LLM provider: %s", provider)
 	}
@@ -214,10 +227,33 @@ func buildPlanningClient(provider string, godmode bool) (llm.Client, error) {
 // For the "anthropic" provider, it prefers the Claude Code CLI (which uses
 // the user's subscription at no per-token cost) and falls back to direct API
 // calls only when the CLI is not installed.
-func buildLLMClient(provider string, godmode ...bool) (llm.Client, error) {
+func buildLLMClient(provider string, schema *llm.ToolSchema, godmode ...bool) (llm.Client, error) {
 	skipPerms := len(godmode) > 0 && godmode[0]
 
 	switch provider {
+	case "google":
+		apiKey := os.Getenv("GOOGLE_AI_API_KEY")
+		if apiKey == "" {
+			return nil, fmt.Errorf("GOOGLE_AI_API_KEY environment variable is required")
+		}
+		google := llm.NewToolCallAdapter(llm.NewGoogleAIClient(apiKey), schema)
+		primary := llm.NewRetryClient(google, 2)
+
+		var fallback llm.Client
+		if _, err := exec.LookPath("claude"); err == nil {
+			c := llm.NewClaudeCLIClient()
+			if skipPerms {
+				c = c.WithSkipPermissions()
+			}
+			fallback = c
+		} else if ak := os.Getenv("ANTHROPIC_API_KEY"); ak != "" {
+			fallback = llm.NewRetryClient(llm.NewAnthropicClient(ak), 3)
+		}
+
+		if fallback != nil {
+			return llm.NewFallbackClient(primary, fallback), nil
+		}
+		return primary, nil
 	case "cli", "claude-cli":
 		c := llm.NewClaudeCLIClient()
 		if skipPerms {

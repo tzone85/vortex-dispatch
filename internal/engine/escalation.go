@@ -46,13 +46,16 @@ func (e *EscalationMachine) CurrentTier(storyID string) (int, error) {
 // lastEscalationTime returns the timestamp of the most recent
 // STORY_ESCALATED event for the given story. Returns the zero time if
 // no escalation events exist.
-func (e *EscalationMachine) lastEscalationTime(storyID string) time.Time {
-	events, _ := e.eventStore.List(state.EventFilter{
+func (e *EscalationMachine) lastEscalationTime(storyID string) (time.Time, error) {
+	events, err := e.eventStore.List(state.EventFilter{
 		Type:    state.EventStoryEscalated,
 		StoryID: storyID,
 	})
+	if err != nil {
+		return time.Time{}, err
+	}
 	if len(events) == 0 {
-		return time.Time{}
+		return time.Time{}, nil
 	}
 
 	latest := events[0].Timestamp
@@ -61,7 +64,7 @@ func (e *EscalationMachine) lastEscalationTime(storyID string) time.Time {
 			latest = evt.Timestamp
 		}
 	}
-	return latest
+	return latest, nil
 }
 
 // RetryCountAtCurrentTier counts failure events (STORY_REVIEW_FAILED and
@@ -69,7 +72,10 @@ func (e *EscalationMachine) lastEscalationTime(storyID string) time.Time {
 // scopes retry counts to the current tier so that failures from prior
 // tiers are not double-counted.
 func (e *EscalationMachine) RetryCountAtCurrentTier(storyID string) (int, error) {
-	after := e.lastEscalationTime(storyID)
+	after, err := e.lastEscalationTime(storyID)
+	if err != nil {
+		return 0, fmt.Errorf("last escalation time: %w", err)
+	}
 	reviewCount, err := e.eventStore.Count(state.EventFilter{
 		Type:    state.EventStoryReviewFailed,
 		StoryID: storyID,

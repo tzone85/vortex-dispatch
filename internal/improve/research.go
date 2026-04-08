@@ -151,6 +151,27 @@ var trackedProjects = []TrackedProject{
 	{Name: "Event Store", URLs: []string{
 		"https://www.eventstore.com/blog",
 	}, Category: "historical"},
+	{Name: "MemPalace", URLs: []string{
+		"https://github.com/milla-jovovich/mempalace",
+		"https://github.com/milla-jovovich/mempalace/releases",
+	}, Category: "go_ecosystem"},
+	{Name: "DeerFlow", URLs: []string{
+		"https://deerflow.tech",
+	}, Category: "competitors"},
+	{Name: "Hungry Ghost Hive", URLs: []string{
+		"https://github.com/tzone85/hungry-ghost-hive",
+	}, Category: "historical"},
+	{Name: "Natural20 Blog", URLs: []string{
+		"https://natural20.beehiiv.com/p/claude-code-got-cloned-in-2-hours",
+		"https://natural20.beehiiv.com/p/anthropic-says-its-new-ai-model-is-too-dangerous-to-release",
+	}, Category: "llm_providers"},
+	{Name: "Anthropic Glasswing", URLs: []string{
+		"https://www.anthropic.com/glasswing",
+	}, Category: "llm_providers"},
+	{Name: "Claude Mythos Cybersecurity", URLs: []string{
+		"https://thenewstack.io/anthropic-claude-mythos-cybersecurity/",
+		"https://red.anthropic.com/2026/mythos-preview/",
+	}, Category: "security"},
 }
 
 // HistoricalTopicForDay returns the deep-dive search query for today.

@@ -54,7 +54,8 @@ func TestResearcher_ScrapesSourcesViaFirecrawl(t *testing.T) {
 	}
 }
 
-func TestResearcher_HistoricalRotation(t *testing.T) {
+func TestResearcher_ProgressiveDeepDive(t *testing.T) {
+	// Days 1-5 should be same topic, different phases
 	day1 := time.Date(2026, 4, 8, 6, 0, 0, 0, time.UTC)
 	day2 := time.Date(2026, 4, 9, 6, 0, 0, 0, time.UTC)
 
@@ -65,7 +66,42 @@ func TestResearcher_HistoricalRotation(t *testing.T) {
 		t.Error("expected non-empty topic for day 1")
 	}
 	if topic1 == topic2 {
-		t.Error("expected different topics for consecutive days")
+		t.Error("expected different search queries for consecutive days within same topic")
+	}
+
+	// Same topic name for days within the same 5-day window
+	name1 := improve.HistoricalTopicName(day1)
+	name2 := improve.HistoricalTopicName(day2)
+	if name1 != name2 {
+		t.Errorf("expected same topic name within 5-day window, got %q and %q", name1, name2)
+	}
+
+	// Day 6 should potentially be a different topic
+	day6 := time.Date(2026, 4, 13, 6, 0, 0, 0, time.UTC)
+	name6 := improve.HistoricalTopicName(day6)
+	if name1 == name6 {
+		t.Log("Note: same topic after 5 days (may happen due to modular rotation)")
+	}
+}
+
+func TestResearcher_TrackedProjects(t *testing.T) {
+	day1 := time.Date(2026, 4, 8, 6, 0, 0, 0, time.UTC)
+	day2 := time.Date(2026, 4, 9, 6, 0, 0, 0, time.UTC)
+
+	proj1 := improve.TrackedProjectForDay(day1)
+	proj2 := improve.TrackedProjectForDay(day2)
+
+	if proj1.Name == "" {
+		t.Error("expected non-empty project name")
+	}
+	if proj1.Name == proj2.Name {
+		t.Error("expected different projects on consecutive days")
+	}
+
+	// TrackedProjectURLForDay should return a valid URL
+	_, url := improve.TrackedProjectURLForDay(day1)
+	if url == "" {
+		t.Error("expected non-empty project URL")
 	}
 }
 

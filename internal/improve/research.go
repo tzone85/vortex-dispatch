@@ -42,23 +42,145 @@ var currentSources = []Source{
 	{Name: "OpenHands Releases", URL: "https://github.com/All-Hands-AI/OpenHands/releases", Category: "competitors", Direction: "current"},
 }
 
-var historicalTopics = []string{
-	"event sourcing patterns best practices",
-	"tmux automation scripting techniques",
-	"CLI UX design patterns Go",
-	"AI agent orchestration architecture",
-	"Go performance optimization profiling",
-	"distributed systems design patterns",
-	"LLM prompt engineering structured output",
-	"automated code review tools techniques",
-	"dependency management security Go",
-	"testing strategies AI systems",
+// DeepDiveTopic represents a topic that gets 5 days of progressive research.
+type DeepDiveTopic struct {
+	Name   string
+	Phases []string // 5 search queries, one per day
 }
 
-// HistoricalTopicForDay returns the historical deep-dive topic for a given day.
+var deepDiveTopics = []DeepDiveTopic{
+	{Name: "Event Sourcing", Phases: []string{
+		"event sourcing CQRS best practices 2024 2025",
+		"event sourcing Go implementation patterns examples",
+		"event sourcing pitfalls mistakes lessons learned",
+		"event sourcing projection rebuild replay strategies",
+		"event sourcing testing strategies snapshot optimization",
+	}},
+	{Name: "AI Agent Orchestration", Phases: []string{
+		"AI agent orchestration multi-agent systems architecture",
+		"AI agent orchestration frameworks comparison LangGraph CrewAI AutoGen",
+		"AI agent orchestration error recovery retry patterns",
+		"AI agent orchestration cost optimization token management",
+		"AI agent orchestration evaluation benchmarks testing",
+	}},
+	{Name: "CLI UX Patterns", Phases: []string{
+		"CLI UX design best practices Go Cobra 2024",
+		"terminal user interface TUI patterns Go Bubbletea Charm",
+		"CLI progress indicators spinners real-time output patterns",
+		"CLI error messages user-friendly patterns examples",
+		"CLI configuration management patterns dotfiles YAML TOML",
+	}},
+	{Name: "Go Performance", Phases: []string{
+		"Go performance optimization profiling pprof 2024",
+		"Go concurrency patterns goroutine pool worker patterns",
+		"Go memory optimization reduce allocations escape analysis",
+		"Go HTTP server performance optimization middleware",
+		"Go SQLite performance WAL mode concurrent access patterns",
+	}},
+	{Name: "LLM Prompt Engineering", Phases: []string{
+		"LLM structured output JSON function calling best practices",
+		"LLM prompt injection defense detection mitigation 2024",
+		"LLM cost optimization prompt caching batching strategies",
+		"LLM evaluation harness automated testing prompts",
+		"LLM multi-model routing fallback strategies architecture",
+	}},
+	{Name: "Security Hardening", Phases: []string{
+		"Go application security hardening OWASP checklist 2024",
+		"supply chain security Go modules dependency vulnerability",
+		"secret management environment variables Go applications",
+		"API key rotation automated secret scanning CI CD",
+		"Go fuzzing testing security vulnerability discovery",
+	}},
+	{Name: "Code Review Automation", Phases: []string{
+		"automated code review tools AI-powered 2024 2025",
+		"static analysis Go golangci-lint custom rules patterns",
+		"code review checklist quality gates CI pipeline",
+		"AI code review accuracy false positive reduction",
+		"merge conflict resolution automation strategies",
+	}},
+	{Name: "Testing Strategies", Phases: []string{
+		"testing strategies AI systems non-deterministic output",
+		"Go integration testing testcontainers httptest patterns",
+		"test-driven development Go best practices 2024",
+		"flaky test detection quarantine strategies CI",
+		"mutation testing Go code coverage beyond line coverage",
+	}},
+}
+
+// TrackedProject represents a named project to study for ideas.
+type TrackedProject struct {
+	Name     string
+	URLs     []string // GitHub repo, docs, blog — rotated across days
+	Category string
+}
+
+var trackedProjects = []TrackedProject{
+	{Name: "Gas Town", URLs: []string{
+		"https://github.com/search?q=gas+town+software&type=repositories",
+	}, Category: "historical"},
+	{Name: "Dagger CI", URLs: []string{
+		"https://github.com/dagger/dagger/releases",
+		"https://docs.dagger.io/",
+	}, Category: "competitors"},
+	{Name: "Taskfile", URLs: []string{
+		"https://github.com/go-task/task/releases",
+		"https://taskfile.dev/",
+	}, Category: "go_ecosystem"},
+	{Name: "Charm Tools", URLs: []string{
+		"https://github.com/charmbracelet/bubbletea/releases",
+		"https://charm.sh/blog/",
+	}, Category: "go_ecosystem"},
+	{Name: "LangChain", URLs: []string{
+		"https://github.com/langchain-ai/langchain/releases",
+		"https://blog.langchain.dev/",
+	}, Category: "competitors"},
+	{Name: "AutoGen", URLs: []string{
+		"https://github.com/microsoft/autogen/releases",
+	}, Category: "competitors"},
+	{Name: "CrewAI", URLs: []string{
+		"https://github.com/crewAIInc/crewAI/releases",
+	}, Category: "competitors"},
+	{Name: "Aider", URLs: []string{
+		"https://github.com/paul-gauthier/aider/releases",
+		"https://aider.chat/blog/",
+	}, Category: "competitors"},
+	{Name: "GoReleaser", URLs: []string{
+		"https://github.com/goreleaser/goreleaser/releases",
+	}, Category: "go_ecosystem"},
+	{Name: "Event Store", URLs: []string{
+		"https://www.eventstore.com/blog",
+	}, Category: "historical"},
+}
+
+// HistoricalTopicForDay returns the deep-dive search query for today.
+// Each topic gets 5 consecutive days of progressive research before moving to the next.
 func HistoricalTopicForDay(day time.Time) string {
-	idx := day.YearDay() % len(historicalTopics)
-	return historicalTopics[idx]
+	topicIdx := (day.YearDay() / 5) % len(deepDiveTopics)
+	phaseIdx := day.YearDay() % 5
+	topic := deepDiveTopics[topicIdx]
+	if phaseIdx < len(topic.Phases) {
+		return topic.Phases[phaseIdx]
+	}
+	return topic.Phases[0]
+}
+
+// HistoricalTopicName returns the current topic name (for logging/email).
+func HistoricalTopicName(day time.Time) string {
+	topicIdx := (day.YearDay() / 5) % len(deepDiveTopics)
+	return deepDiveTopics[topicIdx].Name
+}
+
+// TrackedProjectForDay returns the project to study today, rotating through the list.
+func TrackedProjectForDay(day time.Time) TrackedProject {
+	idx := day.YearDay() % len(trackedProjects)
+	return trackedProjects[idx]
+}
+
+// TrackedProjectURLForDay returns a specific URL from the tracked project for today.
+func TrackedProjectURLForDay(day time.Time) (TrackedProject, string) {
+	project := TrackedProjectForDay(day)
+	urlIdx := day.YearDay() % len(project.URLs)
+	return project, project.URLs[urlIdx]
 }
 
 // Researcher scrapes web sources via the Firecrawl API.
@@ -80,7 +202,7 @@ func NewResearcher(apiKey, baseURL string) *Researcher {
 // Research scrapes all configured sources and returns sanitized, filtered findings.
 func (r *Researcher) Research(ctx context.Context, now time.Time) ([]Finding, error) {
 	var findings []Finding
-	total := len(currentSources) + 1 // +1 for historical
+	total := len(currentSources) + 2 // +1 deep-dive + 1 tracked project
 
 	for i, src := range currentSources {
 		log.Printf("  [%d/%d] Scraping %s ...", i+1, total, src.Name)
@@ -95,11 +217,14 @@ func (r *Researcher) Research(ctx context.Context, now time.Time) ([]Finding, er
 		findings = append(findings, f...)
 	}
 
-	topic := HistoricalTopicForDay(now)
-	log.Printf("  [%d/%d] Scraping Historical: %s ...", total, total, topic)
+	// Progressive deep-dive: 5 days per topic, each day goes deeper
+	topicName := HistoricalTopicName(now)
+	topicQuery := HistoricalTopicForDay(now)
+	phase := now.YearDay()%5 + 1
+	log.Printf("  [%d/%d] Deep-dive: %s (day %d/5) ...", total-1, total, topicName, phase)
 	historicalSrc := Source{
-		Name:      "Historical: " + topic,
-		URL:       "https://www.google.com/search?q=" + topic,
+		Name:      fmt.Sprintf("Deep-dive: %s (day %d/5)", topicName, phase),
+		URL:       "https://www.google.com/search?q=" + topicQuery,
 		Category:  "historical",
 		Direction: "historical",
 	}
@@ -107,9 +232,28 @@ func (r *Researcher) Research(ctx context.Context, now time.Time) ([]Finding, er
 	f, err := r.scrape(ctx, historicalSrc, now)
 	elapsed := time.Since(start).Round(time.Millisecond)
 	if err != nil {
-		log.Printf("  [%d/%d] Historical FAILED (%s): %v", total, total, elapsed, err)
+		log.Printf("  [%d/%d] Deep-dive FAILED (%s): %v", total-1, total, elapsed, err)
 	} else {
-		log.Printf("  [%d/%d] Historical OK (%s)", total, total, elapsed)
+		log.Printf("  [%d/%d] Deep-dive OK (%s)", total-1, total, elapsed)
+		findings = append(findings, f...)
+	}
+
+	// Tracked project study: rotate through named projects
+	project, projectURL := TrackedProjectURLForDay(now)
+	log.Printf("  [%d/%d] Studying project: %s ...", total, total, project.Name)
+	projectSrc := Source{
+		Name:      "Project: " + project.Name,
+		URL:       projectURL,
+		Category:  project.Category,
+		Direction: "historical",
+	}
+	start = time.Now()
+	f, err = r.scrape(ctx, projectSrc, now)
+	elapsed = time.Since(start).Round(time.Millisecond)
+	if err != nil {
+		log.Printf("  [%d/%d] Project %s FAILED (%s): %v", total, total, project.Name, elapsed, err)
+	} else {
+		log.Printf("  [%d/%d] Project %s OK (%s)", total, total, project.Name, elapsed)
 		findings = append(findings, f...)
 	}
 

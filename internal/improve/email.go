@@ -66,13 +66,13 @@ const emailTemplateSrc = `<!DOCTYPE html>
 {{if .Proposed}}<a href="#proposed" style="margin-right:12px;">Proposed</a>{{end}}
 </nav>
 
-<div id="summary" style="margin-bottom:30px;">
+<a name="summary"></a><div style="margin-bottom:30px;">
 <h2 style="color:#2563eb;">Executive Summary</h2>
 <p>{{.Summary}}</p>
 </div>
 
 {{if .PRs}}
-<div id="prs" style="margin-bottom:30px;">
+<a name="prs"></a><div style="margin-bottom:30px;">
 <h2 style="color:#16a34a;border-bottom:2px solid #16a34a;padding-bottom:5px;">PRs Created Today</h2>
 <table style="width:100%;border-collapse:collapse;">
 <tr style="background:#f0fdf4;"><th style="padding:8px;text-align:left;">Title</th><th>Category</th><th>Tests</th><th>Lines</th></tr>
@@ -89,7 +89,7 @@ const emailTemplateSrc = `<!DOCTYPE html>
 {{end}}
 
 {{if .Trends}}
-<div id="trends" style="margin-bottom:30px;">
+<a name="trends"></a><div style="margin-bottom:30px;">
 <h2 style="color:#2563eb;border-bottom:2px solid #2563eb;padding-bottom:5px;">Current Trends</h2>
 {{range .Trends}}
 <div style="margin-bottom:15px;padding:10px;background:#f8fafc;border-radius:6px;">
@@ -102,7 +102,7 @@ const emailTemplateSrc = `<!DOCTYPE html>
 {{end}}
 
 {{if .Historical}}
-<div id="historical" style="margin-bottom:30px;">
+<a name="historical"></a><div style="margin-bottom:30px;">
 <h2 style="color:#7c3aed;border-bottom:2px solid #7c3aed;padding-bottom:5px;">Historical Discoveries</h2>
 {{range .Historical}}
 <div style="margin-bottom:15px;padding:10px;background:#faf5ff;border-radius:6px;">
@@ -115,7 +115,7 @@ const emailTemplateSrc = `<!DOCTYPE html>
 {{end}}
 
 {{if .Competitors}}
-<div id="competitors" style="margin-bottom:30px;">
+<a name="competitors"></a><div style="margin-bottom:30px;">
 <h2 style="color:#ea580c;border-bottom:2px solid #ea580c;padding-bottom:5px;">Competitor Watch</h2>
 {{range .Competitors}}
 <div style="margin-bottom:15px;padding:10px;background:#fff7ed;border-radius:6px;">
@@ -128,7 +128,7 @@ const emailTemplateSrc = `<!DOCTYPE html>
 {{end}}
 
 {{if .SecurityAlerts}}
-<div id="security" style="margin-bottom:30px;">
+<a name="security"></a><div style="margin-bottom:30px;">
 <h2 style="color:#dc2626;border-bottom:2px solid #dc2626;padding-bottom:5px;">Security Alerts</h2>
 {{range .SecurityAlerts}}
 <div style="margin-bottom:15px;padding:10px;background:#fef2f2;border-radius:6px;border-left:4px solid #dc2626;">
@@ -150,7 +150,7 @@ const emailTemplateSrc = `<!DOCTYPE html>
 {{end}}
 
 {{if .Proposed}}
-<div id="proposed" style="margin-bottom:30px;">
+<a name="proposed"></a><div style="margin-bottom:30px;">
 <h2 style="color:#ca8a04;border-bottom:2px solid #ca8a04;padding-bottom:5px;">Proposed (Not Implemented)</h2>
 <p style="color:#666;">These improvements were too large or risky for auto-implementation. Review and decide.</p>
 {{range .Proposed}}

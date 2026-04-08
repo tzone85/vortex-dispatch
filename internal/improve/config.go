@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 // Config holds all configuration for the self-improvement engine.
@@ -33,6 +34,15 @@ type Config struct {
 
 	// Dry run mode
 	DryRun bool
+
+	// Paths (continued)
+	OpportunitiesDir string // docs/opportunities/
+
+	// Opportunity hunting
+	ActiveBidding       bool
+	MaxProposalsPerDay  int
+	MinHourlyRate       int
+	OpportunityKeywords [][]string // 7 sets, rotated daily
 }
 
 // AllowedLicenses lists permissive licenses acceptable for new dependencies.
@@ -72,12 +82,39 @@ func LoadConfig() (Config, error) {
 		claudePath = cp
 	}
 
+	activeBidding := os.Getenv("VXD_ACTIVE_BIDDING") == "true"
+
+	maxProposals := 3
+	if mp := os.Getenv("VXD_MAX_PROPOSALS_PER_DAY"); mp != "" {
+		if v, err := strconv.Atoi(mp); err == nil && v > 0 {
+			maxProposals = v
+		}
+	}
+
+	minHourly := 50
+	if mh := os.Getenv("VXD_MIN_HOURLY_RATE"); mh != "" {
+		if v, err := strconv.Atoi(mh); err == nil && v > 0 {
+			minHourly = v
+		}
+	}
+
+	defaultKeywords := [][]string{
+		{"software developer", "backend"},
+		{"web application", "fullstack"},
+		{"API development", "REST", "GraphQL"},
+		{"automation", "scripting", "CLI"},
+		{"AI", "machine learning", "LLM integration"},
+		{"Python", "Django", "FastAPI"},
+		{"React", "Next.js", "Node.js", "TypeScript"},
+	}
+
 	return Config{
 		FirecrawlKey:         firecrawlKey,
 		ResendKey:            resendKey,
 		GoogleAIKey:          googleAIKey,
 		RepoPath:             repoPath,
 		AuditDir:             filepath.Join(repoPath, "docs", "self-improvement"),
+		OpportunitiesDir:     filepath.Join(repoPath, "docs", "opportunities"),
 		MaxPRsPerRun:         3,
 		MaxDiffLines:         500,
 		MaxFilesChanged:      10,
@@ -87,5 +124,9 @@ func LoadConfig() (Config, error) {
 		EmailFrom:            "VXD Self-Improvement <onboarding@resend.dev>",
 		ClaudePath:           claudePath,
 		DryRun:               false,
+		ActiveBidding:        activeBidding,
+		MaxProposalsPerDay:   maxProposals,
+		MinHourlyRate:        minHourly,
+		OpportunityKeywords:  defaultKeywords,
 	}, nil
 }

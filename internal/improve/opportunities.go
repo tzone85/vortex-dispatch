@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/tzone85/vortex-dispatch/internal/llm"
 )
 
 // Status constants for the opportunity lifecycle.
@@ -965,4 +967,103 @@ func (s *OpportunityScraper) ScrapeAllSources(ctx context.Context, keywords []st
 
 	log.Printf("Total opportunities scraped: %d", len(allOpps))
 	return allOpps, nil
+}
+
+// ScoreOpportunities uses Gemma 4 to score each opportunity on relevance, budget, and win probability.
+func ScoreOpportunities(ctx context.Context, opps []Opportunity, client llm.Client) ([]Opportunity, error) {
+	scored := make([]Opportunity, 0, len(opps))
+
+	for i, opp := range opps {
+		log.Printf("  [%d/%d] Scoring %q ...", i+1, len(opps), opp.Title)
+
+		prompt := fmt.Sprintf(`Score this freelance/contract opportunity for VXD, an AI-augmented development team that orchestrates autonomous AI agents (Claude Code, Codex, Gemini CLI) to build software in any language.
+
+Title: %s
+Company: %s
+Source: %s
+Budget: %s
+Skills: %s
+Description: %s
+
+Score on three dimensions (0-10 each):
+1. relevance_score: Can VXD's agent pipeline deliver this? (9-10: software dev/API/automation/AI, 7-8: web/fullstack/backend/CLI, 5-6: frontend-heavy/mobile, <5: non-technical)
+2. budget_score: Is the pay worth it? (9-10: $5K+ or $75+/hr, 7-8: $2K-$5K or $50-$75/hr, 5-6: $500-$2K, <5: under $500)
+3. win_probability: How likely to win? Factors: applicant count, requirement specificity, skills match
+
+Also estimate effort: S (1-3 days), M (4-10 days), L (11-30 days)
+
+Respond with JSON only:
+{"relevance_score": N, "budget_score": N, "win_probability": N, "effort_estimate": "S|M|L", "reasoning": "why"}`,
+			opp.Title, opp.Company, opp.Source, opp.Budget,
+			strings.Join(opp.Skills, ", "), opp.Notes)
+
+		resp, err := client.Complete(ctx, llm.CompletionRequest{
+			Model:     "gemma-4-26b-a4b-it",
+			MaxTokens: 500,
+			System:    "You are a business analyst scoring freelance opportunities for an AI-augmented software development team. Respond with JSON only.",
+			Messages:  []llm.Message{{Role: llm.RoleUser, Content: prompt}},
+		})
+		if err != nil {
+			log.Printf("  [%d/%d] Scoring FAILED for %q: %v", i+1, len(opps), opp.Title, err)
+			continue
+		}
+
+		var result struct {
+			RelevanceScore int    `json:"relevance_score"`
+			BudgetScore    int    `json:"budget_score"`
+			WinProbability int    `json:"win_probability"`
+			EffortEstimate string `json:"effort_estimate"`
+			Reasoning      string `json:"reasoning"`
+		}
+
+		cleaned := strings.TrimSpace(resp.Content)
+		if idx := strings.Index(cleaned, "{"); idx >= 0 {
+			cleaned = cleaned[idx:]
+		}
+		if idx := strings.LastIndex(cleaned, "}"); idx >= 0 {
+			cleaned = cleaned[:idx+1]
+		}
+		if err := json.Unmarshal([]byte(cleaned), &result); err != nil {
+			log.Printf("  [%d/%d] Parse FAILED for %q: %v", i+1, len(opps), opp.Title, err)
+			continue
+		}
+
+		scoredOpp := Opportunity{
+			ID:             opp.ID,
+			Source:         opp.Source,
+			Title:          opp.Title,
+			Company:        opp.Company,
+			URL:            opp.URL,
+			Budget:         opp.Budget,
+			Skills:         opp.Skills,
+			Remote:         opp.Remote,
+			ScrapedAt:      opp.ScrapedAt,
+			Status:         opp.Status,
+			RelevanceScore: result.RelevanceScore,
+			BudgetScore:    result.BudgetScore,
+			WinProbability: result.WinProbability,
+			EffortEstimate: result.EffortEstimate,
+			Notes:          result.Reasoning,
+			Revenue:        opp.Revenue,
+		}
+		scoredOpp.Rank = ComputeRank(scoredOpp)
+
+		log.Printf("  [%d/%d] %q -> rel=%d bud=%d win=%d rank=%d",
+			i+1, len(opps), opp.Title, result.RelevanceScore, result.BudgetScore, result.WinProbability, scoredOpp.Rank)
+		scored = append(scored, scoredOpp)
+	}
+
+	return scored, nil
+}
+
+// FilterAndRankOpportunities filters out opportunities with relevance below minRelevance
+// and returns the rest sorted by rank descending.
+func FilterAndRankOpportunities(opps []Opportunity, minRelevance int) []Opportunity {
+	filtered := make([]Opportunity, 0)
+	for _, opp := range opps {
+		if opp.RelevanceScore >= minRelevance {
+			filtered = append(filtered, opp)
+		}
+	}
+	return SortByRank(filtered)
 }

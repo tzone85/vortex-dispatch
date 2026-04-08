@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -27,14 +28,15 @@ func main() {
 	date := now.Format("2006-01-02")
 	runID := now.UTC().Format(time.RFC3339)
 
+	fmt.Fprintf(os.Stderr, "=== VXD Self-Improvement Engine — %s ===\n", date)
+
 	// Idempotency check
 	runsDir := filepath.Join(cfg.AuditDir, "runs")
 	if improve.IsRunComplete(runsDir, date) {
-		log.Printf("Run for %s already complete — skipping", date)
+		fmt.Fprintf(os.Stderr, "Run for %s already complete — skipping (delete %s/%s.json to re-run)\n", date, runsDir, date)
 		os.Exit(0)
 	}
 
-	log.Printf("=== VXD Self-Improvement Engine — %s ===", date)
 	if cfg.DryRun {
 		log.Printf("DRY RUN MODE — no branches or PRs will be created")
 	}
@@ -156,6 +158,20 @@ func main() {
 	summary.CompletedAt = time.Now()
 	if err := improve.SaveRunSummary(runsDir, date, summary); err != nil {
 		log.Printf("Save run summary error: %v", err)
+	}
+
+	// Phase 6: MemPalace re-mine (keep semantic memory current)
+	log.Println("Phase 6: MemPalace re-mine")
+	if mempalacePath, err := exec.LookPath("python3"); err == nil {
+		mineCmd := exec.Command(mempalacePath, "-m", "mempalace", "mine", cfg.RepoPath)
+		mineCmd.Dir = cfg.RepoPath
+		if out, err := mineCmd.CombinedOutput(); err != nil {
+			log.Printf("  MemPalace re-mine failed: %v\n%s", err, string(out))
+		} else {
+			log.Println("  MemPalace re-mine complete")
+		}
+	} else {
+		log.Println("  MemPalace not installed (python3 not found), skipping")
 	}
 
 	log.Printf("=== Complete: %d findings, %d PRs, email=%v ===",

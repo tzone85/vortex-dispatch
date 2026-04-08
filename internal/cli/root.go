@@ -28,6 +28,7 @@ func init() {
 	rootCmd.AddCommand(newEventsCmd())
 	rootCmd.AddCommand(newDashboardCmd())
 	rootCmd.AddCommand(newArchiveCmd())
+	rootCmd.AddCommand(newMemoryCmd())
 }
 
 func Execute() error {

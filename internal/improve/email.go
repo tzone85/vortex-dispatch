@@ -1,0 +1,248 @@
+package improve
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"html/template"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+)
+
+// EmailData holds all data needed to build the report email.
+type EmailData struct {
+	Date           string
+	PRsCreated     int
+	AlertCount     int
+	Summary        string
+	PRs            []EmailPR
+	Trends         []EmailSection
+	Historical     []EmailSection
+	Competitors    []EmailSection
+	SecurityAlerts []EmailSection
+	Proposed       []EmailSection
+	ChartURLs      map[string]string
+}
+
+// EmailPR represents a PR in the email table.
+type EmailPR struct {
+	Title        string
+	URL          string
+	Category     string
+	TestsPassed  bool
+	LinesChanged int
+}
+
+// EmailSection represents a content section in the email.
+type EmailSection struct {
+	Title     string
+	Content   string
+	SourceURL string
+}
+
+const emailTemplateSrc = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:700px;margin:0 auto;padding:20px;color:#333;">
+
+<h1 style="border-bottom:3px solid #2563eb;padding-bottom:10px;">VXD Daily Improvement Report</h1>
+<p style="color:#666;">{{.Date}}</p>
+
+<div style="margin-bottom:20px;padding:10px;background:#f0f9ff;border-left:4px solid #2563eb;">
+{{if .PRsCreated}}<strong>{{.PRsCreated}} PRs created</strong>{{end}}
+{{if .AlertCount}} | <strong style="color:#dc2626;">{{.AlertCount}} security alerts</strong>{{end}}
+</div>
+
+<nav style="margin-bottom:20px;">
+<a href="#summary" style="margin-right:12px;">Summary</a>
+{{if .PRs}}<a href="#prs" style="margin-right:12px;">PRs</a>{{end}}
+{{if .Trends}}<a href="#trends" style="margin-right:12px;">Trends</a>{{end}}
+{{if .Historical}}<a href="#historical" style="margin-right:12px;">Historical</a>{{end}}
+{{if .Competitors}}<a href="#competitors" style="margin-right:12px;">Competitors</a>{{end}}
+{{if .SecurityAlerts}}<a href="#security" style="margin-right:12px;">Security</a>{{end}}
+{{if .Proposed}}<a href="#proposed" style="margin-right:12px;">Proposed</a>{{end}}
+</nav>
+
+<div id="summary" style="margin-bottom:30px;">
+<h2 style="color:#2563eb;">Executive Summary</h2>
+<p>{{.Summary}}</p>
+</div>
+
+{{if .PRs}}
+<div id="prs" style="margin-bottom:30px;">
+<h2 style="color:#16a34a;border-bottom:2px solid #16a34a;padding-bottom:5px;">PRs Created Today</h2>
+<table style="width:100%;border-collapse:collapse;">
+<tr style="background:#f0fdf4;"><th style="padding:8px;text-align:left;">Title</th><th>Category</th><th>Tests</th><th>Lines</th></tr>
+{{range .PRs}}
+<tr style="border-bottom:1px solid #e5e7eb;">
+<td style="padding:8px;"><a href="{{.URL}}">{{.Title}}</a></td>
+<td style="padding:8px;text-align:center;">{{.Category}}</td>
+<td style="padding:8px;text-align:center;">{{if .TestsPassed}}PASS{{else}}FAIL{{end}}</td>
+<td style="padding:8px;text-align:center;">{{.LinesChanged}}</td>
+</tr>
+{{end}}
+</table>
+</div>
+{{end}}
+
+{{if .Trends}}
+<div id="trends" style="margin-bottom:30px;">
+<h2 style="color:#2563eb;border-bottom:2px solid #2563eb;padding-bottom:5px;">Current Trends</h2>
+{{range .Trends}}
+<div style="margin-bottom:15px;padding:10px;background:#f8fafc;border-radius:6px;">
+<strong>{{.Title}}</strong>
+<p style="margin:5px 0;">{{.Content}}</p>
+{{if .SourceURL}}<a href="{{.SourceURL}}" style="font-size:0.85em;">Source</a>{{end}}
+</div>
+{{end}}
+</div>
+{{end}}
+
+{{if .Historical}}
+<div id="historical" style="margin-bottom:30px;">
+<h2 style="color:#7c3aed;border-bottom:2px solid #7c3aed;padding-bottom:5px;">Historical Discoveries</h2>
+{{range .Historical}}
+<div style="margin-bottom:15px;padding:10px;background:#faf5ff;border-radius:6px;">
+<strong>{{.Title}}</strong>
+<p style="margin:5px 0;">{{.Content}}</p>
+{{if .SourceURL}}<a href="{{.SourceURL}}" style="font-size:0.85em;">Source</a>{{end}}
+</div>
+{{end}}
+</div>
+{{end}}
+
+{{if .Competitors}}
+<div id="competitors" style="margin-bottom:30px;">
+<h2 style="color:#ea580c;border-bottom:2px solid #ea580c;padding-bottom:5px;">Competitor Watch</h2>
+{{range .Competitors}}
+<div style="margin-bottom:15px;padding:10px;background:#fff7ed;border-radius:6px;">
+<strong>{{.Title}}</strong>
+<p style="margin:5px 0;">{{.Content}}</p>
+{{if .SourceURL}}<a href="{{.SourceURL}}" style="font-size:0.85em;">Source</a>{{end}}
+</div>
+{{end}}
+</div>
+{{end}}
+
+{{if .SecurityAlerts}}
+<div id="security" style="margin-bottom:30px;">
+<h2 style="color:#dc2626;border-bottom:2px solid #dc2626;padding-bottom:5px;">Security Alerts</h2>
+{{range .SecurityAlerts}}
+<div style="margin-bottom:15px;padding:10px;background:#fef2f2;border-radius:6px;border-left:4px solid #dc2626;">
+<strong>{{.Title}}</strong>
+<p style="margin:5px 0;">{{.Content}}</p>
+{{if .SourceURL}}<a href="{{.SourceURL}}" style="font-size:0.85em;">Source</a>{{end}}
+</div>
+{{end}}
+</div>
+{{end}}
+
+{{if .ChartURLs}}
+<div style="margin-bottom:30px;">
+<h2 style="color:#2563eb;">Metrics Dashboard</h2>
+{{range $name, $url := .ChartURLs}}
+<img src="{{$url}}" alt="{{$name}}" style="max-width:100%;margin-bottom:10px;">
+{{end}}
+</div>
+{{end}}
+
+{{if .Proposed}}
+<div id="proposed" style="margin-bottom:30px;">
+<h2 style="color:#ca8a04;border-bottom:2px solid #ca8a04;padding-bottom:5px;">Proposed (Not Implemented)</h2>
+<p style="color:#666;">These improvements were too large or risky for auto-implementation. Review and decide.</p>
+{{range .Proposed}}
+<div style="margin-bottom:15px;padding:10px;background:#fefce8;border-radius:6px;">
+<strong>{{.Title}}</strong>
+<p style="margin:5px 0;">{{.Content}}</p>
+{{if .SourceURL}}<a href="{{.SourceURL}}" style="font-size:0.85em;">Source</a>{{end}}
+</div>
+{{end}}
+</div>
+{{end}}
+
+<hr style="margin-top:30px;border:1px solid #e5e7eb;">
+<p style="font-size:0.8em;color:#9ca3af;">
+<a href="https://github.com/tzone85/vortex-dispatch/blob/main/docs/self-improvement/changelog.jsonl">Full Audit Trail</a> |
+Generated by VXD Self-Improvement Engine
+</p>
+</body></html>`
+
+// BuildEmailHTML renders the email template with the given data.
+func BuildEmailHTML(data EmailData) (string, error) {
+	tmpl, err := template.New("email").Parse(emailTemplateSrc)
+	if err != nil {
+		return "", fmt.Errorf("parse template: %w", err)
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return "", fmt.Errorf("execute template: %w", err)
+	}
+	return buf.String(), nil
+}
+
+// BuildChartURL constructs a QuickChart.io URL for embedding in email.
+func BuildChartURL(chartType string, config map[string]any) string {
+	chartConfig := map[string]any{
+		"type": chartType,
+		"data": config,
+	}
+	configJSON, _ := json.Marshal(chartConfig)
+	return "https://quickchart.io/chart?" + url.Values{"c": {string(configJSON)}}.Encode()
+}
+
+// EmailSender sends HTML emails via the Resend API.
+type EmailSender struct {
+	apiKey  string
+	baseURL string
+	client  *http.Client
+}
+
+// NewEmailSender creates a sender configured with the Resend API key.
+func NewEmailSender(apiKey, baseURL string) *EmailSender {
+	return &EmailSender{
+		apiKey:  apiKey,
+		baseURL: baseURL,
+		client:  &http.Client{},
+	}
+}
+
+// Send sends an HTML email via Resend.
+func (s *EmailSender) Send(ctx context.Context, subject, html, to, from string) error {
+	body := map[string]any{
+		"from":    from,
+		"to":      []string{to},
+		"subject": subject,
+		"html":    html,
+	}
+	jsonBody, _ := json.Marshal(body)
+
+	// Handle both production URL and test server URLs
+	endpoint := s.baseURL
+	if strings.HasPrefix(s.baseURL, "https://api.resend.com") {
+		endpoint = s.baseURL + "/emails"
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(jsonBody))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+s.apiKey)
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("resend returned %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
+}

@@ -74,7 +74,7 @@ Respond with JSON only:
 {"relevance": 0-10, "impact": 0-10, "risk": 0-10, "effort": "S|M|L", "category": "security|performance|feature|dependency|docs|architecture", "reasoning": "why"}`, f.Title, f.SourceURL, f.Category, f.Content)
 
 		resp, err := a.triageClient.Complete(ctx, llm.CompletionRequest{
-			Model:     "gemma-4-27b-it",
+			Model:     "gemma-4-26b-a4b-it",
 			MaxTokens: 500,
 			System:    "You are a technical analyst scoring research findings for an AI agent orchestration tool called VXD. Respond with JSON only.",
 			Messages:  []llm.Message{{Role: llm.RoleUser, Content: prompt}},

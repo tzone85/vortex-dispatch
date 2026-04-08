@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>VXD Memory Timeline</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header id="header">
+    <h1>VXD Memory Timeline</h1>
+    <div id="header-right">
+      <input type="text" id="search-box" placeholder="Search MemPalace..." autocomplete="off">
+      <span id="connection-status">Connecting...</span>
+    </div>
+  </header>
+
+  <!-- Timeline Slider -->
+  <section id="timeline-section">
+    <div id="timeline-controls">
+      <button id="prev-day" class="btn-action" title="Previous day">&larr;</button>
+      <input type="range" id="timeline-slider" min="0" max="0" value="0">
+      <button id="next-day" class="btn-action" title="Next day">&rarr;</button>
+    </div>
+    <div id="date-labels">
+      <span id="date-min"></span>
+      <span id="date-current"></span>
+      <span id="date-max"></span>
+    </div>
+  </section>
+
+  <!-- Middle Row: Calendar + Charts -->
+  <div id="middle-row">
+    <section id="calendar-section">
+      <h2>Activity Heatmap</h2>
+      <div id="calendar-nav">
+        <button id="cal-prev" class="btn-action">&larr;</button>
+        <span id="cal-month-label"></span>
+        <button id="cal-next" class="btn-action">&rarr;</button>
+      </div>
+      <div id="calendar-weekdays">
+        <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+      </div>
+      <div id="calendar-grid"></div>
+      <div id="calendar-legend">
+        <span>Less</span>
+        <span class="legend-cell level-0"></span>
+        <span class="legend-cell level-1"></span>
+        <span class="legend-cell level-2"></span>
+        <span class="legend-cell level-3"></span>
+        <span>More</span>
+      </div>
+    </section>
+
+    <section id="charts-section">
+      <h2>Analytics</h2>
+      <div id="charts-container">
+        <img id="chart-bar" alt="Activity bar chart" width="300" height="180">
+        <img id="chart-doughnut" alt="Category doughnut chart" width="300" height="180">
+      </div>
+    </section>
+  </div>
+
+  <!-- Day Detail Cards -->
+  <div id="detail-cards">
+    <!-- Run Summary -->
+    <section id="run-summary-card" class="card hidden">
+      <h2 class="card-header card-header-teal">Run Summary</h2>
+      <div id="run-summary-content"></div>
+    </section>
+
+    <!-- PRs -->
+    <section id="prs-card" class="card">
+      <h2 class="card-header card-header-green">
+        PRs <span id="prs-count" class="badge">0</span>
+      </h2>
+      <div id="prs-content" class="card-body"></div>
+    </section>
+
+    <!-- Findings -->
+    <section id="findings-card" class="card">
+      <h2 class="card-header card-header-blue">
+        Findings <span id="findings-count" class="badge">0</span>
+      </h2>
+      <div id="findings-content" class="card-body"></div>
+    </section>
+
+    <!-- Commits -->
+    <section id="commits-card" class="card">
+      <h2 class="card-header card-header-gray">
+        Commits <span id="commits-count" class="badge">0</span>
+      </h2>
+      <div id="commits-content" class="card-body"></div>
+    </section>
+
+    <!-- Search Results -->
+    <section id="search-card" class="card hidden">
+      <h2 class="card-header card-header-purple">
+        Search Results <span id="search-count" class="badge">0</span>
+      </h2>
+      <div id="search-content" class="card-body"></div>
+    </section>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

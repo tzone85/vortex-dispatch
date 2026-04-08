@@ -80,37 +80,51 @@ func NewResearcher(apiKey, baseURL string) *Researcher {
 // Research scrapes all configured sources and returns sanitized, filtered findings.
 func (r *Researcher) Research(ctx context.Context, now time.Time) ([]Finding, error) {
 	var findings []Finding
+	total := len(currentSources) + 1 // +1 for historical
 
-	for _, src := range currentSources {
+	for i, src := range currentSources {
+		log.Printf("  [%d/%d] Scraping %s ...", i+1, total, src.Name)
+		start := time.Now()
 		f, err := r.scrape(ctx, src, now)
+		elapsed := time.Since(start).Round(time.Millisecond)
 		if err != nil {
-			log.Printf("[research] scrape %s failed: %v", src.Name, err)
+			log.Printf("  [%d/%d] %s FAILED (%s): %v", i+1, total, src.Name, elapsed, err)
 			continue
 		}
+		log.Printf("  [%d/%d] %s OK (%s, %d chars)", i+1, total, src.Name, elapsed, len(f[0].Content))
 		findings = append(findings, f...)
 	}
 
 	topic := HistoricalTopicForDay(now)
+	log.Printf("  [%d/%d] Scraping Historical: %s ...", total, total, topic)
 	historicalSrc := Source{
 		Name:      "Historical: " + topic,
 		URL:       "https://www.google.com/search?q=" + topic,
 		Category:  "historical",
 		Direction: "historical",
 	}
+	start := time.Now()
 	f, err := r.scrape(ctx, historicalSrc, now)
+	elapsed := time.Since(start).Round(time.Millisecond)
 	if err != nil {
-		log.Printf("[research] historical scrape failed: %v", err)
+		log.Printf("  [%d/%d] Historical FAILED (%s): %v", total, total, elapsed, err)
 	} else {
+		log.Printf("  [%d/%d] Historical OK (%s)", total, total, elapsed)
 		findings = append(findings, f...)
 	}
 
 	safe := make([]Finding, 0, len(findings))
+	filtered := 0
 	for _, f := range findings {
 		if DetectPromptInjection(f.Content) || DetectPromptInjection(f.Title) {
-			log.Printf("[research] filtered injection in %q from %s", f.Title, f.SourceURL)
+			filtered++
+			log.Printf("  Filtered injection in %q from %s", f.Title, f.SourceURL)
 			continue
 		}
 		safe = append(safe, f)
+	}
+	if filtered > 0 {
+		log.Printf("  Filtered %d findings with prompt injection patterns", filtered)
 	}
 
 	return safe, nil

@@ -349,3 +349,96 @@ func TestScrapeRemotive_HandlesEmptyJobs(t *testing.T) {
 		t.Errorf("expected 0, got %d", len(opps))
 	}
 }
+
+func TestScrapeAlgora_ParsesBounties(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if r.Header.Get("Authorization") != "Bearer fc-test-key" {
+			t.Errorf("expected auth header")
+		}
+
+		resp := map[string]any{
+			"success": true,
+			"data": map[string]any{
+				"markdown": "# Open Bounties\n\n## $500 - Fix authentication bypass in OAuth flow\n**Repo:** github.com/example/auth-lib\n**Skills:** Go, Security, OAuth\n**Status:** Open\n\n## $200 - Add dark mode to dashboard\n**Repo:** github.com/example/dashboard\n**Skills:** React, CSS\n**Status:** Open",
+				"metadata": map[string]any{
+					"title": "Algora Bounties",
+					"url":   "https://algora.io/bounties",
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	scraper := improve.NewOpportunityScraperWithFirecrawl("", "", "", "fc-test-key", server.URL)
+	opps, err := scraper.ScrapeAlgora(context.Background())
+	if err != nil {
+		t.Fatalf("scrape algora: %v", err)
+	}
+	if len(opps) < 1 {
+		t.Fatalf("expected at least 1 bounty, got %d", len(opps))
+	}
+	if opps[0].Source != "algora" {
+		t.Errorf("expected source algora, got %q", opps[0].Source)
+	}
+}
+
+func TestScrapeArcDev_ParsesJobs(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := map[string]any{
+			"success": true,
+			"data": map[string]any{
+				"markdown": "# Remote Developer Jobs\n\n## Senior Backend Engineer\n**Company:** TechCorp\n**Salary:** $120K - $180K\n**Skills:** Go, Kubernetes, AWS\n\n## Frontend Developer\n**Company:** DesignStudio\n**Salary:** $80K - $120K\n**Skills:** React, TypeScript",
+				"metadata": map[string]any{
+					"title": "Arc.dev Remote Jobs",
+					"url":   "https://arc.dev/remote-jobs",
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	scraper := improve.NewOpportunityScraperWithFirecrawl("", "", "", "fc-test-key", server.URL)
+	opps, err := scraper.ScrapeArcDev(context.Background())
+	if err != nil {
+		t.Fatalf("scrape arc.dev: %v", err)
+	}
+	if len(opps) < 1 {
+		t.Fatalf("expected at least 1 job, got %d", len(opps))
+	}
+	if opps[0].Source != "arcdev" {
+		t.Errorf("expected source arcdev, got %q", opps[0].Source)
+	}
+}
+
+func TestScrapeAllSources_ContinuesOnError(t *testing.T) {
+	jobicyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer jobicyServer.Close()
+
+	remotiveServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"jobs": []any{}})
+	}))
+	defer remotiveServer.Close()
+
+	hnServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"hits": []any{}})
+	}))
+	defer hnServer.Close()
+
+	scraper := improve.NewOpportunityScraper(jobicyServer.URL, remotiveServer.URL, hnServer.URL)
+	opps, err := scraper.ScrapeAllSources(context.Background(), []string{"backend"}, time.Now())
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	_ = opps
+}

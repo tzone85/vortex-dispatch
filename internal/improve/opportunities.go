@@ -2,6 +2,7 @@ package improve
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -698,4 +699,270 @@ func parseHNComment(id int, text, author string) Opportunity {
 		Status:  StatusNew,
 		Notes:   cleaned,
 	}
+}
+
+// ScrapeAlgora uses Firecrawl to scrape open bounties from algora.io.
+func (s *OpportunityScraper) ScrapeAlgora(ctx context.Context) ([]Opportunity, error) {
+	if s.firecrawlKey == "" {
+		log.Printf("  [algora] Skipping — no Firecrawl API key")
+		return nil, nil
+	}
+
+	log.Printf("  [algora] Scraping bounties via Firecrawl ...")
+	markdown, err := s.firecrawlScrape(ctx, "https://algora.io/bounties")
+	if err != nil {
+		return nil, fmt.Errorf("firecrawl algora: %w", err)
+	}
+
+	opps := parseMarkdownBounties(markdown, "algora", "https://algora.io/bounties")
+	log.Printf("  [algora] Parsed %d bounties", len(opps))
+	return opps, nil
+}
+
+// ScrapeArcDev uses Firecrawl to scrape remote jobs from arc.dev.
+func (s *OpportunityScraper) ScrapeArcDev(ctx context.Context) ([]Opportunity, error) {
+	if s.firecrawlKey == "" {
+		log.Printf("  [arcdev] Skipping — no Firecrawl API key")
+		return nil, nil
+	}
+
+	log.Printf("  [arcdev] Scraping remote jobs via Firecrawl ...")
+	markdown, err := s.firecrawlScrape(ctx, "https://arc.dev/remote-jobs")
+	if err != nil {
+		return nil, fmt.Errorf("firecrawl arcdev: %w", err)
+	}
+
+	opps := parseMarkdownJobs(markdown, "arcdev", "https://arc.dev/remote-jobs")
+	log.Printf("  [arcdev] Parsed %d jobs", len(opps))
+	return opps, nil
+}
+
+// firecrawlScrape sends a scrape request to the Firecrawl API and returns markdown.
+func (s *OpportunityScraper) firecrawlScrape(ctx context.Context, targetURL string) (string, error) {
+	body := map[string]any{
+		"url":     targetURL,
+		"formats": []string{"markdown"},
+	}
+	jsonBody, err := json.Marshal(body)
+	if err != nil {
+		return "", fmt.Errorf("marshal request: %w", err)
+	}
+
+	url := s.firecrawlURL + "/v2/scrape"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(jsonBody))
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+s.firecrawlKey)
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("firecrawl returned %d", resp.StatusCode)
+	}
+
+	var fcResp struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Markdown string `json:"markdown"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&fcResp); err != nil {
+		return "", fmt.Errorf("decode response: %w", err)
+	}
+	if !fcResp.Success || fcResp.Data.Markdown == "" {
+		return "", fmt.Errorf("firecrawl returned empty response")
+	}
+	return fcResp.Data.Markdown, nil
+}
+
+// parseMarkdownBounties extracts bounties from Algora-style markdown.
+// Looks for ## headers with $ amounts and extracts metadata.
+func parseMarkdownBounties(markdown, source, sourceURL string) []Opportunity {
+	var opps []Opportunity
+	sections := strings.Split(markdown, "##")
+
+	for _, section := range sections {
+		section = strings.TrimSpace(section)
+		if section == "" || !strings.Contains(section, "$") {
+			continue
+		}
+
+		lines := strings.SplitN(section, "\n", 2)
+		title := strings.TrimSpace(lines[0])
+		body := ""
+		if len(lines) > 1 {
+			body = lines[1]
+		}
+
+		// Extract budget from title (e.g., "$500 - Fix auth bypass")
+		budget := ""
+		if idx := strings.Index(title, "$"); idx >= 0 {
+			end := strings.Index(title[idx:], " - ")
+			if end > 0 {
+				budget = strings.TrimSpace(title[idx : idx+end])
+			} else {
+				budget = strings.TrimSpace(title[idx:])
+			}
+		}
+
+		// Extract skills from **Skills:** line
+		var skills []string
+		for _, line := range strings.Split(body, "\n") {
+			if strings.Contains(line, "Skills:") || strings.Contains(line, "skills:") {
+				parts := strings.SplitN(line, ":", 2)
+				if len(parts) > 1 {
+					for _, sk := range strings.Split(parts[1], ",") {
+						sk = strings.TrimSpace(strings.Trim(sk, "*"))
+						if sk != "" {
+							skills = append(skills, sk)
+						}
+					}
+				}
+			}
+		}
+
+		opp := Opportunity{
+			Source: source,
+			Title:  title,
+			URL:    sourceURL,
+			Budget: budget,
+			Skills: skills,
+			Remote: true,
+			Status: StatusNew,
+		}
+		opps = append(opps, opp)
+	}
+	return opps
+}
+
+// parseMarkdownJobs extracts jobs from Arc.dev-style markdown.
+func parseMarkdownJobs(markdown, source, sourceURL string) []Opportunity {
+	var opps []Opportunity
+	sections := strings.Split(markdown, "##")
+
+	for _, section := range sections {
+		section = strings.TrimSpace(section)
+		if section == "" {
+			continue
+		}
+
+		lines := strings.SplitN(section, "\n", 2)
+		title := strings.TrimSpace(lines[0])
+		if title == "" || strings.HasPrefix(title, "#") {
+			continue
+		}
+
+		body := ""
+		if len(lines) > 1 {
+			body = lines[1]
+		}
+
+		company := ""
+		budget := ""
+		var skills []string
+
+		for _, line := range strings.Split(body, "\n") {
+			line = strings.TrimSpace(line)
+			if strings.Contains(line, "Company:") {
+				parts := strings.SplitN(line, ":", 2)
+				if len(parts) > 1 {
+					company = strings.TrimSpace(strings.Trim(parts[1], "*"))
+				}
+			} else if strings.Contains(line, "Salary:") {
+				parts := strings.SplitN(line, ":", 2)
+				if len(parts) > 1 {
+					budget = strings.TrimSpace(strings.Trim(parts[1], "*"))
+				}
+			} else if strings.Contains(line, "Skills:") {
+				parts := strings.SplitN(line, ":", 2)
+				if len(parts) > 1 {
+					for _, sk := range strings.Split(parts[1], ",") {
+						sk = strings.TrimSpace(strings.Trim(sk, "*"))
+						if sk != "" {
+							skills = append(skills, sk)
+						}
+					}
+				}
+			}
+		}
+
+		opp := Opportunity{
+			Source:  source,
+			Title:   title,
+			Company: company,
+			URL:     sourceURL,
+			Budget:  budget,
+			Skills:  skills,
+			Remote:  true,
+			Status:  StatusNew,
+		}
+		opps = append(opps, opp)
+	}
+	return opps
+}
+
+// ScrapeAllSources orchestrates all 5 scrapers, logging progress and handling errors gracefully.
+func (s *OpportunityScraper) ScrapeAllSources(ctx context.Context, keywords []string, now time.Time) ([]Opportunity, error) {
+	var allOpps []Opportunity
+	totalSources := 5
+	current := 0
+
+	// 1. Jobicy
+	current++
+	log.Printf("[%d/%d] Scraping Jobicy ...", current, totalSources)
+	if opps, err := s.ScrapeJobicy(ctx, keywords); err != nil {
+		log.Printf("[%d/%d] Jobicy FAILED: %v", current, totalSources, err)
+	} else {
+		log.Printf("[%d/%d] Jobicy OK: %d opportunities", current, totalSources, len(opps))
+		allOpps = append(allOpps, opps...)
+	}
+
+	// 2. Remotive
+	current++
+	log.Printf("[%d/%d] Scraping Remotive ...", current, totalSources)
+	if opps, err := s.ScrapeRemotive(ctx); err != nil {
+		log.Printf("[%d/%d] Remotive FAILED: %v", current, totalSources, err)
+	} else {
+		log.Printf("[%d/%d] Remotive OK: %d opportunities", current, totalSources, len(opps))
+		allOpps = append(allOpps, opps...)
+	}
+
+	// 3. HN Who's Hiring
+	current++
+	log.Printf("[%d/%d] Scraping HN Who's Hiring ...", current, totalSources)
+	if opps, err := s.ScrapeHNWhoIsHiring(ctx, now); err != nil {
+		log.Printf("[%d/%d] HN FAILED: %v", current, totalSources, err)
+	} else {
+		log.Printf("[%d/%d] HN OK: %d opportunities", current, totalSources, len(opps))
+		allOpps = append(allOpps, opps...)
+	}
+
+	// 4. Algora Bounties
+	current++
+	log.Printf("[%d/%d] Scraping Algora Bounties ...", current, totalSources)
+	if opps, err := s.ScrapeAlgora(ctx); err != nil {
+		log.Printf("[%d/%d] Algora FAILED: %v", current, totalSources, err)
+	} else {
+		log.Printf("[%d/%d] Algora OK: %d opportunities", current, totalSources, len(opps))
+		allOpps = append(allOpps, opps...)
+	}
+
+	// 5. Arc.dev
+	current++
+	log.Printf("[%d/%d] Scraping Arc.dev ...", current, totalSources)
+	if opps, err := s.ScrapeArcDev(ctx); err != nil {
+		log.Printf("[%d/%d] Arc.dev FAILED: %v", current, totalSources, err)
+	} else {
+		log.Printf("[%d/%d] Arc.dev OK: %d opportunities", current, totalSources, len(opps))
+		allOpps = append(allOpps, opps...)
+	}
+
+	log.Printf("Total opportunities scraped: %d", len(allOpps))
+	return allOpps, nil
 }

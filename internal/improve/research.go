@@ -176,6 +176,29 @@ var trackedProjects = []TrackedProject{
 		"https://thenewstack.io/anthropic-claude-mythos-cybersecurity/",
 		"https://red.anthropic.com/2026/mythos-preview/",
 	}, Category: "security"},
+	{Name: "OpenAI Developer Blog", URLs: []string{
+		"https://developers.openai.com/blog",
+		"https://developers.openai.com/api/docs/changelog",
+	}, Category: "competitors"},
+	{Name: "ChatGPT Release Notes", URLs: []string{
+		"https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
+	}, Category: "competitors"},
+	{Name: "OpenAI Codex CLI", URLs: []string{
+		"https://github.com/openai/codex",
+	}, Category: "competitors"},
+	{Name: "OpenAI Agents SDK", URLs: []string{
+		"https://github.com/openai/openai-agents-python",
+	}, Category: "competitors"},
+	{Name: "Warp Terminal", URLs: []string{
+		"https://github.com/warpdotdev/Warp",
+		"https://www.warp.dev/blog",
+		"https://docs.warp.dev/changelog",
+	}, Category: "competitors"},
+	{Name: "Amazon Bedrock", URLs: []string{
+		"https://aws.amazon.com/bedrock/",
+		"https://aws.amazon.com/blogs/aws/category/artificial-intelligence/amazon-machine-learning/amazon-bedrock/",
+		"https://github.com/aws-samples/amazon-bedrock-samples",
+	}, Category: "llm_providers"},
 }
 
 // HistoricalTopicForDay returns the deep-dive search query for today.

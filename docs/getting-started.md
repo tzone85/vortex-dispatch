@@ -384,6 +384,145 @@ git log --oneline -1
 - **Agent output**: `tmux capture-pane -t <session-name> -p | tail -30` shows what an agent is doing
 - **Config check**: `vxd config show` prints the active configuration
 
+## Porting to a New Machine (Mac Mini, second laptop, etc.)
+
+Complete setup for a fresh macOS machine in ~15 minutes.
+
+### Step 1: Install Prerequisites
+
+```bash
+# Homebrew (if not installed)
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Core tools
+brew install go tmux gh python3
+npm install -g @anthropic-ai/claude-code
+
+# PATH setup
+mkdir -p ~/.local/bin
+echo 'export PATH="$HOME/.local/bin:$HOME/go/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+### Step 2: Clone and Build
+
+```bash
+git clone https://github.com/tzone85/vortex-dispatch.git
+cd vortex-dispatch
+go build -o ~/.local/bin/vxd ./cmd/vxd
+go build -o ~/.local/bin/vxd-improve ./cmd/vxd-improve
+```
+
+### Step 3: Authenticate
+
+```bash
+# Claude Code (uses your Max subscription — no API costs for agents)
+claude login
+
+# GitHub CLI (for PR creation)
+gh auth login
+
+# API keys — add these to ~/.zshrc
+cat >> ~/.zshrc << 'EOF'
+export GOOGLE_AI_API_KEY="your-google-ai-key"
+export FIRECRAWL_API_KEY="your-firecrawl-key"
+export RESEND_API_KEY="your-resend-key"
+EOF
+source ~/.zshrc
+```
+
+### Step 4: Initialize VXD
+
+```bash
+cd vortex-dispatch
+vxd init
+```
+
+### Step 5: Set Up Self-Improvement Engine
+
+```bash
+# Create log directory
+mkdir -p ~/.vxd/self-improve
+
+# Install the launchd schedule (daily at 6am)
+cat > ~/Library/LaunchAgents/com.vxd.self-improve.plist << 'PLISTEOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.vxd.self-improve</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>~/.local/bin/vxd-improve</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>~/Sites/misc/vortex-dispatch</string>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key><integer>6</integer>
+        <key>Minute</key><integer>0</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>~/.vxd/self-improve/launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>~/.vxd/self-improve/launchd.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>~/.local/bin:~/go/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>HOME</key>
+        <string>~</string>
+    </dict>
+</dict>
+</plist>
+PLISTEOF
+
+# IMPORTANT: Edit the plist and replace ~ with your actual home directory path
+# e.g., /Users/yourusername
+sed -i '' "s|~|$HOME|g" ~/Library/LaunchAgents/com.vxd.self-improve.plist
+
+# Load the schedule
+launchctl load ~/Library/LaunchAgents/com.vxd.self-improve.plist
+
+# Test it works
+vxd-improve --dry-run
+```
+
+### Step 6: Set Up MemPalace (Optional)
+
+```bash
+pip3 install mempalace
+cd vortex-dispatch
+
+# Initialize (accept defaults at each prompt by pressing Enter)
+python3 -m mempalace init .
+
+# Index the codebase
+python3 -m mempalace mine .
+
+# Verify
+python3 -m mempalace search "event sourcing"
+```
+
+### Step 7: Verify Everything
+
+```bash
+vxd --help                    # CLI works
+vxd memory --web              # Dashboard opens in browser
+vxd-improve --dry-run         # Self-improvement engine runs
+python3 -m mempalace status   # MemPalace indexed
+launchctl list | grep vxd     # Daily schedule active
+```
+
+### What Runs Automatically
+
+| Schedule | What | Log |
+|----------|------|-----|
+| Daily 6am | `vxd-improve` — research, analyze, implement, email, re-mine MemPalace | `~/.vxd/self-improve/launchd.log` |
+
+Reports sent to `vortex.dispatch01@gmail.com`.
+
 ## Next Steps
 
 You're ready to explore the full pipeline. Head to the [Tutorial](tutorial.md) for a detailed walkthrough.

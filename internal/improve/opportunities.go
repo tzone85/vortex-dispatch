@@ -2,8 +2,11 @@ package improve
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -375,4 +378,324 @@ func ReadDiscoveredSources(path string) ([]DiscoveredSource, error) {
 		sources = append(sources, s)
 	}
 	return sources, scanner.Err()
+}
+
+// OpportunityScraper fetches opportunities from free API sources.
+type OpportunityScraper struct {
+	jobicyBaseURL   string
+	remotiveBaseURL string
+	hnBaseURL       string
+	firecrawlKey    string
+	firecrawlURL    string
+	client          *http.Client
+}
+
+// NewOpportunityScraper creates a scraper with configurable base URLs for testing.
+func NewOpportunityScraper(jobicyBase, remotiveBase, hnBase string) *OpportunityScraper {
+	if jobicyBase == "" {
+		jobicyBase = "https://jobicy.com"
+	}
+	if remotiveBase == "" {
+		remotiveBase = "https://remotive.com"
+	}
+	if hnBase == "" {
+		hnBase = "https://hn.algolia.com"
+	}
+	return &OpportunityScraper{
+		jobicyBaseURL:   jobicyBase,
+		remotiveBaseURL: remotiveBase,
+		hnBaseURL:       hnBase,
+		client:          &http.Client{Timeout: 30 * time.Second},
+	}
+}
+
+// NewOpportunityScraperWithFirecrawl creates a scraper that also supports Firecrawl.
+func NewOpportunityScraperWithFirecrawl(jobicyBase, remotiveBase, hnBase, firecrawlKey, firecrawlURL string) *OpportunityScraper {
+	s := NewOpportunityScraper(jobicyBase, remotiveBase, hnBase)
+	s.firecrawlKey = firecrawlKey
+	s.firecrawlURL = firecrawlURL
+	return s
+}
+
+// ScrapeJobicy fetches jobs from the Jobicy REST API.
+func (s *OpportunityScraper) ScrapeJobicy(ctx context.Context, keywords []string) ([]Opportunity, error) {
+	var allOpps []Opportunity
+
+	for _, kw := range keywords {
+		url := fmt.Sprintf("%s/api/v2/remote-jobs?count=50&industry=dev&tag=%s",
+			s.jobicyBaseURL, strings.ReplaceAll(kw, " ", "+"))
+
+		log.Printf("  [jobicy] Fetching keyword %q ...", kw)
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			log.Printf("  [jobicy] create request: %v", err)
+			continue
+		}
+
+		resp, err := s.client.Do(req)
+		if err != nil {
+			log.Printf("  [jobicy] http error for %q: %v", kw, err)
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return nil, fmt.Errorf("jobicy returned %d for keyword %q", resp.StatusCode, kw)
+		}
+
+		var result struct {
+			Jobs []struct {
+				ID              int      `json:"id"`
+				URL             string   `json:"url"`
+				JobTitle        string   `json:"jobTitle"`
+				CompanyName     string   `json:"companyName"`
+				JobGeo          string   `json:"jobGeo"`
+				AnnualSalaryMin string   `json:"annualSalaryMin"`
+				AnnualSalaryMax string   `json:"annualSalaryMax"`
+				JobIndustry     []string `json:"jobIndustry"`
+			} `json:"jobs"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			resp.Body.Close()
+			log.Printf("  [jobicy] decode error for %q: %v", kw, err)
+			continue
+		}
+		resp.Body.Close()
+
+		for _, j := range result.Jobs {
+			budget := ""
+			if j.AnnualSalaryMin != "" || j.AnnualSalaryMax != "" {
+				budget = "$" + j.AnnualSalaryMin + "-$" + j.AnnualSalaryMax
+			}
+			opp := Opportunity{
+				Source:  "jobicy",
+				Title:   j.JobTitle,
+				Company: j.CompanyName,
+				URL:     j.URL,
+				Budget:  budget,
+				Skills:  j.JobIndustry,
+				Remote:  true,
+				Status:  StatusNew,
+			}
+			allOpps = append(allOpps, opp)
+		}
+		log.Printf("  [jobicy] Found %d jobs for %q", len(result.Jobs), kw)
+	}
+
+	return allOpps, nil
+}
+
+// ScrapeRemotive fetches jobs from the Remotive REST API.
+func (s *OpportunityScraper) ScrapeRemotive(ctx context.Context) ([]Opportunity, error) {
+	url := s.remotiveBaseURL + "/api/remote-jobs?category=software-dev"
+
+	log.Printf("  [remotive] Fetching software-dev jobs ...")
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("remotive returned %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Jobs []struct {
+			ID          int      `json:"id"`
+			URL         string   `json:"url"`
+			Title       string   `json:"title"`
+			CompanyName string   `json:"company_name"`
+			Tags        []string `json:"tags"`
+			Salary      string   `json:"salary"`
+		} `json:"jobs"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	var opps []Opportunity
+	for _, j := range result.Jobs {
+		opp := Opportunity{
+			Source:  "remotive",
+			Title:   j.Title,
+			Company: j.CompanyName,
+			URL:     j.URL,
+			Budget:  j.Salary,
+			Skills:  j.Tags,
+			Remote:  true,
+			Status:  StatusNew,
+		}
+		opps = append(opps, opp)
+	}
+
+	log.Printf("  [remotive] Found %d jobs", len(opps))
+	return opps, nil
+}
+
+// ScrapeHNWhoIsHiring fetches the current "Who is Hiring" thread from HN via Algolia.
+func (s *OpportunityScraper) ScrapeHNWhoIsHiring(ctx context.Context, now time.Time) ([]Opportunity, error) {
+	// Step 1: Find the thread ID for this month
+	threadID, err := s.findHNThreadID(ctx, now)
+	if err != nil {
+		return nil, fmt.Errorf("find HN thread: %w", err)
+	}
+	if threadID == "" {
+		log.Printf("  [hn] No Who is Hiring thread found for %s", now.Format("January 2006"))
+		return nil, nil
+	}
+
+	log.Printf("  [hn] Found thread ID %s, fetching comments ...", threadID)
+
+	// Step 2: Fetch thread children (job postings)
+	url := fmt.Sprintf("%s/api/v1/items/%s", s.hnBaseURL, threadID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("hn items returned %d", resp.StatusCode)
+	}
+
+	var thread struct {
+		ID       int `json:"id"`
+		Children []struct {
+			ID     int    `json:"id"`
+			Text   string `json:"text"`
+			Author string `json:"author"`
+		} `json:"children"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&thread); err != nil {
+		return nil, fmt.Errorf("decode thread: %w", err)
+	}
+
+	var opps []Opportunity
+	for _, child := range thread.Children {
+		if child.Text == "" {
+			continue
+		}
+		opp := parseHNComment(child.ID, child.Text, child.Author)
+		opps = append(opps, opp)
+	}
+
+	log.Printf("  [hn] Parsed %d job postings from thread", len(opps))
+	return opps, nil
+}
+
+// findHNThreadID searches Algolia for the current month's "Who is Hiring" thread.
+func (s *OpportunityScraper) findHNThreadID(ctx context.Context, now time.Time) (string, error) {
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	timestamp := monthStart.Unix()
+
+	url := fmt.Sprintf("%s/api/v1/search?query=%%22who+is+hiring%%22&tags=story&numericFilters=created_at_i>%d",
+		s.hnBaseURL, timestamp)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("create search request: %w", err)
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("search request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var searchResult struct {
+		Hits []struct {
+			ObjectID string `json:"objectID"`
+			Title    string `json:"title"`
+		} `json:"hits"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&searchResult); err != nil {
+		return "", fmt.Errorf("decode search: %w", err)
+	}
+
+	for _, hit := range searchResult.Hits {
+		lower := strings.ToLower(hit.Title)
+		if strings.Contains(lower, "who is hiring") {
+			return hit.ObjectID, nil
+		}
+	}
+
+	// Fallback: try previous month
+	prevMonth := monthStart.AddDate(0, -1, 0)
+	prevTimestamp := prevMonth.Unix()
+	url = fmt.Sprintf("%s/api/v1/search?query=%%22who+is+hiring%%22&tags=story&numericFilters=created_at_i>%d",
+		s.hnBaseURL, prevTimestamp)
+
+	req, err = http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", nil
+	}
+	resp2, err := s.client.Do(req)
+	if err != nil {
+		return "", nil
+	}
+	defer resp2.Body.Close()
+
+	var fallback struct {
+		Hits []struct {
+			ObjectID string `json:"objectID"`
+			Title    string `json:"title"`
+		} `json:"hits"`
+	}
+	json.NewDecoder(resp2.Body).Decode(&fallback)
+
+	for _, hit := range fallback.Hits {
+		lower := strings.ToLower(hit.Title)
+		if strings.Contains(lower, "who is hiring") {
+			return hit.ObjectID, nil
+		}
+	}
+
+	return "", nil
+}
+
+// parseHNComment extracts opportunity data from a HN job comment.
+// HN comments typically follow: Company | Role | Location | Salary | ...
+func parseHNComment(id int, text, author string) Opportunity {
+	cleaned := SanitizeContent(text)
+	parts := strings.SplitN(cleaned, "|", 4)
+
+	company := strings.TrimSpace(parts[0])
+	title := ""
+	if len(parts) > 1 {
+		title = strings.TrimSpace(parts[1])
+	}
+	budget := ""
+	if len(parts) > 2 {
+		for _, part := range parts[2:] {
+			trimmed := strings.TrimSpace(part)
+			if strings.Contains(trimmed, "$") || strings.Contains(strings.ToLower(trimmed), "k") {
+				budget = trimmed
+				break
+			}
+		}
+	}
+
+	return Opportunity{
+		Source:  "hn_who_is_hiring",
+		Title:   title,
+		Company: company,
+		URL:     fmt.Sprintf("https://news.ycombinator.com/item?id=%d", id),
+		Budget:  budget,
+		Remote:  strings.Contains(strings.ToLower(cleaned), "remote"),
+		Status:  StatusNew,
+		Notes:   cleaned,
+	}
 }

@@ -1,0 +1,392 @@
+/* -- Reset & Base --------------------------------------------------------- */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  background: #1A1A2E;
+  color: #FFFFFF;
+  font-family: monospace;
+  margin: 0;
+  padding: 16px;
+  font-size: 13px;
+}
+
+/* -- Header --------------------------------------------------------------- */
+#header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #00CCCC;
+  padding-bottom: 8px;
+  margin-bottom: 12px;
+}
+
+#header h1 {
+  margin: 0;
+  font-size: 16px;
+  color: #00CCCC;
+}
+
+#header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#search-box {
+  background: #16213E;
+  border: 1px solid #444;
+  color: #FFFFFF;
+  font-family: monospace;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 3px;
+  width: 220px;
+}
+
+#search-box:focus {
+  outline: none;
+  border-color: #00CCCC;
+}
+
+#connection-status {
+  font-size: 12px;
+  color: #888888;
+}
+
+#connection-status.connected {
+  color: #00CC66;
+}
+
+#connection-status.disconnected {
+  color: #FF4444;
+}
+
+/* -- Timeline Slider ------------------------------------------------------ */
+#timeline-section {
+  margin-bottom: 16px;
+  border-left: 2px solid #00CCCC;
+  padding-left: 8px;
+}
+
+#timeline-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#timeline-slider {
+  flex: 1;
+  accent-color: #00CCCC;
+  cursor: pointer;
+}
+
+#date-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #888888;
+  margin-top: 4px;
+}
+
+#date-current {
+  color: #00CCCC;
+  font-weight: bold;
+  font-size: 13px;
+}
+
+/* -- Middle Row ----------------------------------------------------------- */
+#middle-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+/* -- Calendar Heatmap ----------------------------------------------------- */
+#calendar-section {
+  border-left: 2px solid #00CCCC;
+  padding-left: 8px;
+}
+
+#calendar-section h2 {
+  color: #00CCCC;
+  font-size: 14px;
+  margin: 4px 0 8px 0;
+}
+
+#calendar-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+#cal-month-label {
+  color: #FFFFFF;
+  font-size: 13px;
+  min-width: 120px;
+  text-align: center;
+}
+
+#calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  margin-bottom: 2px;
+}
+
+#calendar-weekdays span {
+  font-size: 10px;
+  color: #888888;
+  text-align: center;
+}
+
+#calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.cal-cell {
+  aspect-ratio: 1;
+  border-radius: 2px;
+  cursor: pointer;
+  min-height: 16px;
+  position: relative;
+}
+
+.cal-cell:hover {
+  outline: 1px solid #FFFFFF;
+}
+
+.cal-cell.empty {
+  cursor: default;
+}
+
+.cal-cell.empty:hover {
+  outline: none;
+}
+
+.cal-cell.selected {
+  outline: 2px solid #00CCCC;
+}
+
+.level-0 { background: #16213E; }
+.level-1 { background: #0e4429; }
+.level-2 { background: #006d32; }
+.level-3 { background: #26a641; }
+
+#calendar-legend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  font-size: 10px;
+  color: #888888;
+}
+
+.legend-cell {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+/* -- Charts --------------------------------------------------------------- */
+#charts-section {
+  border-left: 2px solid #00CCCC;
+  padding-left: 8px;
+}
+
+#charts-section h2 {
+  color: #00CCCC;
+  font-size: 14px;
+  margin: 4px 0 8px 0;
+}
+
+#charts-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+}
+
+#charts-container img {
+  border-radius: 4px;
+  background: #16213E;
+}
+
+/* -- Detail Cards --------------------------------------------------------- */
+#detail-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.card {
+  border: 1px solid #333;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.card-header {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-header-green  { background: #0e4429; color: #26a641; }
+.card-header-blue   { background: #0d1b3e; color: #58a6ff; }
+.card-header-gray   { background: #1e1e2e; color: #888888; }
+.card-header-purple { background: #1e0d3e; color: #bc8cff; }
+.card-header-teal   { background: #0d2e2e; color: #00CCCC; }
+
+.badge {
+  background: rgba(255,255,255,0.15);
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 11px;
+}
+
+.card-body {
+  padding: 8px 10px;
+  max-height: 300px;
+  overflow-y: auto;
+  font-size: 12px;
+}
+
+/* -- Card Item Rows ------------------------------------------------------- */
+.item-row {
+  padding: 4px 0;
+  border-bottom: 1px solid #222;
+}
+
+.item-row:last-child {
+  border-bottom: none;
+}
+
+.item-title {
+  font-weight: bold;
+  color: #FFFFFF;
+}
+
+.item-meta {
+  color: #888888;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.item-meta a {
+  color: #58a6ff;
+  text-decoration: none;
+}
+
+.item-meta a:hover {
+  text-decoration: underline;
+}
+
+.item-reasoning {
+  color: #aaaaaa;
+  font-size: 11px;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+/* -- Run Summary ---------------------------------------------------------- */
+#run-summary-content {
+  padding: 8px 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.summary-stat {
+  display: flex;
+  justify-content: space-between;
+}
+
+.summary-stat .label {
+  color: #888888;
+}
+
+.summary-stat .value {
+  color: #00CCCC;
+  font-weight: bold;
+}
+
+/* -- Search Result Items -------------------------------------------------- */
+.search-item {
+  padding: 6px 0;
+  border-bottom: 1px solid #222;
+}
+
+.search-item:last-child {
+  border-bottom: none;
+}
+
+.search-wing {
+  color: #bc8cff;
+  font-size: 11px;
+}
+
+.search-similarity {
+  color: #888888;
+  font-size: 11px;
+  float: right;
+}
+
+.search-text {
+  color: #cccccc;
+  font-size: 12px;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+/* -- Buttons -------------------------------------------------------------- */
+button {
+  padding: 2px 8px;
+  background: transparent;
+  border: 1px solid #888888;
+  color: #888888;
+  font-family: monospace;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+button:hover {
+  opacity: 0.8;
+}
+
+.btn-action {
+  border-color: #00CCCC;
+  color: #00CCCC;
+}
+
+/* -- Empty State ---------------------------------------------------------- */
+.empty-state {
+  color: #666666;
+  font-style: italic;
+  padding: 8px 0;
+}
+
+/* -- Utility -------------------------------------------------------------- */
+.hidden {
+  display: none !important;
+}
+
+/* -- Responsive ----------------------------------------------------------- */
+@media (max-width: 900px) {
+  #middle-row {
+    grid-template-columns: 1fr;
+  }
+  #detail-cards {
+    grid-template-columns: 1fr;
+  }
+}

@@ -50,6 +50,27 @@ gh auth login
 
 > **Gemma 4 default:** VXD uses Google AI Studio's free tier for execution roles (Junior, Intermediate, Supervisor) by default. Get a free API key from [Google AI Studio](https://aistudio.google.com/apikey). If no `GOOGLE_AI_API_KEY` is set, configure these roles to use `anthropic` or `openai` in `vxd.yaml`. See the [Model Selection Guide](model-selection.md) for details.
 
+### MemPalace (Optional — Semantic Memory)
+
+VXD supports [MemPalace](https://github.com/milla-jovovich/mempalace) for storing and retrieving institutional knowledge — decisions, debugging insights, architectural patterns — via semantic search. Completely local, zero API cost.
+
+```bash
+# Install
+pip3 install mempalace
+
+# Initialize and index the VXD codebase
+python3 -m mempalace init /path/to/vortex-dispatch
+python3 -m mempalace mine /path/to/vortex-dispatch
+
+# Search your project's memory
+python3 -m mempalace search "why did we choose event sourcing"
+
+# Check what's indexed
+python3 -m mempalace status
+```
+
+The self-improvement engine (`vxd-improve`) automatically re-mines the codebase after each run to keep the palace current.
+
 ## Before You Install: PATH Setup (required)
 
 By default, `go install` places binaries in `~/go/bin/`. You can also build to `~/.local/bin/` if that is where your system resolves binaries. Either way, ensure the target directory is on your PATH.

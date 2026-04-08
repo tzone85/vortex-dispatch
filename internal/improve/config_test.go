@@ -75,6 +75,62 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_OpportunityDefaults(t *testing.T) {
+	t.Setenv("FIRECRAWL_API_KEY", "fc-test")
+	t.Setenv("RESEND_API_KEY", "re-test")
+	t.Setenv("GOOGLE_AI_API_KEY", "gai-test")
+
+	cfg, err := improve.LoadConfig()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.ActiveBidding {
+		t.Error("expected ActiveBidding to default to false")
+	}
+	if cfg.MaxProposalsPerDay != 3 {
+		t.Errorf("expected MaxProposalsPerDay 3, got %d", cfg.MaxProposalsPerDay)
+	}
+	if cfg.MinHourlyRate != 50 {
+		t.Errorf("expected MinHourlyRate 50, got %d", cfg.MinHourlyRate)
+	}
+	if len(cfg.OpportunityKeywords) != 7 {
+		t.Errorf("expected 7 keyword sets, got %d", len(cfg.OpportunityKeywords))
+	}
+	if cfg.OpportunitiesDir == "" {
+		t.Error("expected non-empty OpportunitiesDir")
+	}
+}
+
+func TestLoadConfig_ActiveBiddingFromEnv(t *testing.T) {
+	t.Setenv("FIRECRAWL_API_KEY", "fc-test")
+	t.Setenv("RESEND_API_KEY", "re-test")
+	t.Setenv("GOOGLE_AI_API_KEY", "gai-test")
+	t.Setenv("VXD_ACTIVE_BIDDING", "true")
+
+	cfg, err := improve.LoadConfig()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.ActiveBidding {
+		t.Error("expected ActiveBidding true when VXD_ACTIVE_BIDDING=true")
+	}
+}
+
+func TestLoadConfig_CustomMinHourlyRate(t *testing.T) {
+	t.Setenv("FIRECRAWL_API_KEY", "fc-test")
+	t.Setenv("RESEND_API_KEY", "re-test")
+	t.Setenv("GOOGLE_AI_API_KEY", "gai-test")
+	t.Setenv("VXD_MIN_HOURLY_RATE", "75")
+
+	cfg, err := improve.LoadConfig()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.MinHourlyRate != 75 {
+		t.Errorf("expected MinHourlyRate 75, got %d", cfg.MinHourlyRate)
+	}
+}
+
 func TestConfig_RepoPath(t *testing.T) {
 	t.Setenv("FIRECRAWL_API_KEY", "fc-test")
 	t.Setenv("RESEND_API_KEY", "re-test")

@@ -176,6 +176,10 @@ var trackedProjects = []TrackedProject{
 		"https://thenewstack.io/anthropic-claude-mythos-cybersecurity/",
 		"https://red.anthropic.com/2026/mythos-preview/",
 	}, Category: "security"},
+	{Name: "Claw Code", URLs: []string{
+		"https://github.com/ultraworkers/claw-code",
+		"https://github.com/ultraworkers/claw-code/releases",
+	}, Category: "competitors"},
 	{Name: "OpenAI Developer Blog", URLs: []string{
 		"https://developers.openai.com/blog",
 		"https://developers.openai.com/api/docs/changelog",

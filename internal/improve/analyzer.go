@@ -61,7 +61,8 @@ type triageResponse struct {
 func (a *Analyzer) Triage(ctx context.Context, findings []Finding) ([]ScoredFinding, error) {
 	var scored []ScoredFinding
 
-	for _, f := range findings {
+	for i, f := range findings {
+		log.Printf("  [%d/%d] Scoring %q ...", i+1, len(findings), f.Title)
 		prompt := fmt.Sprintf(`Score this finding for relevance to VXD (an AI agent orchestration CLI tool written in Go):
 
 Title: %s
@@ -97,9 +98,10 @@ Respond with JSON only:
 		}
 
 		if tr.Relevance < a.threshold {
-			log.Printf("[analyzer] filtered %q (relevance %d < threshold %d)", f.Title, tr.Relevance, a.threshold)
+			log.Printf("  [%d/%d] %q → relevance %d (below threshold %d, skipped)", i+1, len(findings), f.Title, tr.Relevance, a.threshold)
 			continue
 		}
+		log.Printf("  [%d/%d] %q → relevance=%d impact=%d risk=%d rank=%d", i+1, len(findings), f.Title, tr.Relevance, tr.Impact, tr.Risk, (tr.Impact*2)+tr.Relevance-tr.Risk)
 
 		rank := (tr.Impact * 2) + tr.Relevance - tr.Risk
 		scored = append(scored, ScoredFinding{

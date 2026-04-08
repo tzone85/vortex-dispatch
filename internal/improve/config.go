@@ -82,7 +82,7 @@ func LoadConfig() (Config, error) {
 		MaxDiffLines:         500,
 		MaxFilesChanged:      10,
 		RelevanceThreshold:   5,
-		MaxFindingsToAnalyze: 5,
+		MaxFindingsToAnalyze: 10,
 		EmailTo:              "vortex.dispatch01@gmail.com",
 		EmailFrom:            "VXD Self-Improvement <onboarding@resend.dev>",
 		ClaudePath:           claudePath,

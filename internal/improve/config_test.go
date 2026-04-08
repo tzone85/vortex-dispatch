@@ -67,8 +67,8 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	if cfg.RelevanceThreshold != 5 {
 		t.Errorf("expected RelevanceThreshold 5, got %d", cfg.RelevanceThreshold)
 	}
-	if cfg.MaxFindingsToAnalyze != 5 {
-		t.Errorf("expected MaxFindingsToAnalyze 5, got %d", cfg.MaxFindingsToAnalyze)
+	if cfg.MaxFindingsToAnalyze != 10 {
+		t.Errorf("expected MaxFindingsToAnalyze 10, got %d", cfg.MaxFindingsToAnalyze)
 	}
 	if cfg.EmailTo != "vortex.dispatch01@gmail.com" {
 		t.Errorf("expected EmailTo 'vortex.dispatch01@gmail.com', got %q", cfg.EmailTo)

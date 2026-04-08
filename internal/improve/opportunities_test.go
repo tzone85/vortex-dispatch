@@ -3,6 +3,7 @@ package improve_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/tzone85/vortex-dispatch/internal/improve"
+	"github.com/tzone85/vortex-dispatch/internal/llm"
 )
 
 func TestOpportunityStatus_Lifecycle(t *testing.T) {
@@ -441,4 +443,81 @@ func TestScrapeAllSources_ContinuesOnError(t *testing.T) {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 	_ = opps
+}
+
+// mockLLMClient implements llm.Client for testing.
+type mockLLMClient struct {
+	response string
+	err      error
+}
+
+func (m *mockLLMClient) Complete(_ context.Context, _ llm.CompletionRequest) (llm.CompletionResponse, error) {
+	if m.err != nil {
+		return llm.CompletionResponse{}, m.err
+	}
+	return llm.CompletionResponse{Content: m.response}, nil
+}
+
+func TestScoreOpportunities_ScoredByGemma4(t *testing.T) {
+	client := &mockLLMClient{
+		response: `{"relevance_score": 8, "budget_score": 7, "win_probability": 6, "effort_estimate": "M", "reasoning": "Good fit for VXD"}`,
+	}
+
+	opps := []improve.Opportunity{
+		{ID: "opp-1", Title: "Build REST API", Source: "jobicy"},
+		{ID: "opp-2", Title: "Design logo", Source: "remotive"},
+	}
+
+	scored, err := improve.ScoreOpportunities(context.Background(), opps, client)
+	if err != nil {
+		t.Fatalf("score: %v", err)
+	}
+	if len(scored) != 2 {
+		t.Fatalf("expected 2 scored, got %d", len(scored))
+	}
+	if scored[0].RelevanceScore != 8 {
+		t.Errorf("expected relevance 8, got %d", scored[0].RelevanceScore)
+	}
+	if scored[0].BudgetScore != 7 {
+		t.Errorf("expected budget 7, got %d", scored[0].BudgetScore)
+	}
+	// (8*3) + (7*2) + 6 = 24 + 14 + 6 = 44
+	if scored[0].Rank != 44 {
+		t.Errorf("expected rank 44, got %d", scored[0].Rank)
+	}
+}
+
+func TestScoreOpportunities_ContinuesOnLLMError(t *testing.T) {
+	_ = fmt.Errorf // suppress unused import
+
+	goodClient := &mockLLMClient{
+		response: `{"relevance_score": 7, "budget_score": 6, "win_probability": 5, "effort_estimate": "S", "reasoning": "OK"}`,
+	}
+
+	opps := []improve.Opportunity{
+		{ID: "opp-1", Title: "Job 1"},
+	}
+	scored, _ := improve.ScoreOpportunities(context.Background(), opps, goodClient)
+	if len(scored) != 1 {
+		t.Errorf("expected 1 scored, got %d", len(scored))
+	}
+}
+
+func TestFilterAndRankOpportunities(t *testing.T) {
+	opps := []improve.Opportunity{
+		{ID: "1", Rank: 47, RelevanceScore: 8},
+		{ID: "2", Rank: 15, RelevanceScore: 3},
+		{ID: "3", Rank: 35, RelevanceScore: 7},
+	}
+
+	filtered := improve.FilterAndRankOpportunities(opps, 5)
+	if len(filtered) != 2 {
+		t.Fatalf("expected 2 after filter, got %d", len(filtered))
+	}
+	if filtered[0].ID != "1" {
+		t.Errorf("expected first to be ID 1, got %q", filtered[0].ID)
+	}
+	if filtered[1].ID != "3" {
+		t.Errorf("expected second to be ID 3, got %q", filtered[1].ID)
+	}
 }

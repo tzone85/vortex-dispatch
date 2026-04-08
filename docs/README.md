@@ -15,6 +15,13 @@ Welcome to the VXD (Vortex Dispatch) training guides. Whether you're a first-tim
 | [Gemma 4 Guide](gemma-4-guide.md) | Google AI Studio free tier setup, fallback behavior, configuration |
 | [Monitoring and Intervention](monitoring.md) | Watchdog, supervisor, dashboard, escalations |
 
+## Self-Improvement & Memory
+
+| Guide | Description |
+|-------|-------------|
+| [Self-Improvement Engine](self-improvement/) | Daily autonomous research, implementation, and email reports |
+| [MemPalace Setup](#mempalace-setup) | Semantic memory for decisions, patterns, and institutional knowledge |
+
 ## For Contributors
 
 | Guide | Description |

@@ -116,7 +116,8 @@ type TrackedProject struct {
 
 var trackedProjects = []TrackedProject{
 	{Name: "Gas Town", URLs: []string{
-		"https://github.com/search?q=gas+town+software&type=repositories",
+		"https://github.com/gastownhall/gastown",
+		"https://github.com/gastownhall/gastown/releases",
 	}, Category: "historical"},
 	{Name: "Dagger CI", URLs: []string{
 		"https://github.com/dagger/dagger/releases",

@@ -161,6 +161,10 @@ var trackedProjects = []TrackedProject{
 	{Name: "Hungry Ghost Hive", URLs: []string{
 		"https://github.com/tzone85/hungry-ghost-hive",
 	}, Category: "historical"},
+	{Name: "Wasteland", URLs: []string{
+		"https://github.com/gastownhall/wasteland",
+		"https://github.com/gastownhall/wasteland/releases",
+	}, Category: "historical"},
 	{Name: "Natural20 Blog", URLs: []string{
 		"https://natural20.beehiiv.com/p/claude-code-got-cloned-in-2-hours",
 		"https://natural20.beehiiv.com/p/anthropic-says-its-new-ai-model-is-too-dangerous-to-release",

@@ -1,8 +1,13 @@
 package improve_test
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -182,5 +187,165 @@ func TestSortByRank_Descending(t *testing.T) {
 	sorted := improve.SortByRank(opps)
 	if sorted[0].ID != "2" || sorted[1].ID != "1" || sorted[2].ID != "3" {
 		t.Errorf("expected sort by rank descending, got %v", sorted)
+	}
+}
+
+// Suppress unused import warnings -- these are used in later tests
+var _ = context.Background
+var _ = json.Marshal
+var _ = http.StatusOK
+var _ = httptest.NewServer
+var _ = strings.Contains
+
+func TestScrapeJobicy_ParsesJobs(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/api/v2/remote-jobs") {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		resp := map[string]any{
+			"jobs": []map[string]any{
+				{
+					"id":              1234,
+					"url":             "https://jobicy.com/jobs/1234",
+					"jobTitle":        "Backend Go Developer",
+					"companyName":     "Acme Corp",
+					"jobGeo":          "Anywhere",
+					"jobType":         []string{"full-time"},
+					"annualSalaryMin": "80000",
+					"annualSalaryMax": "120000",
+					"jobIndustry":     []string{"Go", "PostgreSQL"},
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	scraper := improve.NewOpportunityScraper(server.URL, "", "")
+	opps, err := scraper.ScrapeJobicy(context.Background(), []string{"backend"})
+	if err != nil {
+		t.Fatalf("scrape jobicy: %v", err)
+	}
+	if len(opps) != 1 {
+		t.Fatalf("expected 1 opportunity, got %d", len(opps))
+	}
+	if opps[0].Source != "jobicy" {
+		t.Errorf("expected source jobicy, got %q", opps[0].Source)
+	}
+	if opps[0].Title != "Backend Go Developer" {
+		t.Errorf("expected title, got %q", opps[0].Title)
+	}
+	if opps[0].Company != "Acme Corp" {
+		t.Errorf("expected company Acme Corp, got %q", opps[0].Company)
+	}
+}
+
+func TestScrapeRemotive_ParsesJobs(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/api/remote-jobs") {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		resp := map[string]any{
+			"jobs": []map[string]any{
+				{
+					"id":           5678,
+					"url":          "https://remotive.com/jobs/5678",
+					"title":        "Full Stack Developer",
+					"company_name": "StartupCo",
+					"tags":         []string{"JavaScript", "React", "Node.js"},
+					"salary":       "$60,000 - $100,000",
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	scraper := improve.NewOpportunityScraper("", server.URL, "")
+	opps, err := scraper.ScrapeRemotive(context.Background())
+	if err != nil {
+		t.Fatalf("scrape remotive: %v", err)
+	}
+	if len(opps) != 1 {
+		t.Fatalf("expected 1 opportunity, got %d", len(opps))
+	}
+	if opps[0].Source != "remotive" {
+		t.Errorf("expected source remotive, got %q", opps[0].Source)
+	}
+}
+
+func TestScrapeHNWhoIsHiring_FindsThreadAndParsesComments(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(r.URL.Path, "/api/v1/search") {
+			resp := map[string]any{
+				"hits": []map[string]any{
+					{"objectID": "99999", "title": "Ask HN: Who is hiring? (April 2026)"},
+				},
+			}
+			json.NewEncoder(w).Encode(resp)
+		} else if strings.Contains(r.URL.Path, "/api/v1/items/99999") {
+			resp := map[string]any{
+				"id": 99999,
+				"children": []map[string]any{
+					{
+						"id":     100001,
+						"text":   "Acme Corp | Senior Backend Engineer | Remote | $150K-$200K | Go, PostgreSQL, gRPC",
+						"author": "acme_hiring",
+					},
+					{
+						"id":     100002,
+						"text":   "StartupX | Full Stack Developer | San Francisco, CA (Remote OK) | Python, React",
+						"author": "startupx_hr",
+					},
+				},
+			}
+			json.NewEncoder(w).Encode(resp)
+		}
+	}))
+	defer server.Close()
+
+	scraper := improve.NewOpportunityScraper("", "", server.URL)
+	opps, err := scraper.ScrapeHNWhoIsHiring(context.Background(), time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("scrape HN: %v", err)
+	}
+	if len(opps) < 1 {
+		t.Fatalf("expected at least 1 opportunity from HN, got %d", len(opps))
+	}
+	if opps[0].Source != "hn_who_is_hiring" {
+		t.Errorf("expected source hn_who_is_hiring, got %q", opps[0].Source)
+	}
+}
+
+func TestScrapeJobicy_HandlesHTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	scraper := improve.NewOpportunityScraper(server.URL, "", "")
+	_, err := scraper.ScrapeJobicy(context.Background(), []string{"backend"})
+	if err == nil {
+		t.Error("expected error for 500 response")
+	}
+}
+
+func TestScrapeRemotive_HandlesEmptyJobs(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"jobs": []any{}})
+	}))
+	defer server.Close()
+
+	scraper := improve.NewOpportunityScraper("", server.URL, "")
+	opps, err := scraper.ScrapeRemotive(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(opps) != 0 {
+		t.Errorf("expected 0, got %d", len(opps))
 	}
 }

@@ -38,6 +38,8 @@ var currentSources = []Source{
 	{Name: "Ollama Releases", URL: "https://github.com/ollama/ollama/releases", Category: "llm_providers", Direction: "current"},
 	{Name: "Go Vuln DB", URL: "https://vuln.go.dev/", Category: "security", Direction: "current"},
 	{Name: "HN Best", URL: "https://news.ycombinator.com/best", Category: "general_se", Direction: "current"},
+	{Name: "GitHub Trending", URL: "https://github.com/trending", Category: "general_se", Direction: "current"},
+	{Name: "GitHub Ranking", URL: "https://github.com/EvanLi/Github-Ranking", Category: "general_se", Direction: "current"},
 	{Name: "SWE-agent Releases", URL: "https://github.com/princeton-nlp/SWE-agent/releases", Category: "competitors", Direction: "current"},
 	{Name: "OpenHands Releases", URL: "https://github.com/All-Hands-AI/OpenHands/releases", Category: "competitors", Direction: "current"},
 }

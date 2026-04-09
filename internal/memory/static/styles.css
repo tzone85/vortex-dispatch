@@ -381,6 +381,199 @@ button:hover {
   display: none !important;
 }
 
+/* -- Tab Navigation ------------------------------------------------------- */
+#tab-nav {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid #333;
+  padding-bottom: 4px;
+}
+
+.tab-btn {
+  padding: 6px 16px;
+  border: 1px solid #333;
+  border-bottom: none;
+  background: #16213E;
+  color: #888;
+  cursor: pointer;
+  border-radius: 4px 4px 0 0;
+}
+
+.tab-btn.active {
+  background: #1A1A2E;
+  color: #00CCCC;
+  border-color: #00CCCC;
+}
+
+.tab-content {
+  /* visible by default when active */
+}
+
+/* -- Opportunity Stats Bar ------------------------------------------------ */
+#opp-stats-bar {
+  display: flex;
+  gap: 20px;
+  padding: 8px 12px;
+  background: #16213E;
+  border-radius: 4px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: #888;
+}
+
+#opp-stats-bar strong {
+  color: #00CCCC;
+}
+
+/* -- Opportunity Controls ------------------------------------------------- */
+#opp-controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+#opp-filter {
+  background: #16213E;
+  border: 1px solid #444;
+  color: #fff;
+  font-family: monospace;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 3px;
+}
+
+/* -- Opportunity Cards ---------------------------------------------------- */
+.opp-card {
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 10px;
+  margin-bottom: 8px;
+  background: #16213E;
+}
+
+.opp-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.opp-card-title {
+  font-weight: bold;
+  color: #fff;
+  font-size: 13px;
+}
+
+.opp-card-rank {
+  background: #059669;
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+}
+
+.opp-card-meta {
+  color: #888;
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+
+.opp-card-skills {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.opp-skill-tag {
+  background: #0d2e2e;
+  color: #00CCCC;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+}
+
+.opp-card-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.opp-btn {
+  padding: 3px 10px;
+  border: 1px solid #059669;
+  color: #059669;
+  background: transparent;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.opp-btn:hover {
+  background: #059669;
+  color: #fff;
+}
+
+.opp-btn-danger {
+  border-color: #dc2626;
+  color: #dc2626;
+}
+
+.opp-btn-danger:hover {
+  background: #dc2626;
+  color: #fff;
+}
+
+.opp-btn-gold {
+  border-color: #f59e0b;
+  color: #f59e0b;
+}
+
+.opp-btn-gold:hover {
+  background: #f59e0b;
+  color: #fff;
+}
+
+/* -- Proposal Expand ------------------------------------------------------ */
+.opp-proposal {
+  margin-top: 8px;
+  padding: 8px;
+  background: #1e1e2e;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #ccc;
+  white-space: pre-wrap;
+  display: none;
+}
+
+.opp-proposal.visible {
+  display: block;
+}
+
+/* -- Revenue Summary ------------------------------------------------------ */
+#revenue-summary {
+  margin-top: 16px;
+  padding: 12px;
+  background: #16213E;
+  border-radius: 4px;
+  border-left: 3px solid #f59e0b;
+}
+
+#revenue-summary h2 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+}
+
+/* -- Source Cards ---------------------------------------------------------- */
+.source-card {
+  padding: 8px;
+  border-bottom: 1px solid #222;
+}
+
+.source-card:last-child {
+  border-bottom: none;
+}
+
 /* -- Responsive ----------------------------------------------------------- */
 @media (max-width: 900px) {
   #middle-row {

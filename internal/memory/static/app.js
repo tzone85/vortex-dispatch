@@ -4,26 +4,26 @@
 // -- State ----------------------------------------------------------------
 let ws = null;
 let timeline = [];
-let dateIndex = {};     // date string -> index in timeline
-let allDates = [];      // sorted date strings
+let dateIndex = {}; // date string -> index in timeline
+let allDates = []; // sorted date strings
 let calendarMonth = null; // Date object for current calendar view
 let reconnectDelay = 1000;
 
 // -- DOM Refs -------------------------------------------------------------
-const statusEl      = document.getElementById("connection-status");
-const sliderEl      = document.getElementById("timeline-slider");
-const dateMinEl     = document.getElementById("date-min");
-const dateMaxEl     = document.getElementById("date-max");
+const statusEl = document.getElementById("connection-status");
+const sliderEl = document.getElementById("timeline-slider");
+const dateMinEl = document.getElementById("date-min");
+const dateMaxEl = document.getElementById("date-max");
 const dateCurrentEl = document.getElementById("date-current");
-const prevDayBtn    = document.getElementById("prev-day");
-const nextDayBtn    = document.getElementById("next-day");
-const calGridEl     = document.getElementById("calendar-grid");
-const calLabelEl    = document.getElementById("cal-month-label");
-const calPrevBtn    = document.getElementById("cal-prev");
-const calNextBtn    = document.getElementById("cal-next");
-const chartBarEl    = document.getElementById("chart-bar");
-const chartDonutEl  = document.getElementById("chart-doughnut");
-const searchBoxEl   = document.getElementById("search-box");
+const prevDayBtn = document.getElementById("prev-day");
+const nextDayBtn = document.getElementById("next-day");
+const calGridEl = document.getElementById("calendar-grid");
+const calLabelEl = document.getElementById("cal-month-label");
+const calPrevBtn = document.getElementById("cal-prev");
+const calNextBtn = document.getElementById("cal-next");
+const chartBarEl = document.getElementById("chart-bar");
+const chartDonutEl = document.getElementById("chart-doughnut");
+const searchBoxEl = document.getElementById("search-box");
 
 // -- Utility: clear all children ------------------------------------------
 function clearChildren(el) {
@@ -37,26 +37,30 @@ function connect() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   ws = new WebSocket(proto + "//" + location.host + "/ws");
 
-  ws.onopen = function() {
+  ws.onopen = function () {
     statusEl.textContent = "Connected";
     statusEl.className = "connected";
     reconnectDelay = 1000;
   };
 
-  ws.onclose = function() {
+  ws.onclose = function () {
     statusEl.textContent = "Disconnected";
     statusEl.className = "disconnected";
     setTimeout(connect, reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 2, 30000);
   };
 
-  ws.onerror = function() {
+  ws.onerror = function () {
     ws.close();
   };
 
-  ws.onmessage = function(evt) {
+  ws.onmessage = function (evt) {
     var msg;
-    try { msg = JSON.parse(evt.data); } catch (_) { return; }
+    try {
+      msg = JSON.parse(evt.data);
+    } catch (_) {
+      return;
+    }
     handleMessage(msg);
   };
 }
@@ -66,6 +70,24 @@ function send(obj) {
     ws.send(JSON.stringify(obj));
   }
 }
+
+// -- Tab Switching --------------------------------------------------------
+document.querySelectorAll(".tab-btn").forEach(function (btn) {
+  btn.addEventListener("click", function () {
+    var tab = this.getAttribute("data-tab");
+    document.querySelectorAll(".tab-btn").forEach(function (b) {
+      b.classList.remove("active");
+    });
+    document.querySelectorAll(".tab-content").forEach(function (c) {
+      c.classList.add("hidden");
+    });
+    this.classList.add("active");
+    document.getElementById("tab-" + tab).classList.remove("hidden");
+    if (tab === "opportunities") {
+      send({ type: "list_opportunities", filter: "all", sort: "rank" });
+    }
+  });
+});
 
 // -- Message Handler ------------------------------------------------------
 function handleMessage(msg) {
@@ -79,15 +101,28 @@ function handleMessage(msg) {
     case "search_results":
       handleSearchResults(msg);
       break;
+    case "opportunities":
+      handleOpportunities(msg);
+      break;
+    case "revenue_update":
+      handleRevenueUpdate(msg);
+      break;
+    case "proposal_ready":
+      handleProposalReady(msg);
+      break;
   }
 }
 
 // -- Init -----------------------------------------------------------------
 function handleInit(msg) {
   timeline = msg.timeline || [];
-  allDates = timeline.map(function(e) { return e.date; });
+  allDates = timeline.map(function (e) {
+    return e.date;
+  });
   dateIndex = {};
-  allDates.forEach(function(d, i) { dateIndex[d] = i; });
+  allDates.forEach(function (d, i) {
+    dateIndex[d] = i;
+  });
 
   var range = msg.range || {};
   dateMinEl.textContent = range.min || "";
@@ -128,16 +163,16 @@ function currentDate() {
   return allDates[idx] || "";
 }
 
-sliderEl.addEventListener("input", function() {
+sliderEl.addEventListener("input", function () {
   selectDateByIndex(parseInt(this.value, 10));
 });
 
-prevDayBtn.addEventListener("click", function() {
+prevDayBtn.addEventListener("click", function () {
   var idx = parseInt(sliderEl.value, 10) - 1;
   if (idx >= 0) selectDateByIndex(idx);
 });
 
-nextDayBtn.addEventListener("click", function() {
+nextDayBtn.addEventListener("click", function () {
   var idx = parseInt(sliderEl.value, 10) + 1;
   if (idx < allDates.length) selectDateByIndex(idx);
 });
@@ -166,10 +201,10 @@ function renderRunSummary(summary) {
     { label: "Findings Total", value: summary.findings_total },
     { label: "Findings Relevant", value: summary.findings_relevant },
     { label: "PRs Created", value: summary.prs_created },
-    { label: "Email Sent", value: summary.email_sent ? "Yes" : "No" }
+    { label: "Email Sent", value: summary.email_sent ? "Yes" : "No" },
   ];
 
-  stats.forEach(function(s) {
+  stats.forEach(function (s) {
     var div = document.createElement("div");
     div.className = "summary-stat";
     var labelSpan = document.createElement("span");
@@ -197,7 +232,7 @@ function renderPRs(prs) {
     return;
   }
 
-  prs.forEach(function(pr) {
+  prs.forEach(function (pr) {
     var row = document.createElement("div");
     row.className = "item-row";
 
@@ -243,7 +278,7 @@ function renderFindings(findings) {
     return;
   }
 
-  findings.forEach(function(f) {
+  findings.forEach(function (f) {
     var row = document.createElement("div");
     row.className = "item-row";
 
@@ -254,7 +289,16 @@ function renderFindings(findings) {
 
     var meta = document.createElement("div");
     meta.className = "item-meta";
-    var metaText = f.category + " | R:" + f.relevance + " I:" + f.impact + " Risk:" + f.risk + " | " + f.disposition;
+    var metaText =
+      f.category +
+      " | R:" +
+      f.relevance +
+      " I:" +
+      f.impact +
+      " Risk:" +
+      f.risk +
+      " | " +
+      f.disposition;
     meta.textContent = metaText;
     if (f.source_url) {
       var sep = document.createTextNode(" | ");
@@ -292,7 +336,7 @@ function renderCommits(commits) {
     return;
   }
 
-  commits.forEach(function(c) {
+  commits.forEach(function (c) {
     var row = document.createElement("div");
     row.className = "item-row";
 
@@ -312,19 +356,19 @@ function renderCommits(commits) {
 
 // -- Search ---------------------------------------------------------------
 var searchTimeout = null;
-searchBoxEl.addEventListener("input", function() {
+searchBoxEl.addEventListener("input", function () {
   clearTimeout(searchTimeout);
   var query = this.value.trim();
   if (query.length < 2) {
     document.getElementById("search-card").classList.add("hidden");
     return;
   }
-  searchTimeout = setTimeout(function() {
+  searchTimeout = setTimeout(function () {
     send({ type: "search", query: query, date: currentDate() });
   }, 400);
 });
 
-searchBoxEl.addEventListener("keydown", function(e) {
+searchBoxEl.addEventListener("keydown", function (e) {
   if (e.key === "Enter") {
     clearTimeout(searchTimeout);
     var query = this.value.trim();
@@ -346,12 +390,12 @@ function handleSearchResults(msg) {
   if (results.length === 0) {
     var empty = document.createElement("div");
     empty.className = "empty-state";
-    empty.textContent = "No results for \"" + msg.query + "\"";
+    empty.textContent = 'No results for "' + msg.query + '"';
     content.appendChild(empty);
     return;
   }
 
-  results.forEach(function(r) {
+  results.forEach(function (r) {
     var item = document.createElement("div");
     item.className = "search-item";
 
@@ -384,12 +428,12 @@ function handleSearchResults(msg) {
 }
 
 // -- Calendar Heatmap -----------------------------------------------------
-calPrevBtn.addEventListener("click", function() {
+calPrevBtn.addEventListener("click", function () {
   calendarMonth.setMonth(calendarMonth.getMonth() - 1);
   renderCalendar();
 });
 
-calNextBtn.addEventListener("click", function() {
+calNextBtn.addEventListener("click", function () {
   calendarMonth.setMonth(calendarMonth.getMonth() + 1);
   renderCalendar();
 });
@@ -400,14 +444,24 @@ function renderCalendar() {
   var year = calendarMonth.getFullYear();
   var month = calendarMonth.getMonth();
   var monthNames = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
   ];
   calLabelEl.textContent = monthNames[month] + " " + year;
 
   // Build activity lookup for this month
   var activityMap = {};
-  timeline.forEach(function(e) {
+  timeline.forEach(function (e) {
     activityMap[e.date] = e.activity_level;
   });
 
@@ -471,9 +525,15 @@ function updateBarChart() {
     return;
   }
 
-  var labels = recent.map(function(e) { return e.date.substring(5); });
-  var findingsData = recent.map(function(e) { return e.findings; });
-  var prsData = recent.map(function(e) { return e.prs; });
+  var labels = recent.map(function (e) {
+    return e.date.substring(5);
+  });
+  var findingsData = recent.map(function (e) {
+    return e.findings;
+  });
+  var prsData = recent.map(function (e) {
+    return e.prs;
+  });
 
   var config = {
     type: "bar",
@@ -481,32 +541,39 @@ function updateBarChart() {
       labels: labels,
       datasets: [
         { label: "Findings", data: findingsData, backgroundColor: "#58a6ff" },
-        { label: "PRs", data: prsData, backgroundColor: "#26a641" }
-      ]
+        { label: "PRs", data: prsData, backgroundColor: "#26a641" },
+      ],
     },
     options: {
       plugins: { legend: { labels: { color: "#ccc" } } },
       scales: {
         x: { ticks: { color: "#888" }, grid: { color: "#333" } },
-        y: { ticks: { color: "#888" }, grid: { color: "#333" }, beginAtZero: true }
-      }
-    }
+        y: {
+          ticks: { color: "#888" },
+          grid: { color: "#333" },
+          beginAtZero: true,
+        },
+      },
+    },
   };
 
-  chartBarEl.src = "https://quickchart.io/chart?w=300&h=180&bkg=%231A1A2E&c=" +
+  chartBarEl.src =
+    "https://quickchart.io/chart?w=300&h=180&bkg=%231A1A2E&c=" +
     encodeURIComponent(JSON.stringify(config));
 }
 
 function updateDoughnutChart() {
   // Aggregate activity levels across timeline
   var cats = {};
-  timeline.forEach(function(e) {
+  timeline.forEach(function (e) {
     var key = "Level " + e.activity_level;
     cats[key] = (cats[key] || 0) + 1;
   });
 
   var labels = Object.keys(cats);
-  var data = labels.map(function(k) { return cats[k]; });
+  var data = labels.map(function (k) {
+    return cats[k];
+  });
 
   if (labels.length === 0) {
     chartDonutEl.src = "";
@@ -519,19 +586,24 @@ function updateDoughnutChart() {
     type: "doughnut",
     data: {
       labels: labels,
-      datasets: [{
-        data: data,
-        backgroundColor: labels.map(function(_, i) { return colors[i % colors.length]; })
-      }]
+      datasets: [
+        {
+          data: data,
+          backgroundColor: labels.map(function (_, i) {
+            return colors[i % colors.length];
+          }),
+        },
+      ],
     },
     options: {
       plugins: {
-        legend: { labels: { color: "#ccc" } }
-      }
-    }
+        legend: { labels: { color: "#ccc" } },
+      },
+    },
   };
 
-  chartDonutEl.src = "https://quickchart.io/chart?w=300&h=180&bkg=%231A1A2E&c=" +
+  chartDonutEl.src =
+    "https://quickchart.io/chart?w=300&h=180&bkg=%231A1A2E&c=" +
     encodeURIComponent(JSON.stringify(config));
 }
 
@@ -541,7 +613,7 @@ function pad2(n) {
 }
 
 // -- Keyboard shortcuts ---------------------------------------------------
-document.addEventListener("keydown", function(e) {
+document.addEventListener("keydown", function (e) {
   // Left/Right arrows for timeline navigation (when not in search box)
   if (document.activeElement === searchBoxEl) return;
   if (e.key === "ArrowLeft") {
@@ -554,6 +626,244 @@ document.addEventListener("keydown", function(e) {
     searchBoxEl.focus();
     e.preventDefault();
   }
+});
+
+// -- Opportunity Tab --------------------------------------------------------
+function handleOpportunities(msg) {
+  var opps = msg.opportunities || [];
+  var stats = msg.opportunity_stats || {};
+  var sources = msg.discovered_sources || [];
+
+  // Update stats bar
+  document.getElementById("opp-total").textContent = stats.total || 0;
+  document.getElementById("opp-new").textContent = stats["new"] || 0;
+  document.getElementById("opp-drafts").textContent = stats.drafts || 0;
+  document.getElementById("opp-won").textContent = stats.won || 0;
+  document.getElementById("opp-revenue").textContent =
+    "$" + (stats.revenue || 0).toLocaleString();
+
+  // Render opportunity cards
+  var list = document.getElementById("opp-list");
+  clearChildren(list);
+
+  if (opps.length === 0) {
+    var empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent =
+      "No opportunities in pipeline. Run vxd-improve to scan.";
+    list.appendChild(empty);
+    return;
+  }
+
+  opps.forEach(function (opp) {
+    list.appendChild(createOpportunityCard(opp));
+  });
+
+  renderDiscoveredSources(sources);
+
+  if (stats.revenue > 0) {
+    document.getElementById("revenue-summary").classList.remove("hidden");
+    document.getElementById("revenue-content").textContent =
+      "Total revenue: $" + stats.revenue.toLocaleString();
+  }
+}
+
+function createOpportunityCard(opp) {
+  var card = document.createElement("div");
+  card.className = "opp-card";
+
+  var header = document.createElement("div");
+  header.className = "opp-card-header";
+  var title = document.createElement("span");
+  title.className = "opp-card-title";
+  title.textContent = opp.title || "(untitled)";
+  header.appendChild(title);
+  var rank = document.createElement("span");
+  rank.className = "opp-card-rank";
+  rank.textContent = "Rank " + (opp.rank || 0);
+  header.appendChild(rank);
+  card.appendChild(header);
+
+  var meta = document.createElement("div");
+  meta.className = "opp-card-meta";
+  meta.textContent = [
+    opp.source,
+    opp.company ? opp.company : "",
+    opp.budget ? opp.budget : "no budget",
+    "R:" +
+      opp.relevance_score +
+      " B:" +
+      opp.budget_score +
+      " W:" +
+      opp.win_probability,
+    opp.status,
+  ]
+    .filter(Boolean)
+    .join(" | ");
+  card.appendChild(meta);
+
+  if (opp.skills && opp.skills.length > 0) {
+    var skillsDiv = document.createElement("div");
+    skillsDiv.className = "opp-card-skills";
+    opp.skills.forEach(function (skill) {
+      var tag = document.createElement("span");
+      tag.className = "opp-skill-tag";
+      tag.textContent = skill;
+      skillsDiv.appendChild(tag);
+    });
+    card.appendChild(skillsDiv);
+  }
+
+  var actions = document.createElement("div");
+  actions.className = "opp-card-actions";
+
+  var viewBtn = document.createElement("button");
+  viewBtn.className = "opp-btn";
+  viewBtn.textContent = "View";
+  viewBtn.addEventListener("click", function () {
+    window.open(opp.url, "_blank");
+  });
+  actions.appendChild(viewBtn);
+
+  if (opp.status === "new" || opp.status === "reviewed") {
+    var intBtn = document.createElement("button");
+    intBtn.className = "opp-btn";
+    intBtn.textContent = "Interested";
+    intBtn.addEventListener("click", function () {
+      send({ type: "update_opportunity", id: opp.id, status: "interested" });
+    });
+    actions.appendChild(intBtn);
+  }
+
+  if (opp.proposal_draft) {
+    var propBtn = document.createElement("button");
+    propBtn.className = "opp-btn opp-btn-gold";
+    propBtn.textContent = "View Proposal";
+    propBtn.addEventListener("click", function () {
+      var el = card.querySelector(".opp-proposal");
+      if (el) {
+        el.classList.toggle("visible");
+      }
+    });
+    actions.appendChild(propBtn);
+
+    var sendBtn = document.createElement("button");
+    sendBtn.className = "opp-btn opp-btn-gold";
+    sendBtn.textContent = "Copy & Open";
+    sendBtn.addEventListener("click", function () {
+      navigator.clipboard.writeText(opp.proposal_draft).then(function () {
+        sendBtn.textContent = "Copied!";
+        setTimeout(function () {
+          sendBtn.textContent = "Copy & Open";
+        }, 2000);
+      });
+      window.open(opp.url, "_blank");
+    });
+    actions.appendChild(sendBtn);
+  }
+
+  if (
+    opp.status !== "won" &&
+    opp.status !== "lost" &&
+    opp.status !== "expired"
+  ) {
+    var wonBtn = document.createElement("button");
+    wonBtn.className = "opp-btn opp-btn-gold";
+    wonBtn.textContent = "Won $";
+    wonBtn.addEventListener("click", function () {
+      var amount = prompt("Enter amount earned (USD):");
+      if (amount && !isNaN(parseFloat(amount))) {
+        send({ type: "log_revenue", id: opp.id, amount: parseFloat(amount) });
+      }
+    });
+    actions.appendChild(wonBtn);
+
+    var lostBtn = document.createElement("button");
+    lostBtn.className = "opp-btn opp-btn-danger";
+    lostBtn.textContent = "Lost";
+    lostBtn.addEventListener("click", function () {
+      send({ type: "update_opportunity", id: opp.id, status: "lost" });
+    });
+    actions.appendChild(lostBtn);
+  }
+
+  card.appendChild(actions);
+
+  if (opp.proposal_draft) {
+    var proposal = document.createElement("div");
+    proposal.className = "opp-proposal";
+    proposal.textContent = opp.proposal_draft;
+    card.appendChild(proposal);
+  }
+
+  return card;
+}
+
+function renderDiscoveredSources(sources) {
+  var pending = sources.filter(function (s) {
+    return s.status === "pending_approval";
+  });
+  var card = document.getElementById("discovered-sources-card");
+  var content = document.getElementById("discovered-sources-content");
+
+  if (pending.length === 0) {
+    card.classList.add("hidden");
+    return;
+  }
+
+  card.classList.remove("hidden");
+  clearChildren(content);
+
+  pending.forEach(function (src) {
+    var div = document.createElement("div");
+    div.className = "source-card";
+
+    var name = document.createElement("div");
+    name.className = "item-title";
+    name.textContent = src.name;
+    div.appendChild(name);
+
+    var meta = document.createElement("div");
+    meta.className = "item-meta";
+    meta.textContent = src.reason + " | Discovered: " + src.discovered_on;
+    div.appendChild(meta);
+
+    var approveBtn = document.createElement("button");
+    approveBtn.className = "opp-btn";
+    approveBtn.textContent = "Approve Source";
+    approveBtn.style.marginTop = "4px";
+    approveBtn.addEventListener("click", function () {
+      send({ type: "approve_source", url: src.url });
+    });
+    div.appendChild(approveBtn);
+
+    content.appendChild(div);
+  });
+}
+
+function handleRevenueUpdate(msg) {
+  if (msg.milestone) {
+    alert(
+      "Mission Milestone Reached: " +
+        msg.milestone +
+        "!\n\nYou started this to free your village from poverty. Keep going!",
+    );
+  }
+  send({ type: "list_opportunities", filter: "all", sort: "rank" });
+}
+
+function handleProposalReady(msg) {
+  send({ type: "list_opportunities", filter: "all", sort: "rank" });
+}
+
+// -- Opportunity Filter Handler -------------------------------------------
+document.getElementById("opp-filter").addEventListener("change", function () {
+  send({ type: "list_opportunities", filter: this.value, sort: "rank" });
+});
+
+document.getElementById("opp-refresh").addEventListener("click", function () {
+  var filter = document.getElementById("opp-filter").value;
+  send({ type: "list_opportunities", filter: filter, sort: "rank" });
 });
 
 // -- Boot -----------------------------------------------------------------

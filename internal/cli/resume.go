@@ -218,6 +218,22 @@ func runResume(cmd *cobra.Command, args []string) error {
 		monitor.SetConflictResolver(conflictResolver)
 	}
 
+	// Enable tier-2 (manager) escalation with LLM-powered diagnosis.
+	if llmClient != nil {
+		managerModel := s.Config.Models.Manager
+		manager := engine.NewManager(llmClient, managerModel.Model, managerModel.MaxTokens, s.Events, s.Proj)
+		monitor.SetManager(manager)
+	}
+
+	// Enable tier-3 (tech lead) re-planning for stories that fail after manager diagnosis.
+	if llmClient != nil {
+		planningClient, planErr := buildPlanningClient(s.Config.Models.TechLead.Provider, godmode)
+		if planErr == nil {
+			rePlanner := engine.NewPlanner(planningClient, s.Config, s.Events, s.Proj)
+			monitor.SetPlanner(rePlanner)
+		}
+	}
+
 	// Enable auto-resume: when a wave completes, the monitor automatically
 	// dispatches the next wave of ready stories instead of exiting.
 	monitor.SetAutoResume(dispatcher, executor)

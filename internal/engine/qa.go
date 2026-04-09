@@ -124,6 +124,9 @@ func (q *QA) Run(ctx context.Context, storyID, worktreePath string) (QAResult, e
 		"passed":        result.Passed,
 		"total_checks":  len(result.Checks),
 		"failed_checks": failedChecks,
+		"quality_score": computeQualityScore(result),
+		"checks_passed": len(result.Checks) - len(failedChecks),
+		"duration_s":    totalDuration(result),
 	})
 	if err := q.eventStore.Append(resultEvt); err != nil {
 		return result, fmt.Errorf("emit qa result: %w", err)
@@ -133,6 +136,46 @@ func (q *QA) Run(ctx context.Context, storyID, worktreePath string) (QAResult, e
 	}
 
 	return result, nil
+}
+
+// computeQualityScore derives a 1-5 quality rating from QA results.
+// A score of 5 means all checks passed; 1 means the overall QA failed.
+func computeQualityScore(result QAResult) int {
+	if !result.Passed {
+		return 1
+	}
+	total := len(result.Checks)
+	if total == 0 {
+		return 3
+	}
+	passed := 0
+	for _, c := range result.Checks {
+		if c.Passed {
+			passed++
+		}
+	}
+	ratio := float64(passed) / float64(total)
+	switch {
+	case ratio >= 1.0:
+		return 5
+	case ratio >= 0.8:
+		return 4
+	case ratio >= 0.6:
+		return 3
+	case ratio >= 0.4:
+		return 2
+	default:
+		return 1
+	}
+}
+
+// totalDuration sums the elapsed time of all QA checks and returns seconds.
+func totalDuration(result QAResult) int {
+	var total time.Duration
+	for _, c := range result.Checks {
+		total += c.Elapsed
+	}
+	return int(total.Seconds())
 }
 
 // runCheck executes a single QA command and returns the result.

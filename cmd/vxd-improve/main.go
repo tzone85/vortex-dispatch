@@ -255,6 +255,24 @@ func main() {
 			summary.EmailSent = true
 			log.Println("  Email sent successfully")
 		}
+
+		// Weekly digest — sent on Sundays alongside the daily report
+		if improve.IsWeeklyDigestDay(now) {
+			log.Println("  Sunday — generating weekly digest")
+			digest := improve.BuildWeeklyDigest(cfg.AuditDir, cfg.OpportunitiesDir, now)
+			weeklyHTML, err := improve.BuildWeeklyEmailHTML(digest)
+			if err != nil {
+				log.Printf("  Weekly digest build error: %v", err)
+			} else {
+				weeklySubject := fmt.Sprintf("VXD Weekly Digest — Week %d (%d PRs, %d Opps, $%.0f revenue)",
+					digest.WeekNumber, digest.PRsCreated, digest.NewOpportunities, digest.RevenueCumulative)
+				if err := sender.Send(ctx, weeklySubject, weeklyHTML, cfg.EmailTo, cfg.EmailFrom); err != nil {
+					log.Printf("  Weekly digest send error: %v", err)
+				} else {
+					log.Println("  Weekly digest sent successfully")
+				}
+			}
+		}
 	}
 
 	log.Printf("=== Complete: %d findings, %d PRs, %d opportunities, email=%v ===",

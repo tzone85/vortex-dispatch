@@ -88,7 +88,17 @@ func (e *Executor) spawn(repoDir string, a Assignment, story PlannedStory) Spawn
 		return result
 	}
 
-	// Build the agent prompt context
+	// Build the agent prompt context.
+	// If there's review/QA feedback from a previous attempt, enhance it with
+	// smart retry analysis (error categorization + fix suggestions).
+	feedback := e.latestReviewFeedback(a.StoryID)
+	if feedback != "" {
+		smartContext := BuildSmartRetryContext(feedback)
+		if smartContext != "" {
+			feedback = smartContext
+		}
+	}
+
 	promptCtx := agent.PromptContext{
 		StoryID:            a.StoryID,
 		StoryTitle:         story.Title,
@@ -96,7 +106,7 @@ func (e *Executor) spawn(repoDir string, a Assignment, story PlannedStory) Spawn
 		AcceptanceCriteria: string(story.AcceptanceCriteria),
 		RepoPath:           worktreePath,
 		Complexity:         story.Complexity,
-		ReviewFeedback:     e.latestReviewFeedback(a.StoryID),
+		ReviewFeedback:     feedback,
 		IsExistingCodebase: detectExistingCodebase(worktreePath),
 		IsBugFix:           detectBugFix(story.Title, story.Description),
 		IsInfrastructure:   detectInfrastructure(story.Title, story.Description),

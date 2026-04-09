@@ -107,6 +107,7 @@ func (e *Executor) spawn(repoDir string, a Assignment, story PlannedStory) Spawn
 		RepoPath:           worktreePath,
 		Complexity:         story.Complexity,
 		ReviewFeedback:     feedback,
+		WaveContext:        ReadWaveContext(worktreePath),
 		IsExistingCodebase: detectExistingCodebase(worktreePath),
 		IsBugFix:           detectBugFix(story.Title, story.Description),
 		IsInfrastructure:   detectInfrastructure(story.Title, story.Description),

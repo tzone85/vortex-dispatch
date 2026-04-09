@@ -72,6 +72,13 @@ func (d *Dispatcher) DispatchWave(dag *graph.DAG, completed map[string]bool, req
 	// Determine which stories to dispatch this wave
 	dispatchable := d.selectDispatchable(readyStories)
 
+	// Load agent reputations for preferential routing (best-effort).
+	reps, repErr := AgentReputations(d.eventStore)
+	if repErr != nil {
+		log.Printf("[dispatcher] reputation load (non-fatal): %v", repErr)
+		reps = nil
+	}
+
 	assignments := make([]Assignment, 0, len(dispatchable))
 	agentCounter := 0
 
@@ -79,6 +86,16 @@ func (d *Dispatcher) DispatchWave(dag *graph.DAG, completed map[string]bool, req
 		role := d.routeStory(story)
 		agentCounter++
 		agentID := fmt.Sprintf("%s-%s-%d", role, reqID, agentCounter)
+
+		// If reputation data exists, log the best known agent for this role.
+		if reps != nil {
+			if bestID := BestAgentForRole(reps, string(role)); bestID != "" {
+				if rep, ok := reps[bestID]; ok {
+					log.Printf("[dispatcher] reputation hint for %s: best=%s (score=%.1f, stories=%d)",
+						role, bestID, rep.OverallScore(), rep.TotalStories)
+				}
+			}
+		}
 		sessionName := fmt.Sprintf("vxd-%s-%s-%d", reqID, role, agentCounter)
 		branch := fmt.Sprintf("vxd/%s", story.ID)
 

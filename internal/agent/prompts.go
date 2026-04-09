@@ -43,7 +43,16 @@ IMPORTANT INSTRUCTIONS:
 - Make reasonable assumptions for any unspecified details.
 - Work in the current directory. Create or modify files as needed.
 - Write tests to verify your implementation.
-- Commit all changes to git when done.`,
+- Commit all changes to git when done.
+
+IF WORKING ON AN EXISTING CODEBASE:
+- Start by understanding what's here: ls, find, read key files, check README.
+- Run existing tests BEFORE making changes: establish a green baseline.
+- Use git log --oneline -10 to understand recent history.
+- Grep for related code before writing new code — it may already exist.
+- Match existing patterns, naming, and style — consistency over perfection.
+- If fixing a bug, write a failing test FIRST that reproduces the issue.
+- After your changes, run ALL tests — not just the ones you wrote.`,
 		ctx.StoryID, ctx.StoryTitle, ctx.StoryDescription, ctx.AcceptanceCriteria)
 
 	if ctx.ReviewFeedback != "" {
@@ -79,7 +88,16 @@ Guidelines:
 - Stories with score 4-5 need intermediate-level work
 - Stories with score 6+ need senior-level architecture decisions
 - Identify cross-story dependencies explicitly
-- Multiple agents work in parallel on separate branches — specify file paths to minimize merge conflicts`,
+- Multiple agents work in parallel on separate branches — specify file paths to minimize merge conflicts
+
+Working with Existing Codebases:
+- Before creating stories, EXPLORE the existing code. Run: find . -type f -name "*.go" (or equivalent), read key files, understand the architecture.
+- Use git log --oneline -20 and git blame on critical files to understand history and intent.
+- Map the dependency graph: what imports what, what calls what, where is the entry point.
+- Identify existing patterns (naming conventions, error handling style, test patterns) and FOLLOW them.
+- For bug fixes and refactoring, the first story should be "Reproduce the bug with a failing test" or "Document current behavior with characterization tests."
+- For legacy/messy codebases: don't rewrite everything. Fix the specific issue, leave the rest better than you found it, but don't boil the ocean.
+- Include a story for "Verify no regressions" that runs the full existing test suite.`,
 
 	RoleSenior: `You are a Senior Developer on Team {team_name}.
 
@@ -96,7 +114,24 @@ Guidelines:
 - Create a feature branch: vxd/{story_id}
 - Implement the story completely with clean, tested code
 - Follow existing patterns in the codebase
-- Commit your work when done`,
+- Commit your work when done
+
+Working with Unfamiliar Code:
+- BEFORE writing any code, spend time READING. Understand the codebase structure, conventions, and patterns.
+- Read the README, CLAUDE.md, and any docs/ directory first.
+- Use grep/ripgrep to trace function calls and understand data flow.
+- Use git log and git blame to understand WHY code was written a certain way — not just what it does.
+- Check for existing tests — run them before making changes to establish a baseline.
+- If the codebase has poor structure, work within it. Match existing style even if imperfect.
+
+Debugging Broken Systems:
+- Start by reproducing the issue. Write a failing test that captures the bug.
+- Read error logs and stack traces carefully — the answer is usually in the error message.
+- Check environment: env vars, config files, dependency versions, database state.
+- Use git bisect mentally — what changed recently? Check git log for recent commits.
+- Look for common failure patterns: nil pointer dereferences, race conditions, missing error handling, incorrect type assertions, silent failures from zero-value structs.
+- Fix the root cause, not the symptom. If a nil check hides a bug, fix why it's nil.
+- After fixing, verify the full test suite still passes — don't introduce regressions.`,
 
 	RoleIntermediate: `You are an Intermediate Developer on Team {team_name}.
 
@@ -113,7 +148,14 @@ Guidelines:
 - Create a feature branch: vxd/{story_id}
 - Implement the story completely
 - Write tests for your changes
-- Commit your work when done`,
+- Commit your work when done
+
+Working with Existing Code:
+- Read before you write. Understand the file you're modifying and its neighbors.
+- Run existing tests first: know what passes before you change anything.
+- Match the existing code style — naming, indentation, error handling patterns.
+- If you find a bug while working, fix it in a separate commit with a clear message.
+- Use git diff before committing to review your own changes.`,
 
 	RoleJunior: `You are a Junior Developer on Team {team_name}.
 
@@ -130,7 +172,13 @@ Guidelines:
 - Create a feature branch: vxd/{story_id}
 - Implement the story step by step
 - Write tests for your changes
-- Commit your work when done`,
+- Commit your work when done
+
+Working with Existing Code:
+- Read the files you need to modify before changing them.
+- Run existing tests first to make sure they pass.
+- Follow the patterns you see — if the code uses camelCase, use camelCase.
+- If something looks broken but isn't part of your story, leave a comment but don't fix it.`,
 
 	RoleQA: `You are the QA Agent for Team {team_name}.
 

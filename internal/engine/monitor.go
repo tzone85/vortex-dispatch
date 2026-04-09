@@ -305,8 +305,9 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 			return
 		}
 		if !result.Passed {
-			log.Printf("[pipeline] QA failed for %s", storyID)
-			m.resetStoryToDraft(storyID, "qa", "QA checks failed")
+			summary := result.FailureSummary()
+			log.Printf("[pipeline] QA failed for %s: %s", storyID, summary)
+			m.resetStoryToDraft(storyID, "qa", summary)
 			return
 		}
 		log.Printf("[pipeline] QA passed for %s", storyID)

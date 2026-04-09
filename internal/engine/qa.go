@@ -24,6 +24,30 @@ type QAResult struct {
 	Checks []QACheckResult
 }
 
+// FailureSummary returns a structured description of what failed and why,
+// suitable for feeding back to an agent on retry. Returns empty string if
+// all checks passed.
+func (r QAResult) FailureSummary() string {
+	if r.Passed {
+		return ""
+	}
+	var parts []string
+	for _, c := range r.Checks {
+		if !c.Passed {
+			output := c.Output
+			// Truncate long output but keep enough for the agent to understand
+			if len(output) > 500 {
+				output = output[:500] + "\n... (truncated)"
+			}
+			parts = append(parts, fmt.Sprintf("[%s FAILED]\n%s", strings.ToUpper(c.Name), strings.TrimSpace(output)))
+		}
+	}
+	if len(parts) == 0 {
+		return "QA checks failed (no details available)"
+	}
+	return strings.Join(parts, "\n\n")
+}
+
 // CommandRunner abstracts command execution for testability.
 type CommandRunner interface {
 	Run(ctx context.Context, workDir, name string, args ...string) (string, error)

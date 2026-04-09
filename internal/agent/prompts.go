@@ -22,6 +22,7 @@ type PromptContext struct {
 	IsExistingCodebase bool   // true when working on a client's existing repo
 	IsBugFix           bool   // true when the story is about fixing a bug
 	IsInfrastructure   bool   // true when the story involves Docker/CI/deployment
+	WaveContext        string // summary of what prior stories built (from WAVE_CONTEXT.md)
 }
 
 // SystemPrompt renders the system prompt for the given role, substituting
@@ -75,6 +76,18 @@ IMPORTANT INSTRUCTIONS:
 - Write tests to verify your implementation.
 - Commit all changes to git when done.`,
 		ctx.StoryID, ctx.StoryTitle, ctx.StoryDescription, ctx.AcceptanceCriteria)
+
+	// Inject wave context — what prior stories in this requirement built.
+	// This prevents blind implementation and conflicting patterns.
+	if ctx.WaveContext != "" {
+		base += fmt.Sprintf(`
+
+## What Prior Stories Built (READ THIS FIRST)
+The following stories have already been completed and merged. Your implementation
+MUST be compatible with their work. Follow the patterns they established.
+
+%s`, ctx.WaveContext)
+	}
 
 	if ctx.IsExistingCodebase {
 		base += `

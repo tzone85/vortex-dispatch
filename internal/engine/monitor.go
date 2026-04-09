@@ -334,6 +334,16 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 		log.Printf("[pipeline] %s -> PR #%d (%s) merged=%v",
 			storyID, result.PRNumber, result.PRURL, result.Merged)
 
+		// Capture what this story built into the wave context document
+		// BEFORE cleaning up the worktree — subsequent stories will read this.
+		if result.Merged {
+			storyTitle := storyID
+			if s, err := m.projStore.GetStory(storyID); err == nil {
+				storyTitle = s.Title
+			}
+			CaptureStoryContext(repoDir, storyID, storyTitle, branch)
+		}
+
 		// Clean up worktree and branches after successful merge.
 		if result.Merged {
 			if err := vxdgit.RemoveWorktree(repoDir, ag.WorktreePath, branch); err != nil {

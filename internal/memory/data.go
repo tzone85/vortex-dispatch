@@ -324,6 +324,138 @@ func readChangelog(path string) ([]changelogEntry, error) {
 	return entries, scanner.Err()
 }
 
+// OpportunityDetail represents an opportunity for the dashboard.
+type OpportunityDetail struct {
+	ID             string   `json:"id"`
+	Source         string   `json:"source"`
+	Title          string   `json:"title"`
+	Company        string   `json:"company"`
+	URL            string   `json:"url"`
+	Budget         string   `json:"budget"`
+	Skills         []string `json:"skills"`
+	Status         string   `json:"status"`
+	RelevanceScore int      `json:"relevance_score"`
+	BudgetScore    int      `json:"budget_score"`
+	WinProbability int      `json:"win_probability"`
+	Rank           int      `json:"rank"`
+	EffortEstimate string   `json:"effort_estimate"`
+	ProposalDraft  string   `json:"proposal_draft,omitempty"`
+	Revenue        float64  `json:"revenue"`
+}
+
+// OpportunityStatsDetail holds pipeline stats for the dashboard.
+type OpportunityStatsDetail struct {
+	Total   int     `json:"total"`
+	New     int     `json:"new"`
+	Drafts  int     `json:"drafts"`
+	Won     int     `json:"won"`
+	Revenue float64 `json:"revenue"`
+}
+
+// DiscoveredSourceDetail represents a discovered source for the dashboard.
+type DiscoveredSourceDetail struct {
+	URL          string `json:"url"`
+	Name         string `json:"name"`
+	DiscoveredOn string `json:"discovered_on"`
+	Reason       string `json:"reason"`
+	Status       string `json:"status"`
+}
+
+// LoadOpportunities reads the pipeline JSONL and returns opportunity details.
+func LoadOpportunities(opportunitiesDir string) ([]OpportunityDetail, error) {
+	path := filepath.Join(opportunitiesDir, "pipeline.jsonl")
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+
+	var opps []OpportunityDetail
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var opp OpportunityDetail
+		if err := json.Unmarshal([]byte(line), &opp); err != nil {
+			continue
+		}
+		opps = append(opps, opp)
+	}
+	return opps, scanner.Err()
+}
+
+// ComputeOpportunityStats computes aggregate stats from the pipeline.
+func ComputeOpportunityStats(opps []OpportunityDetail, revenue float64) OpportunityStatsDetail {
+	stats := OpportunityStatsDetail{Total: len(opps), Revenue: revenue}
+	for _, o := range opps {
+		switch o.Status {
+		case "new":
+			stats.New++
+		case "proposal_drafted":
+			stats.Drafts++
+		case "won":
+			stats.Won++
+		}
+	}
+	return stats
+}
+
+// LoadDiscoveredSources reads the discovered sources JSONL.
+func LoadDiscoveredSources(opportunitiesDir string) ([]DiscoveredSourceDetail, error) {
+	path := filepath.Join(opportunitiesDir, "discovered_sources.jsonl")
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+
+	var sources []DiscoveredSourceDetail
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var s DiscoveredSourceDetail
+		if err := json.Unmarshal([]byte(line), &s); err != nil {
+			continue
+		}
+		sources = append(sources, s)
+	}
+	return sources, scanner.Err()
+}
+
+// LoadTotalRevenue reads the revenue ledger and returns the total.
+func LoadTotalRevenue(opportunitiesDir string) float64 {
+	path := filepath.Join(opportunitiesDir, "revenue.jsonl")
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+
+	total := 0.0
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		var entry struct {
+			Amount float64 `json:"amount"`
+			Status string  `json:"status"`
+		}
+		if json.Unmarshal(scanner.Bytes(), &entry) == nil && entry.Status == "received" {
+			total += entry.Amount
+		}
+	}
+	return total
+}
+
 // extractDate pulls the YYYY-MM-DD portion from a run_id timestamp.
 func extractDate(runID string) string {
 	if len(runID) < 10 {

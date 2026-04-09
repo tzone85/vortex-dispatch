@@ -14,6 +14,15 @@
     </div>
   </header>
 
+  <!-- Tab Navigation -->
+  <nav id="tab-nav">
+    <button class="tab-btn active" data-tab="timeline">Timeline</button>
+    <button class="tab-btn" data-tab="opportunities">Opportunities</button>
+  </nav>
+
+  <!-- Timeline Tab -->
+  <div id="tab-timeline" class="tab-content">
+
   <!-- Timeline Slider -->
   <section id="timeline-section">
     <div id="timeline-controls">
@@ -99,6 +108,49 @@
       </h2>
       <div id="search-content" class="card-body"></div>
     </section>
+  </div>
+
+  </div><!-- end tab-timeline -->
+
+  <!-- Opportunities Tab -->
+  <div id="tab-opportunities" class="tab-content hidden">
+    <!-- Pipeline Stats Bar -->
+    <div id="opp-stats-bar">
+      <span>Total: <strong id="opp-total">0</strong></span>
+      <span>New: <strong id="opp-new">0</strong></span>
+      <span>Drafts: <strong id="opp-drafts">0</strong></span>
+      <span>Won: <strong id="opp-won">0</strong></span>
+      <span>Revenue: <strong id="opp-revenue">$0</strong></span>
+    </div>
+
+    <!-- Filter/Sort Controls -->
+    <div id="opp-controls">
+      <select id="opp-filter">
+        <option value="all">All Statuses</option>
+        <option value="new">New</option>
+        <option value="interested">Interested</option>
+        <option value="proposal_drafted">Proposal Drafted</option>
+        <option value="sent">Sent</option>
+        <option value="won">Won</option>
+        <option value="lost">Lost</option>
+      </select>
+      <button id="opp-refresh" class="btn-action">Refresh</button>
+    </div>
+
+    <!-- Opportunity Cards -->
+    <div id="opp-list"></div>
+
+    <!-- Discovered Sources -->
+    <section id="discovered-sources-card" class="card hidden">
+      <h2 class="card-header card-header-green">Suggested Sources</h2>
+      <div id="discovered-sources-content" class="card-body"></div>
+    </section>
+
+    <!-- Revenue Summary -->
+    <div id="revenue-summary" class="hidden">
+      <h2 style="color:#f59e0b;">Revenue & Mission</h2>
+      <div id="revenue-content"></div>
+    </div>
   </div>
 
   <script src="app.js"></script>

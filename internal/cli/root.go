@@ -30,6 +30,7 @@ func init() {
 	rootCmd.AddCommand(newArchiveCmd())
 	rootCmd.AddCommand(newMemoryCmd())
 	rootCmd.AddCommand(newOpportunityCmd())
+	rootCmd.AddCommand(newMetricsCmd())
 }
 
 func Execute() error {

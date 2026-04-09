@@ -49,6 +49,7 @@ type EmailSection struct {
 // EmailOpportunity represents an opportunity in the email table.
 type EmailOpportunity struct {
 	Title    string
+	URL      string
 	Source   string
 	Budget   string
 	Rank     int
@@ -206,7 +207,7 @@ const emailTemplateSrc = `<!DOCTYPE html>
 <tr style="background:#ecfdf5;"><th style="padding:8px;text-align:left;color:#333;">Title</th><th style="color:#333;">Source</th><th style="color:#333;">Budget</th><th style="color:#333;">Rank</th><th style="color:#333;">Status</th></tr>
 {{range .Opportunities}}
 <tr style="border-bottom:1px solid #e5e7eb;">
-<td style="padding:8px;">{{.Title}}</td>
+<td style="padding:8px;">{{if .URL}}<a href="{{.URL}}" style="color:#059669;text-decoration:none;font-weight:600;" target="_blank">{{.Title}}</a>{{else}}{{.Title}}{{end}}</td>
 <td style="padding:8px;text-align:center;">{{.Source}}</td>
 <td style="padding:8px;text-align:center;">{{.Budget}}</td>
 <td style="padding:8px;text-align:center;">{{.Rank}}</td>

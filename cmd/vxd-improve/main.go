@@ -325,6 +325,7 @@ func buildEmailData(date string, findings []improve.Finding, results []improve.I
 		hasDraft := opp.ProposalDraft != ""
 		data.Opportunities = append(data.Opportunities, improve.EmailOpportunity{
 			Title:    opp.Title,
+			URL:      opp.URL,
 			Source:   opp.Source,
 			Budget:   opp.Budget,
 			Rank:     opp.Rank,

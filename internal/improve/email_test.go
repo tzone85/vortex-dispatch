@@ -72,6 +72,95 @@ func TestBuildChartURL_ReturnsValidURL(t *testing.T) {
 	}
 }
 
+func TestBuildEmailHTML_IncludesOpportunities(t *testing.T) {
+	data := improve.EmailData{
+		Date:    "2026-04-09",
+		Summary: "Test summary.",
+		Opportunities: []improve.EmailOpportunity{
+			{
+				Title:    "Build REST API",
+				Source:   "jobicy",
+				Budget:   "$5000-$10000",
+				Rank:     47,
+				Status:   "new",
+				HasDraft: false,
+			},
+			{
+				Title:    "Fix OAuth flow",
+				Source:   "algora",
+				Budget:   "$500",
+				Rank:     35,
+				Status:   "proposal_drafted",
+				HasDraft: true,
+			},
+		},
+		OpportunityStats: &improve.OpportunityStats{
+			TotalPipeline:    52,
+			NewToday:         3,
+			ProposalsDrafted: 1,
+			TotalRevenue:     5000,
+		},
+	}
+
+	html, err := improve.BuildEmailHTML(data)
+	if err != nil {
+		t.Fatalf("build HTML: %v", err)
+	}
+
+	checks := []string{
+		"Opportunities Found Today",
+		"Build REST API",
+		"Fix OAuth flow",
+		"jobicy",
+		"algora",
+		"47",
+		"Pipeline: 52",
+	}
+	for _, check := range checks {
+		if !strings.Contains(html, check) {
+			t.Errorf("missing %q in HTML output", check)
+		}
+	}
+}
+
+func TestBuildEmailHTML_IncludesMissionMilestone(t *testing.T) {
+	data := improve.EmailData{
+		Date:    "2026-04-09",
+		Summary: "Test summary.",
+		MissionMilestone: &improve.MissionMilestoneData{
+			Amount:  5000,
+			Message: "You started this to free your village from poverty.",
+		},
+	}
+
+	html, err := improve.BuildEmailHTML(data)
+	if err != nil {
+		t.Fatalf("build HTML: %v", err)
+	}
+
+	if !strings.Contains(html, "Mission Milestone") {
+		t.Error("missing Mission Milestone header")
+	}
+	if !strings.Contains(html, "5000") {
+		t.Error("missing milestone amount")
+	}
+	if !strings.Contains(html, "village") {
+		t.Error("missing mission reminder text")
+	}
+}
+
+func TestBuildEmailHTML_OmitsOpportunitiesWhenEmpty(t *testing.T) {
+	data := improve.EmailData{
+		Date:    "2026-04-09",
+		Summary: "Quiet day.",
+	}
+
+	html, _ := improve.BuildEmailHTML(data)
+	if strings.Contains(html, "Opportunities Found") {
+		t.Error("should omit empty opportunities section")
+	}
+}
+
 func TestSendEmail_ResendAPI(t *testing.T) {
 	var receivedBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

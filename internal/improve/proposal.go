@@ -95,16 +95,32 @@ func (d *ProposalDrafter) DraftProposal(ctx context.Context, opp Opportunity) (s
 		return "", fmt.Errorf("write prompt file: %w", err)
 	}
 
-	// Call Claude CLI with the prompt
-	cmd := exec.CommandContext(ctx, d.claudePath, "-p", fmt.Sprintf("$(cat %s)", promptFile))
+	// Call Claude CLI. Strip ANTHROPIC_API_KEY so Claude uses Max subscription.
+	// Use --output-format text for clean output without JSON wrapping.
+	cmd := exec.CommandContext(ctx, d.claudePath, "-p", prompt, "--output-format", "text")
 	cmd.Dir = d.workDir
-
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("claude CLI: %w (output: %s)", err, string(out))
+	env := os.Environ()
+	filtered := make([]string, 0, len(env))
+	for _, e := range env {
+		if !strings.HasPrefix(e, "ANTHROPIC_API_KEY=") {
+			filtered = append(filtered, e)
+		}
 	}
+	cmd.Env = filtered
 
-	draft := strings.TrimSpace(string(out))
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	// Claude CLI may return non-zero exit on "max turns" but still produce output.
+	draft := strings.TrimSpace(stdout.String())
+	if draft == "" && err != nil {
+		return "", fmt.Errorf("claude CLI: %w (stderr: %s)", err, stderr.String())
+	}
+	if draft == "" {
+		return "", fmt.Errorf("claude CLI produced empty output (stderr: %s)", stderr.String())
+	}
 	log.Printf("  [proposal] Drafted proposal for %q (%d chars)", opp.Title, len(draft))
 	return draft, nil
 }

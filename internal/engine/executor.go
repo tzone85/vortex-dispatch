@@ -97,6 +97,9 @@ func (e *Executor) spawn(repoDir string, a Assignment, story PlannedStory) Spawn
 		RepoPath:           worktreePath,
 		Complexity:         story.Complexity,
 		ReviewFeedback:     e.latestReviewFeedback(a.StoryID),
+		IsExistingCodebase: detectExistingCodebase(worktreePath),
+		IsBugFix:           detectBugFix(story.Title, story.Description),
+		IsInfrastructure:   detectInfrastructure(story.Title, story.Description),
 	}
 
 	// Resolve model for this role

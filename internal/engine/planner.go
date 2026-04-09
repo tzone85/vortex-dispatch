@@ -75,8 +75,9 @@ func (p *Planner) Plan(ctx context.Context, reqID, requirement, repoPath string)
 
 	// Build Tech Lead prompt
 	promptCtx := agent.PromptContext{
-		RepoPath:  repoPath,
-		TechStack: fmt.Sprintf("%s (%s)", stack.Language, stack.BuildTool),
+		RepoPath:           repoPath,
+		TechStack:          fmt.Sprintf("%s (%s)", stack.Language, stack.BuildTool),
+		IsExistingCodebase: detectExistingCodebase(repoPath),
 	}
 	systemPrompt := agent.SystemPrompt(agent.RoleTechLead, promptCtx)
 

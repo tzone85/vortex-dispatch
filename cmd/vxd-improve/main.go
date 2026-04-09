@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/tzone85/vortex-dispatch/internal/improve"
@@ -131,29 +132,7 @@ func main() {
 
 	summary.PRsCreated = prsCreated
 
-	// Phase 4: Email
-	log.Println("Phase 4: Email")
-	emailData := buildEmailData(date, findings, results, summary)
-
-	html, err := improve.BuildEmailHTML(emailData)
-	if err != nil {
-		log.Printf("Build email error: %v", err)
-		summary.Errors = append(summary.Errors, fmt.Sprintf("email build: %v", err))
-	} else {
-		sender := improve.NewEmailSender(cfg.ResendKey, "https://api.resend.com")
-		subject := fmt.Sprintf("VXD Daily Improvement Report — %s (%d PRs, %d Alerts)",
-			date, prsCreated, len(emailData.SecurityAlerts))
-
-		if err := sender.Send(ctx, subject, html, cfg.EmailTo, cfg.EmailFrom); err != nil {
-			log.Printf("Send email error: %v", err)
-			summary.Errors = append(summary.Errors, fmt.Sprintf("email send: %v", err))
-		} else {
-			summary.EmailSent = true
-			log.Println("  Email sent successfully")
-		}
-	}
-
-	// Phase 5: Audit
+	// Phase 5: Audit (moved before phases 7/8; email sent after all data gathered)
 	log.Println("Phase 5: Audit")
 	summary.CompletedAt = time.Now()
 	if err := improve.SaveRunSummary(runsDir, date, summary); err != nil {
@@ -174,16 +153,120 @@ func main() {
 		log.Println("  MemPalace not installed (python3 not found), skipping")
 	}
 
-	log.Printf("=== Complete: %d findings, %d PRs, email=%v ===",
-		summary.FindingsTotal, summary.PRsCreated, summary.EmailSent)
+	// Phase 7: Opportunity Scanning
+	log.Println("Phase 7: Opportunity Scanning")
+	keywords := improve.KeywordsForDay(cfg.OpportunityKeywords, now)
+	log.Printf("  Keywords for today: %v", keywords)
+
+	oppScraper := improve.NewOpportunityScraperWithFirecrawl(
+		"", "", "", // use default base URLs
+		cfg.FirecrawlKey, "https://api.firecrawl.dev",
+	)
+	rawOpps, err := oppScraper.ScrapeAllSources(ctx, keywords, now)
+	if err != nil {
+		log.Printf("  Opportunity scraping error: %v", err)
+	}
+	log.Printf("  Scraped %d raw opportunities", len(rawOpps))
+
+	// Score with Gemma 4
+	var scoredOpps []improve.Opportunity
+	if len(rawOpps) > 0 {
+		scoredOpps, err = improve.ScoreOpportunities(ctx, rawOpps, googleClient)
+		if err != nil {
+			log.Printf("  Opportunity scoring error: %v", err)
+		}
+	}
+
+	// Filter and assign IDs
+	filteredOpps := improve.FilterAndRankOpportunities(scoredOpps, 5)
+	pipelinePath := filepath.Join(cfg.OpportunitiesDir, "pipeline.jsonl")
+	for i, opp := range filteredOpps {
+		opp.ID = improve.GenerateOpportunityID(date, i+1)
+		opp.ScrapedAt = now
+		if err := improve.AppendOpportunity(pipelinePath, opp); err != nil {
+			log.Printf("  Failed to save opportunity %s: %v", opp.ID, err)
+		}
+	}
+	log.Printf("  Saved %d scored opportunities to pipeline", len(filteredOpps))
+
+	// Draft proposals if active bidding is enabled
+	var proposalResults []improve.Opportunity
+	if cfg.ActiveBidding && len(filteredOpps) > 0 {
+		log.Println("  Active bidding enabled — drafting proposals for top opportunities")
+		proposalDir := filepath.Join(cfg.OpportunitiesDir, "proposals")
+		drafter := improve.NewProposalDrafter(cfg.ClaudePath, proposalDir)
+		proposalResults = drafter.DraftProposalsForTop(ctx, filteredOpps, cfg.MaxProposalsPerDay)
+		log.Printf("  Drafted %d proposals", len(proposalResults))
+
+		// Update pipeline with proposal data
+		for _, opp := range proposalResults {
+			improve.UpdateOpportunityField(pipelinePath, opp.ID, func(existing improve.Opportunity) improve.Opportunity {
+				existing.ProposalDraft = opp.ProposalDraft
+				existing.ProposalDraftedAt = opp.ProposalDraftedAt
+				existing.Status = improve.StatusProposalDrafted
+				return existing
+			})
+		}
+	} else if !cfg.ActiveBidding {
+		log.Println("  Observation mode — no proposals drafted (set VXD_ACTIVE_BIDDING=true to enable)")
+	}
+
+	// Revenue summary
+	revenuePath := filepath.Join(cfg.OpportunitiesDir, "revenue.jsonl")
+	revenueEntries, _ := improve.ReadRevenue(revenuePath)
+	totalRevenue := improve.TotalRevenue(revenueEntries)
+	milestone := improve.CheckMilestone(totalRevenue)
+
+	// Phase 8: Weekly Source Discovery
+	log.Println("Phase 8: Source Discovery")
+	allPipelineOpps, _ := improve.ReadOpportunities(pipelinePath)
+	runCount := len(allPipelineOpps) / 10 // Approximate run count from pipeline size
+	if improve.IsDiscoveryDay(runCount) {
+		log.Println("  Discovery day — analyzing week's data for new sources")
+		topSkills := extractTopSkills(filteredOpps)
+		discoverer := improve.NewSourceDiscoverer(googleClient, cfg.FirecrawlKey, "https://api.firecrawl.dev", cfg.OpportunitiesDir)
+		newSources, err := discoverer.DiscoverNewSources(ctx, topSkills)
+		if err != nil {
+			log.Printf("  Source discovery error: %v", err)
+		} else {
+			log.Printf("  Discovered %d new sources (pending approval)", len(newSources))
+		}
+	} else {
+		log.Println("  Not a discovery day, skipping")
+	}
+
+	// Phase 9: Email (after all data gathered)
+	log.Println("Phase 9: Email")
+	emailData := buildEmailData(date, findings, results, summary, filteredOpps, proposalResults, allPipelineOpps, totalRevenue, milestone)
+
+	html, err := improve.BuildEmailHTML(emailData)
+	if err != nil {
+		log.Printf("Build email error: %v", err)
+		summary.Errors = append(summary.Errors, fmt.Sprintf("email build: %v", err))
+	} else {
+		sender := improve.NewEmailSender(cfg.ResendKey, "https://api.resend.com")
+		subject := fmt.Sprintf("VXD Daily Improvement Report — %s (%d PRs, %d Alerts, %d Opps)",
+			date, prsCreated, len(emailData.SecurityAlerts), len(filteredOpps))
+
+		if err := sender.Send(ctx, subject, html, cfg.EmailTo, cfg.EmailFrom); err != nil {
+			log.Printf("Send email error: %v", err)
+			summary.Errors = append(summary.Errors, fmt.Sprintf("email send: %v", err))
+		} else {
+			summary.EmailSent = true
+			log.Println("  Email sent successfully")
+		}
+	}
+
+	log.Printf("=== Complete: %d findings, %d PRs, %d opportunities, email=%v ===",
+		summary.FindingsTotal, summary.PRsCreated, len(filteredOpps), summary.EmailSent)
 }
 
-func buildEmailData(date string, findings []improve.Finding, results []improve.ImplementResult, summary improve.RunSummary) improve.EmailData {
+func buildEmailData(date string, findings []improve.Finding, results []improve.ImplementResult, summary improve.RunSummary, todayOpps []improve.Opportunity, proposals []improve.Opportunity, allOpps []improve.Opportunity, totalRevenue float64, milestone float64) improve.EmailData {
 	data := improve.EmailData{
 		Date:       date,
 		PRsCreated: summary.PRsCreated,
-		Summary: fmt.Sprintf("Scraped %d sources, found %d findings, %d relevant, implemented %d.",
-			summary.SourcesScraped, summary.FindingsTotal, summary.FindingsRelevant, summary.PRsCreated),
+		Summary: fmt.Sprintf("Scraped %d sources, found %d findings, %d relevant, implemented %d. Opportunities: %d new.",
+			summary.SourcesScraped, summary.FindingsTotal, summary.FindingsRelevant, summary.PRsCreated, len(todayOpps)),
 	}
 
 	for _, r := range results {
@@ -218,8 +301,67 @@ func buildEmailData(date string, findings []improve.Finding, results []improve.I
 		}
 	}
 
+	// Add opportunity data
+	topOpps := improve.TopN(todayOpps, 10)
+	for _, opp := range topOpps {
+		hasDraft := opp.ProposalDraft != ""
+		data.Opportunities = append(data.Opportunities, improve.EmailOpportunity{
+			Title:    opp.Title,
+			Source:   opp.Source,
+			Budget:   opp.Budget,
+			Rank:     opp.Rank,
+			Status:   opp.Status,
+			HasDraft: hasDraft,
+		})
+	}
+	if len(data.Opportunities) > 0 {
+		data.OpportunityStats = &improve.OpportunityStats{
+			TotalPipeline:    len(allOpps),
+			NewToday:         len(todayOpps),
+			ProposalsDrafted: len(proposals),
+			TotalRevenue:     totalRevenue,
+		}
+	}
+
+	// Mission milestone
+	if milestone > 0 {
+		data.MissionMilestone = &improve.MissionMilestoneData{
+			Amount:  milestone,
+			Message: "You started this to free your village from poverty.",
+		}
+	}
+
 	data.AlertCount = len(data.SecurityAlerts)
 	return data
+}
+
+func extractTopSkills(opps []improve.Opportunity) []string {
+	skillCounts := make(map[string]int)
+	for _, opp := range opps {
+		for _, skill := range opp.Skills {
+			skillCounts[skill]++
+		}
+	}
+	type kv struct {
+		Key   string
+		Count int
+	}
+	var sorted []kv
+	for k, v := range skillCounts {
+		sorted = append(sorted, kv{k, v})
+	}
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Count > sorted[j].Count })
+	var result []string
+	for i, s := range sorted {
+		if i >= 5 {
+			break
+		}
+		result = append(result, s.Key)
+	}
+	if len(result) == 0 {
+		result = []string{"software development", "backend", "API"}
+	}
+	return result
 }
 
 func truncate(s string, maxLen int) string {

@@ -177,6 +177,30 @@ func main() {
 		}
 	}
 
+	// Apply Bayesian feedback adjustments to scored opportunities
+	feedbackPath := filepath.Join(cfg.OpportunitiesDir, "feedback.jsonl")
+	feedback := improve.NewFeedbackLoop(feedbackPath)
+	adjustments := feedback.ComputeAdjustments()
+	if len(adjustments) > 0 {
+		log.Printf("  Applying %d feedback adjustments to opportunity scores", len(adjustments))
+		adjusted := make([]improve.Opportunity, len(scoredOpps))
+		for i, opp := range scoredOpps {
+			adjusted[i] = feedback.AdjustOpportunityScore(opp, adjustments)
+		}
+		scoredOpps = adjusted
+	}
+
+	// Write feedback insights for MemPalace
+	insights := feedback.GenerateInsights()
+	if len(insights) > 0 {
+		insightsPath := filepath.Join(cfg.AuditDir, "feedback_insights.md")
+		if err := os.WriteFile(insightsPath, []byte(insights), 0o644); err != nil {
+			log.Printf("  Write feedback insights error: %v", err)
+		} else {
+			log.Println("  Wrote feedback insights for MemPalace")
+		}
+	}
+
 	// Filter and assign IDs
 	filteredOpps := improve.FilterAndRankOpportunities(scoredOpps, 5)
 	pipelinePath := filepath.Join(cfg.OpportunitiesDir, "pipeline.jsonl")

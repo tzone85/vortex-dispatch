@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -177,9 +178,38 @@ func runOppStatus(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid status %q. Valid: new, reviewed, interested, proposal_drafted, sent, won, lost, expired", newStatus)
 	}
 
+	// Read the opportunity before updating to capture metadata for feedback
+	opps, _ := improve.ReadOpportunities(pipelinePath())
+	var matchedOpp *improve.Opportunity
+	for i, opp := range opps {
+		if opp.ID == id {
+			matchedOpp = &opps[i]
+			break
+		}
+	}
+
 	updated, err := improve.UpdateOpportunityStatus(pipelinePath(), id, newStatus)
 	if err != nil {
 		return fmt.Errorf("update status: %w", err)
+	}
+
+	// Log feedback for terminal outcomes
+	if newStatus == "lost" || newStatus == "expired" {
+		feedbackPath := filepath.Join(opportunitiesDir(), "feedback.jsonl")
+		fl := improve.NewFeedbackLoop(feedbackPath)
+		fbEntry := improve.FeedbackEntry{
+			Type:      "proposal",
+			Outcome:   newStatus,
+			Timestamp: time.Now(),
+		}
+		if matchedOpp != nil {
+			fbEntry.Source = matchedOpp.Source
+			fbEntry.SkillSet = strings.Join(matchedOpp.Skills, ",")
+			fbEntry.PriceRange = matchedOpp.Budget
+		}
+		if fbErr := fl.AppendFeedback(fbEntry); fbErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to log feedback: %v\n", fbErr)
+		}
 	}
 
 	fmt.Printf("Updated %s: %s -> %s\n", updated.ID, id, newStatus)
@@ -205,6 +235,16 @@ func runOppWon(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid amount %q: %w", args[1], err)
 	}
 
+	// Read the opportunity to capture metadata for feedback
+	opps, _ := improve.ReadOpportunities(pipelinePath())
+	var matchedOpp *improve.Opportunity
+	for i, opp := range opps {
+		if opp.ID == id {
+			matchedOpp = &opps[i]
+			break
+		}
+	}
+
 	// Update status to won
 	_, err := improve.UpdateOpportunityStatus(pipelinePath(), id, improve.StatusWon)
 	if err != nil {
@@ -228,6 +268,23 @@ func runOppWon(_ *cobra.Command, args []string) error {
 	}
 	if err := improve.AppendRevenue(revPath, entry); err != nil {
 		return fmt.Errorf("append revenue: %w", err)
+	}
+
+	// Log feedback entry for Bayesian learning
+	feedbackPath := filepath.Join(opportunitiesDir(), "feedback.jsonl")
+	fl := improve.NewFeedbackLoop(feedbackPath)
+	fbEntry := improve.FeedbackEntry{
+		Type:      "proposal",
+		Outcome:   "won",
+		Timestamp: time.Now(),
+	}
+	if matchedOpp != nil {
+		fbEntry.Source = matchedOpp.Source
+		fbEntry.SkillSet = strings.Join(matchedOpp.Skills, ",")
+		fbEntry.PriceRange = matchedOpp.Budget
+	}
+	if fbErr := fl.AppendFeedback(fbEntry); fbErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to log feedback: %v\n", fbErr)
 	}
 
 	fmt.Printf("Logged $%.0f revenue for %s\n", amount, id)

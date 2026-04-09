@@ -23,8 +23,11 @@ type EmailData struct {
 	Historical     []EmailSection
 	Competitors    []EmailSection
 	SecurityAlerts []EmailSection
-	Proposed       []EmailSection
-	ChartURLs      map[string]string
+	Proposed         []EmailSection
+	ChartURLs        map[string]string
+	Opportunities    []EmailOpportunity
+	OpportunityStats *OpportunityStats
+	MissionMilestone *MissionMilestoneData
 }
 
 // EmailPR represents a PR in the email table.
@@ -41,6 +44,30 @@ type EmailSection struct {
 	Title     string
 	Content   string
 	SourceURL string
+}
+
+// EmailOpportunity represents an opportunity in the email table.
+type EmailOpportunity struct {
+	Title    string
+	Source   string
+	Budget   string
+	Rank     int
+	Status   string
+	HasDraft bool
+}
+
+// OpportunityStats holds aggregate stats for the email.
+type OpportunityStats struct {
+	TotalPipeline    int
+	NewToday         int
+	ProposalsDrafted int
+	TotalRevenue     float64
+}
+
+// MissionMilestoneData holds milestone reminder data for the email.
+type MissionMilestoneData struct {
+	Amount  float64
+	Message string
 }
 
 const emailTemplateSrc = `<!DOCTYPE html>
@@ -64,6 +91,7 @@ const emailTemplateSrc = `<!DOCTYPE html>
 {{if .Competitors}}<a href="#competitors" style="margin-right:12px;">Competitors</a>{{end}}
 {{if .SecurityAlerts}}<a href="#security" style="margin-right:12px;">Security</a>{{end}}
 {{if .Proposed}}<a href="#proposed" style="margin-right:12px;">Proposed</a>{{end}}
+{{if .Opportunities}}<a href="#opportunities" style="margin-right:12px;">Opportunities</a>{{end}}
 </nav>
 
 <a name="summary"></a><div style="margin-bottom:30px;">
@@ -160,6 +188,40 @@ const emailTemplateSrc = `<!DOCTYPE html>
 {{if .SourceURL}}<a href="{{.SourceURL}}" style="font-size:0.85em;">Source</a>{{end}}
 </div>
 {{end}}
+</div>
+{{end}}
+
+{{if .Opportunities}}
+<a name="opportunities"></a><div style="margin-bottom:30px;">
+<h2 style="color:#059669;border-bottom:2px solid #059669;padding-bottom:5px;">Opportunities Found Today</h2>
+{{if .OpportunityStats}}
+<div style="padding:8px;background:#ecfdf5;border-radius:6px;margin-bottom:12px;color:#333;">
+<strong>{{.OpportunityStats.NewToday}} new</strong>
+{{if .OpportunityStats.ProposalsDrafted}} | <strong>{{.OpportunityStats.ProposalsDrafted}} proposals drafted</strong>{{end}}
+ | Pipeline: {{.OpportunityStats.TotalPipeline}} total
+{{if .OpportunityStats.TotalRevenue}} | Revenue: ${{printf "%.0f" .OpportunityStats.TotalRevenue}}{{end}}
+</div>
+{{end}}
+<table style="width:100%;border-collapse:collapse;">
+<tr style="background:#ecfdf5;"><th style="padding:8px;text-align:left;color:#333;">Title</th><th style="color:#333;">Source</th><th style="color:#333;">Budget</th><th style="color:#333;">Rank</th><th style="color:#333;">Status</th></tr>
+{{range .Opportunities}}
+<tr style="border-bottom:1px solid #e5e7eb;">
+<td style="padding:8px;">{{.Title}}</td>
+<td style="padding:8px;text-align:center;">{{.Source}}</td>
+<td style="padding:8px;text-align:center;">{{.Budget}}</td>
+<td style="padding:8px;text-align:center;">{{.Rank}}</td>
+<td style="padding:8px;text-align:center;">{{if .HasDraft}}&#x2709; {{end}}{{.Status}}</td>
+</tr>
+{{end}}
+</table>
+<p style="font-size:0.85em;color:#666;">Open dashboard: <a href="http://localhost:8078">http://localhost:8078</a></p>
+</div>
+{{end}}
+
+{{if .MissionMilestone}}
+<div style="margin-bottom:30px;padding:15px;background:linear-gradient(135deg,#fef3c7,#fde68a);border-radius:8px;border-left:4px solid #f59e0b;">
+<h2 style="color:#92400e;margin:0 0 8px 0;">Mission Milestone: ${{printf "%.0f" .MissionMilestone.Amount}}</h2>
+<p style="color:#78350f;margin:0;line-height:1.6;">{{.MissionMilestone.Message}} Schools need funding. Children need resources. Infrastructure needs building. This is the compound working. What's your next impact move?</p>
 </div>
 {{end}}
 

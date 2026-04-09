@@ -18,7 +18,9 @@ import (
 	"github.com/tzone85/vortex-dispatch/internal/agent"
 	"github.com/tzone85/vortex-dispatch/internal/config"
 	"github.com/tzone85/vortex-dispatch/internal/engine"
+	"github.com/tzone85/vortex-dispatch/internal/graph"
 	"github.com/tzone85/vortex-dispatch/internal/llm"
+	"github.com/tzone85/vortex-dispatch/internal/state"
 )
 
 // --------------------------------------------------------------------------
@@ -282,25 +284,181 @@ func TestWiring_PlannerSetOnMonitor(t *testing.T) {
 }
 
 // --------------------------------------------------------------------------
-// Agent Reputation — Documented as intentionally deferred
+// Agent Reputation — NOW WIRED
 // --------------------------------------------------------------------------
 
-func TestWiring_ReputationScoring_IntentionallyDeferred(t *testing.T) {
-	// Agent reputation scoring (internal/agent/scoring.go) is IMPLEMENTED but
-	// intentionally NOT wired into the dispatcher. The reason:
-	//
-	// 1. Scores require event collection (STORY_COMPLETED events with quality/reliability metrics)
-	// 2. The event store doesn't currently emit quality scores from QA results
-	// 3. Wiring reputation into routing requires changing the dispatcher's assignment logic
-	//
-	// This is tracked as a future enhancement, NOT a bug. The scoring code exists
-	// and is tested so it's ready when the event pipeline supports it.
-	//
-	// To activate in the future:
-	// 1. QA.Run() should emit quality scores in STORY_QA_PASSED events
-	// 2. Watchdog should emit reliability scores based on stuck/escalation frequency
-	// 3. Dispatcher should read agent reputation and prefer higher-scored agents
-	t.Log("Agent reputation scoring is implemented but intentionally deferred until event pipeline supports quality metrics")
+func TestWiring_QAEmitsQualityScores(t *testing.T) {
+	// Verify that QA.Run() emits quality_score, checks_passed, and duration_s
+	// in the QA_PASSED event payload. This is the data pipeline that feeds
+	// reputation scoring.
+	es, ps, cleanup := newTestStores(t)
+	defer cleanup()
+
+	// Pre-populate story
+	ps.Project(state.NewEvent(state.EventStoryCreated, "tech-lead", "s-rep", map[string]any{
+		"id": "s-rep", "req_id": "r-001", "title": "Rep test", "description": "d", "complexity": 3,
+	}))
+
+	runner := &mockRunner{results: map[string]mockRunResult{
+		"golangci-lint": {output: "ok", err: nil},
+		"go":            {output: "ok", err: nil},
+	}}
+
+	qa := engine.NewQA(engine.QAConfig{
+		LintCommand:  "golangci-lint run",
+		BuildCommand: "go build ./...",
+		TestCommand:  "go test ./...",
+	}, runner, es, ps)
+
+	_, err := qa.Run(context.Background(), "s-rep", "/tmp/worktree")
+	if err != nil {
+		t.Fatalf("qa run: %v", err)
+	}
+
+	events, err := es.List(state.EventFilter{Type: state.EventStoryQAPassed})
+	if err != nil || len(events) == 0 {
+		t.Fatalf("expected QA_PASSED event, got err=%v events=%d", err, len(events))
+	}
+
+	payload := state.DecodePayload(events[0].Payload)
+
+	// quality_score should be present and 5 (all checks pass)
+	qs, ok := payload["quality_score"]
+	if !ok {
+		t.Fatal("WIRING FAILURE: QA_PASSED event missing quality_score in payload")
+	}
+	if qsf, ok := qs.(float64); !ok || qsf != 5 {
+		t.Errorf("expected quality_score=5, got %v", qs)
+	}
+
+	// checks_passed should be present
+	cp, ok := payload["checks_passed"]
+	if !ok {
+		t.Fatal("WIRING FAILURE: QA_PASSED event missing checks_passed in payload")
+	}
+	if cpf, ok := cp.(float64); !ok || cpf != 3 {
+		t.Errorf("expected checks_passed=3, got %v", cp)
+	}
+
+	// duration_s should be present
+	if _, ok := payload["duration_s"]; !ok {
+		t.Fatal("WIRING FAILURE: QA_PASSED event missing duration_s in payload")
+	}
+}
+
+func TestWiring_ReputationFromEvents(t *testing.T) {
+	// Verify that ComputeReputationFromEvents correctly processes QA events
+	// into agent reputation.
+	qaEvent := state.NewEvent(state.EventStoryQAPassed, "jr-test-1", "s-001", map[string]any{
+		"quality_score": 4,
+		"duration_s":    120,
+		"passed":        true,
+	})
+
+	rep := engine.ComputeReputationFromEvents([]state.Event{qaEvent})
+	if rep.TotalStories != 1 {
+		t.Fatalf("expected 1 story, got %d", rep.TotalStories)
+	}
+	if rep.AvgQuality != 4.0 {
+		t.Errorf("expected avg quality 4.0, got %f", rep.AvgQuality)
+	}
+	if rep.AvgReliability != 5.0 {
+		t.Errorf("expected avg reliability 5.0 (default), got %f", rep.AvgReliability)
+	}
+}
+
+func TestWiring_ReputationFromEvents_Empty(t *testing.T) {
+	rep := engine.ComputeReputationFromEvents(nil)
+	if rep.TotalStories != 0 {
+		t.Fatalf("expected 0 stories for nil input, got %d", rep.TotalStories)
+	}
+}
+
+func TestWiring_AgentReputations(t *testing.T) {
+	es, _, cleanup := newTestStores(t)
+	defer cleanup()
+
+	// Emit two QA events from different agents
+	evt1 := state.NewEvent(state.EventStoryQAPassed, "jr-a", "s-001", map[string]any{
+		"quality_score": 5, "duration_s": 60,
+	})
+	evt2 := state.NewEvent(state.EventStoryQAPassed, "sr-b", "s-002", map[string]any{
+		"quality_score": 3, "duration_s": 300,
+	})
+	es.Append(evt1)
+	es.Append(evt2)
+
+	reps, err := engine.AgentReputations(es)
+	if err != nil {
+		t.Fatalf("agent reputations: %v", err)
+	}
+	if len(reps) != 2 {
+		t.Fatalf("expected 2 agents, got %d", len(reps))
+	}
+	if reps["jr-a"].AvgQuality != 5.0 {
+		t.Errorf("jr-a quality: expected 5.0, got %f", reps["jr-a"].AvgQuality)
+	}
+	if reps["sr-b"].AvgQuality != 3.0 {
+		t.Errorf("sr-b quality: expected 3.0, got %f", reps["sr-b"].AvgQuality)
+	}
+}
+
+func TestWiring_BestAgentForRole(t *testing.T) {
+	reps := map[string]agent.AgentReputation{
+		"junior-r1-1": {AgentID: "junior-r1-1", TotalStories: 5, AvgQuality: 4.0, AvgReliability: 5.0},
+		"junior-r1-2": {AgentID: "junior-r1-2", TotalStories: 3, AvgQuality: 5.0, AvgReliability: 5.0},
+		"senior-r1-1": {AgentID: "senior-r1-1", TotalStories: 2, AvgQuality: 3.0, AvgReliability: 4.0},
+	}
+
+	best := engine.BestAgentForRole(reps, "junior")
+	if best != "junior-r1-2" {
+		t.Errorf("expected junior-r1-2 (higher quality), got %s", best)
+	}
+
+	bestSr := engine.BestAgentForRole(reps, "senior")
+	if bestSr != "senior-r1-1" {
+		t.Errorf("expected senior-r1-1, got %s", bestSr)
+	}
+
+	none := engine.BestAgentForRole(reps, "manager")
+	if none != "" {
+		t.Errorf("expected empty for no matching role, got %s", none)
+	}
+}
+
+func TestWiring_DispatcherLogsReputation(t *testing.T) {
+	// Verify that the dispatcher does NOT crash when reputation data exists.
+	// This is a smoke test that the wiring is activated.
+	es, ps, cleanup := newTestStores(t)
+	defer cleanup()
+
+	// Emit a QA event so reputation data exists
+	qaEvt := state.NewEvent(state.EventStoryQAPassed, "junior-test", "s-old", map[string]any{
+		"quality_score": 5, "duration_s": 30,
+	})
+	es.Append(qaEvt)
+
+	// Pre-populate story
+	ps.Project(state.NewEvent(state.EventStoryCreated, "tech-lead", "s-new", map[string]any{
+		"id": "s-new", "req_id": "r-001", "title": "New task", "description": "d", "complexity": 2,
+	}))
+
+	cfg := config.DefaultConfig()
+	dispatcher := engine.NewDispatcher(cfg, es, ps)
+
+	stories := []engine.PlannedStory{
+		{ID: "s-new", Title: "New task", Complexity: 2},
+	}
+	dag := graph.New()
+	dag.AddNode("s-new")
+
+	assignments, err := dispatcher.DispatchWave(dag, map[string]bool{}, "r-001", stories, 0)
+	if err != nil {
+		t.Fatalf("dispatch with reputation data: %v", err)
+	}
+	if len(assignments) != 1 {
+		t.Fatalf("expected 1 assignment, got %d", len(assignments))
+	}
 }
 
 // --------------------------------------------------------------------------

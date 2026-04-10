@@ -202,6 +202,129 @@ func TestExtractRepoName_Variants(t *testing.T) {
 }
 
 // --------------------------------------------------------------------------
+// Migration Tests
+// --------------------------------------------------------------------------
+
+func TestMigrateOldLayout_MovesFiles(t *testing.T) {
+	baseDir := t.TempDir()
+
+	// Create old layout files
+	os.WriteFile(filepath.Join(baseDir, "events.jsonl"), []byte(`{"type":"test"}`+"\n"), 0o644)
+	os.WriteFile(filepath.Join(baseDir, "vxd.db"), []byte("sqlite-data"), 0o644)
+	os.MkdirAll(filepath.Join(baseDir, "worktrees", "wt-1"), 0o755)
+	os.WriteFile(filepath.Join(baseDir, "worktrees", "wt-1", "file.go"), []byte("package main"), 0o644)
+	os.MkdirAll(filepath.Join(baseDir, "logs"), 0o755)
+	os.WriteFile(filepath.Join(baseDir, "logs", "agent.log"), []byte("log line"), 0o644)
+
+	migrated, err := MigrateOldLayout(baseDir)
+	if err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if !migrated {
+		t.Error("expected migration to happen")
+	}
+
+	legacyDir := filepath.Join(baseDir, "projects", "_legacy")
+
+	// Verify files moved to _legacy
+	if _, err := os.Stat(filepath.Join(legacyDir, "events.jsonl")); err != nil {
+		t.Error("events.jsonl not found in _legacy")
+	}
+	if _, err := os.Stat(filepath.Join(legacyDir, "vxd.db")); err != nil {
+		t.Error("vxd.db not found in _legacy")
+	}
+	if _, err := os.Stat(filepath.Join(legacyDir, "worktrees", "wt-1", "file.go")); err != nil {
+		t.Error("worktrees not moved to _legacy")
+	}
+	if _, err := os.Stat(filepath.Join(legacyDir, "logs", "agent.log")); err != nil {
+		t.Error("logs not moved to _legacy")
+	}
+
+	// Verify original files are gone
+	if _, err := os.Stat(filepath.Join(baseDir, "events.jsonl")); !os.IsNotExist(err) {
+		t.Error("events.jsonl should be gone from base dir")
+	}
+	if _, err := os.Stat(filepath.Join(baseDir, "vxd.db")); !os.IsNotExist(err) {
+		t.Error("vxd.db should be gone from base dir")
+	}
+
+	// Verify metadata.json exists in _legacy
+	meta, err := ReadMetadata(legacyDir)
+	if err != nil {
+		t.Fatalf("read legacy metadata: %v", err)
+	}
+	if meta.Name != "_legacy" {
+		t.Errorf("expected name _legacy, got %q", meta.Name)
+	}
+	if meta.MigratedFrom == "" {
+		t.Error("expected migrated_from to be set")
+	}
+}
+
+func TestMigrateOldLayout_Idempotent(t *testing.T) {
+	baseDir := t.TempDir()
+
+	// Create old layout
+	os.WriteFile(filepath.Join(baseDir, "events.jsonl"), []byte(`{"type":"test"}`+"\n"), 0o644)
+
+	// First migration
+	migrated1, err := MigrateOldLayout(baseDir)
+	if err != nil {
+		t.Fatalf("first migrate: %v", err)
+	}
+	if !migrated1 {
+		t.Error("expected first migration to happen")
+	}
+
+	// Second migration should be a no-op
+	migrated2, err := MigrateOldLayout(baseDir)
+	if err != nil {
+		t.Fatalf("second migrate: %v", err)
+	}
+	if migrated2 {
+		t.Error("expected second migration to be skipped (idempotent)")
+	}
+}
+
+func TestMigrateOldLayout_NoOldFiles(t *testing.T) {
+	baseDir := t.TempDir()
+
+	// No old files exist — migration should not trigger
+	migrated, err := MigrateOldLayout(baseDir)
+	if err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if migrated {
+		t.Error("expected no migration when no old files exist")
+	}
+
+	// projects/ dir should NOT be created
+	if _, err := os.Stat(filepath.Join(baseDir, "projects")); !os.IsNotExist(err) {
+		t.Error("projects/ should not be created when there is nothing to migrate")
+	}
+}
+
+func TestMigrateOldLayout_OnlyEventsJSONL(t *testing.T) {
+	baseDir := t.TempDir()
+
+	// Only events.jsonl exists (no db, no worktrees, no logs)
+	os.WriteFile(filepath.Join(baseDir, "events.jsonl"), []byte(`{"type":"test"}`+"\n"), 0o644)
+
+	migrated, err := MigrateOldLayout(baseDir)
+	if err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if !migrated {
+		t.Error("expected migration to happen")
+	}
+
+	legacyDir := filepath.Join(baseDir, "projects", "_legacy")
+	if _, err := os.Stat(filepath.Join(legacyDir, "events.jsonl")); err != nil {
+		t.Error("events.jsonl not found in _legacy")
+	}
+}
+
+// --------------------------------------------------------------------------
 // Helpers
 // --------------------------------------------------------------------------
 

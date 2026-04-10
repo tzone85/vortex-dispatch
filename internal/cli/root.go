@@ -33,6 +33,7 @@ func init() {
 	rootCmd.AddCommand(newOpportunityCmd())
 	rootCmd.AddCommand(newMetricsCmd())
 	rootCmd.AddCommand(newProjectsCmd())
+	rootCmd.AddCommand(newEstimateCmd())
 }
 
 func Execute() error {

@@ -122,3 +122,35 @@ func LoadFromFile(path string) (Config, error) {
 
 	return cfg, nil
 }
+
+// LoadConfigChain tries to load configuration from a chain of sources:
+//  1. repoPath -- per-project vxd.yaml in the repo root (highest priority)
+//  2. globalPath -- global ~/.vxd/config.yaml (fallback defaults)
+//  3. DefaultConfig() -- hardcoded fallback
+//
+// Returns the first successfully loaded config. If all files are missing,
+// returns DefaultConfig() without error. Only returns an error if a file
+// exists but is malformed.
+func LoadConfigChain(repoPath, globalPath string) (Config, error) {
+	// Try repo config first
+	cfg, err := LoadFromFile(repoPath)
+	if err == nil {
+		return cfg, nil
+	}
+	// If file exists but is malformed, return that error
+	if _, statErr := os.Stat(repoPath); statErr == nil {
+		return Config{}, err
+	}
+
+	// Try global config
+	cfg, err = LoadFromFile(globalPath)
+	if err == nil {
+		return cfg, nil
+	}
+	if _, statErr := os.Stat(globalPath); statErr == nil {
+		return Config{}, err
+	}
+
+	// Fall back to defaults
+	return DefaultConfig(), nil
+}

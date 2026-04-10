@@ -25,12 +25,11 @@ func newEventsCmd() *cobra.Command {
 }
 
 func runEvents(cmd *cobra.Command, _ []string) error {
-	cfgPath, _ := cmd.Flags().GetString("config")
 	eventType, _ := cmd.Flags().GetString("type")
 	storyID, _ := cmd.Flags().GetString("story")
 	limit, _ := cmd.Flags().GetInt("limit")
 
-	s, err := loadStores(cfgPath)
+	s, err := loadStores(cmd)
 	if err != nil {
 		return err
 	}

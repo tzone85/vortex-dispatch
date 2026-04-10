@@ -15,6 +15,7 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	rootCmd.PersistentFlags().String("config", "vxd.yaml", "Path to config file")
+	rootCmd.PersistentFlags().String("project", "", "Project name (auto-detected from git repo if not specified)")
 
 	rootCmd.AddCommand(newInitCmd())
 	rootCmd.AddCommand(newReqCmd())
@@ -31,6 +32,7 @@ func init() {
 	rootCmd.AddCommand(newMemoryCmd())
 	rootCmd.AddCommand(newOpportunityCmd())
 	rootCmd.AddCommand(newMetricsCmd())
+	rootCmd.AddCommand(newProjectsCmd())
 }
 
 func Execute() error {

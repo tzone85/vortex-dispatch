@@ -248,6 +248,102 @@ func TestDefaultYAML_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestLoadConfigChain_RepoFileFirst(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a repo-level vxd.yaml with a custom log level
+	repoYAML := `
+version: "1.0"
+workspace:
+  state_dir: "~/.vxd"
+  backend: dolt
+  log_level: debug
+  log_retention_days: 30
+routing:
+  junior_max_complexity: 3
+  intermediate_max_complexity: 5
+  max_retries_before_escalation: 2
+  max_qa_failures_before_escalation: 3
+  max_senior_retries: 2
+  max_manager_attempts: 2
+cleanup:
+  worktree_prune: immediate
+  branch_retention_days: 7
+  log_archive: dolt
+merge:
+  auto_merge: true
+  base_branch: main
+`
+	repoPath := filepath.Join(dir, "vxd.yaml")
+	os.WriteFile(repoPath, []byte(repoYAML), 0o644)
+
+	cfg, err := config.LoadConfigChain(repoPath, filepath.Join(dir, "nonexistent", "config.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Workspace.LogLevel != "debug" {
+		t.Errorf("expected debug log level from repo config, got %q", cfg.Workspace.LogLevel)
+	}
+}
+
+func TestLoadConfigChain_FallsToGlobal(t *testing.T) {
+	dir := t.TempDir()
+
+	// No repo config, but global config exists
+	globalYAML := `
+version: "1.0"
+workspace:
+  state_dir: "~/.vxd"
+  backend: dolt
+  log_level: warn
+  log_retention_days: 30
+routing:
+  junior_max_complexity: 3
+  intermediate_max_complexity: 5
+  max_retries_before_escalation: 2
+  max_qa_failures_before_escalation: 3
+  max_senior_retries: 2
+  max_manager_attempts: 2
+cleanup:
+  worktree_prune: immediate
+  branch_retention_days: 7
+  log_archive: dolt
+merge:
+  auto_merge: true
+  base_branch: main
+`
+	globalPath := filepath.Join(dir, "config.yaml")
+	os.WriteFile(globalPath, []byte(globalYAML), 0o644)
+
+	cfg, err := config.LoadConfigChain(filepath.Join(dir, "nonexistent.yaml"), globalPath)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Workspace.LogLevel != "warn" {
+		t.Errorf("expected warn log level from global config, got %q", cfg.Workspace.LogLevel)
+	}
+}
+
+func TestLoadConfigChain_FallsToDefault(t *testing.T) {
+	dir := t.TempDir()
+
+	cfg, err := config.LoadConfigChain(
+		filepath.Join(dir, "nope.yaml"),
+		filepath.Join(dir, "also-nope.yaml"),
+	)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	// Should match DefaultConfig values
+	def := config.DefaultConfig()
+	if cfg.Workspace.LogLevel != def.Workspace.LogLevel {
+		t.Errorf("expected default log level %q, got %q", def.Workspace.LogLevel, cfg.Workspace.LogLevel)
+	}
+	if cfg.Workspace.Backend != def.Workspace.Backend {
+		t.Errorf("expected default backend %q, got %q", def.Workspace.Backend, cfg.Workspace.Backend)
+	}
+}
+
 func TestDefaultYAML_HasHeader(t *testing.T) {
 	data, err := config.DefaultYAML()
 	if err != nil {

@@ -22,10 +22,9 @@ func newGCCmd() *cobra.Command {
 }
 
 func runGC(cmd *cobra.Command, _ []string) error {
-	cfgPath, _ := cmd.Flags().GetString("config")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 
-	s, err := loadStores(cfgPath)
+	s, err := loadStores(cmd)
 	if err != nil {
 		return err
 	}

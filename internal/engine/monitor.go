@@ -34,6 +34,10 @@ type Monitor struct {
 	escalation       *EscalationMachine
 	manager          *Manager
 
+	// reviewGate resolves the human-review mode for a requirement and
+	// controls whether stories pause for approval before merging.
+	reviewGate *ReviewGate
+
 	// planner enables tier-3 (tech lead) re-planning. When set, the
 	// monitor can decompose failing stories into smaller replacements.
 	planner *Planner
@@ -97,6 +101,13 @@ func (m *Monitor) SetAutoResume(d *Dispatcher, e *Executor) {
 // the Manager for LLM-powered failure diagnosis and corrective actions.
 func (m *Monitor) SetManager(mgr *Manager) {
 	m.manager = mgr
+}
+
+// SetReviewGate enables human review gates. When set, the monitor checks
+// the review mode for each story's requirement and pauses the pipeline
+// for manual approval when the mode is "manual".
+func (m *Monitor) SetReviewGate(rg *ReviewGate) {
+	m.reviewGate = rg
 }
 
 // SetPlanner enables tier-3 (tech lead) re-planning. When set, the monitor
@@ -317,6 +328,45 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 	if m.merger != nil {
 		m.mergeMu.Lock()
 		defer m.mergeMu.Unlock()
+
+		// Check review gate: if mode is "manual", create PR but wait for
+		// human approval before merging.
+		if m.reviewGate != nil {
+			story, err := m.projStore.GetStory(storyID)
+			if err == nil {
+				mode := m.reviewGate.ResolveMode(story.ReqID, m.config.Merge)
+				if mode == "manual" {
+					result, err := m.rebaseAndCreatePR(ctx, storyID, branch, repoDir, ag.WorktreePath)
+					if err != nil {
+						if llm.IsFatalAPIError(err) {
+							log.Printf("[pipeline] FATAL: non-retryable API error during PR creation for %s: %v", storyID, err)
+							m.pauseRequirement(storyID, fmt.Sprintf("fatal API error during PR creation: %v", err))
+							return
+						}
+						log.Printf("[pipeline] PR creation error for %s: %v", storyID, err)
+						m.resetStoryToDraft(storyID, "merger", fmt.Sprintf("PR creation error: %v", err))
+						return
+					}
+
+					// Emit awaiting approval event — pipeline pauses here.
+					awaitEvt := state.NewEvent(state.EventStoryAwaitingApproval, "monitor", storyID, map[string]any{
+						"pr_number": result.PRNumber,
+						"pr_url":    result.PRURL,
+					})
+					if err := m.eventStore.Append(awaitEvt); err != nil {
+						log.Printf("[pipeline] failed to emit awaiting approval for %s: %v", storyID, err)
+					}
+					if err := m.projStore.Project(awaitEvt); err != nil {
+						log.Printf("[pipeline] failed to project awaiting approval for %s: %v", storyID, err)
+					}
+
+					log.Printf("[pipeline] %s -> PR #%d (%s) awaiting human approval",
+						storyID, result.PRNumber, result.PRURL)
+					return
+				}
+			}
+		}
+
 		result, err := m.rebaseAndMerge(ctx, storyID, branch, repoDir, ag.WorktreePath)
 
 		if err != nil {
@@ -400,6 +450,44 @@ func (m *Monitor) rebaseAndMerge(ctx context.Context, storyID, branch, repoDir, 
 	log.Printf("[pipeline] rebase succeeded for %s, proceeding to merge", storyID)
 
 	return m.merger.Merge(storyID, storyID, repoDir, branch)
+}
+
+// rebaseAndCreatePR fetches the latest base branch, rebases the worktree onto
+// it, then pushes and creates a PR without auto-merging. This is used when the
+// review gate is in "manual" mode: the PR is created for human review and the
+// pipeline pauses until the user runs "vxd approve".
+func (m *Monitor) rebaseAndCreatePR(ctx context.Context, storyID, branch, repoDir, worktreePath string) (MergeResult, error) {
+	baseBranch := m.config.Merge.BaseBranch
+	if baseBranch == "" {
+		baseBranch = "main"
+	}
+
+	log.Printf("[pipeline] fetching %s and rebasing %s for %s (manual review)", baseBranch, branch, storyID)
+
+	if err := vxdgit.FetchBranch(repoDir, baseBranch); err != nil {
+		return MergeResult{}, fmt.Errorf("fetch %s: %w", baseBranch, err)
+	}
+
+	upstream := "origin/" + baseBranch
+
+	if m.conflictResolver != nil {
+		if err := m.conflictResolver.RebaseWithResolution(ctx, storyID, worktreePath, upstream); err != nil {
+			return MergeResult{}, fmt.Errorf("rebase onto %s: %w", baseBranch, err)
+		}
+	} else {
+		if err := vxdgit.RebaseOnto(worktreePath, upstream); err != nil {
+			return MergeResult{}, fmt.Errorf("rebase onto %s: %w", baseBranch, err)
+		}
+	}
+
+	log.Printf("[pipeline] rebase succeeded for %s, creating PR (no auto-merge)", storyID)
+
+	storyTitle := storyID
+	if s, err := m.projStore.GetStory(storyID); err == nil {
+		storyTitle = s.Title
+	}
+
+	return m.merger.CreatePROnly(storyID, storyTitle, repoDir, branch)
 }
 
 // isRequirementPaused looks up the requirement for a story and returns true

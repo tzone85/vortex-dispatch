@@ -38,6 +38,10 @@ The requirement text can be provided as:
 }
 
 func runReq(cmd *cobra.Command, args []string) error {
+	if err := runDispatchPreflight(cmd); err != nil {
+		return err
+	}
+
 	requirement, err := resolveRequirement(cmd, args)
 	if err != nil {
 		return err

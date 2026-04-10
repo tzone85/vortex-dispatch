@@ -78,6 +78,7 @@ type CleanupConfig struct {
 // MergeConfig controls how completed work is merged.
 type MergeConfig struct {
 	AutoMerge  bool   `yaml:"auto_merge"`
+	ReviewMode string `yaml:"review_mode"`
 	BaseBranch string `yaml:"base_branch"`
 	PRTemplate string `yaml:"pr_template"`
 }
@@ -196,6 +197,11 @@ func (c Config) Validate() error {
 		if hrs[0] > hrs[1] {
 			return fmt.Errorf("billing.hours_per_point[%d] low (%f) must be <= high (%f)", pts, hrs[0], hrs[1])
 		}
+	}
+
+	validReviewModes := map[string]bool{"": true, "auto": true, "manual": true, "plan_only": true}
+	if !validReviewModes[c.Merge.ReviewMode] {
+		return fmt.Errorf("merge.review_mode must be \"auto\", \"manual\", or \"plan_only\"; got %q", c.Merge.ReviewMode)
 	}
 
 	return nil

@@ -15,6 +15,7 @@ type Config struct {
 	Merge     MergeConfig              `yaml:"merge"`
 	Planning  PlanningConfig           `yaml:"planning"`
 	Runtimes  map[string]RuntimeConfig `yaml:"runtimes"`
+	Billing   BillingConfig            `yaml:"billing"`
 }
 
 // PlanningConfig controls how the planner decomposes requirements into stories.
@@ -96,6 +97,26 @@ type RuntimeConfig struct {
 	Detection RuntimeDetection `yaml:"detection"`
 }
 
+// BillingConfig controls cost estimation and client quoting.
+type BillingConfig struct {
+	DefaultRate   float64            `yaml:"default_rate"`
+	Currency      string             `yaml:"currency"`
+	HoursPerPoint map[int][2]float64 `yaml:"hours_per_point"`
+	LLMCosts      LLMCostConfig      `yaml:"llm_costs"`
+}
+
+// LLMCostConfig tracks LLM API costs.
+type LLMCostConfig struct {
+	Mode  string              `yaml:"mode"`
+	Rates map[string]TokenRate `yaml:"rates,omitempty"`
+}
+
+// TokenRate defines per-token pricing for a model.
+type TokenRate struct {
+	InputPer1K  float64 `yaml:"input_per_1k"`
+	OutputPer1K float64 `yaml:"output_per_1k"`
+}
+
 // validBackends is the set of allowed workspace backends.
 var validBackends = map[string]bool{
 	"dolt":   true,
@@ -155,6 +176,26 @@ func (c Config) Validate() error {
 
 	if c.Routing.IntermediateMaxComplexity > 13 {
 		return fmt.Errorf("routing.intermediate_max_complexity must be <= 13, got %d", c.Routing.IntermediateMaxComplexity)
+	}
+
+	// Billing validation
+	if c.Billing.DefaultRate < 0 {
+		return fmt.Errorf("billing.default_rate must be >= 0, got %f", c.Billing.DefaultRate)
+	}
+	if c.Billing.Currency == "" {
+		return fmt.Errorf("billing.currency must not be empty")
+	}
+	validLLMModes := map[string]bool{"subscription": true, "per_token": true}
+	if !validLLMModes[c.Billing.LLMCosts.Mode] {
+		return fmt.Errorf("billing.llm_costs.mode must be \"subscription\" or \"per_token\", got %q", c.Billing.LLMCosts.Mode)
+	}
+	for pts, hrs := range c.Billing.HoursPerPoint {
+		if hrs[0] < 0 || hrs[1] < 0 {
+			return fmt.Errorf("billing.hours_per_point[%d] values must be >= 0", pts)
+		}
+		if hrs[0] > hrs[1] {
+			return fmt.Errorf("billing.hours_per_point[%d] low (%f) must be <= high (%f)", pts, hrs[0], hrs[1])
+		}
 	}
 
 	return nil

@@ -36,6 +36,7 @@ func init() {
 	rootCmd.AddCommand(newProjectsCmd())
 	rootCmd.AddCommand(newEstimateCmd())
 	rootCmd.AddCommand(newPreflightCmd())
+	rootCmd.AddCommand(newReportCmd())
 }
 
 func Execute() error {

@@ -46,6 +46,7 @@ func TestEventTypeConstants(t *testing.T) {
 		state.EventReqAnalyzed,
 		state.EventReqPlanned,
 		state.EventReqCompleted,
+		state.EventReqEstimated,
 		state.EventStoryCreated,
 		state.EventStoryEstimated,
 		state.EventStoryAssigned,
@@ -101,6 +102,35 @@ func TestEscalationEventTypes(t *testing.T) {
 		if et == "" {
 			t.Errorf("event type should not be empty")
 		}
+	}
+}
+
+func TestEventReqEstimated_RoundTrip(t *testing.T) {
+	payload := map[string]any{
+		"estimate_id":  "est-20260410-a3b7c9d1",
+		"requirement":  "Add OAuth2 login",
+		"stories":      4,
+		"total_points": 13,
+		"hours_low":    8.0,
+		"hours_high":   12.0,
+		"quote_low":    1200.0,
+		"quote_high":   1800.0,
+		"rate":         150.0,
+		"currency":     "USD",
+	}
+
+	event := state.NewEvent(state.EventReqEstimated, "estimator", "", payload)
+
+	if event.Type != state.EventReqEstimated {
+		t.Fatalf("expected type %s, got %s", state.EventReqEstimated, event.Type)
+	}
+
+	decoded := state.DecodePayload(event.Payload)
+	if decoded["estimate_id"] != "est-20260410-a3b7c9d1" {
+		t.Fatalf("expected estimate_id in payload, got %v", decoded["estimate_id"])
+	}
+	if decoded["stories"] != float64(4) {
+		t.Fatalf("expected stories=4, got %v", decoded["stories"])
 	}
 }
 

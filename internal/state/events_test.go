@@ -72,6 +72,12 @@ func TestEventTypeConstants(t *testing.T) {
 		state.EventWorktreePruned,
 		state.EventBranchDeleted,
 		state.EventGCCompleted,
+		state.EventReviewModeSet,
+		state.EventPlanApproved,
+		state.EventPlanRejected,
+		state.EventStoryAwaitingApproval,
+		state.EventStoryApproved,
+		state.EventStoryRejected,
 	}
 	seen := make(map[state.EventType]bool)
 	for _, et := range types {

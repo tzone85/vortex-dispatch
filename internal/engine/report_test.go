@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -280,5 +281,245 @@ func TestReportBuilder_Build_NotFound(t *testing.T) {
 	_, err := rb.Build("nonexistent-req")
 	if err == nil {
 		t.Fatal("expected error for nonexistent requirement, got nil")
+	}
+}
+
+// buildCompletedReportData returns a ReportData with two stories, both merged, status DONE_WITH_CONCERNS.
+func buildCompletedReportData() engine.ReportData {
+	now := time.Now().UTC()
+	return engine.ReportData{
+		RequirementID: "req-123",
+		Title:         "User Authentication Feature",
+		Description:   "Implement OAuth2 login with Google and GitHub",
+		RepoPath:      "/tmp/test-repo",
+		ReqStatus:     "completed",
+		Status:        engine.ReportStatusDoneWithConcerns,
+		GeneratedAt:   now,
+		Stories: []engine.ReportStory{
+			{
+				ID:              "s-001",
+				Title:           "Setup OAuth middleware",
+				Status:          "merged",
+				Complexity:      3,
+				PRUrl:           "https://github.com/org/repo/pull/42",
+				PRNumber:        42,
+				Wave:            1,
+				EscalationCount: 0,
+				RetryCount:      0,
+				Duration:        2 * time.Hour,
+			},
+			{
+				ID:              "s-002",
+				Title:           "Add Google provider",
+				Status:          "merged",
+				Complexity:      5,
+				PRUrl:           "https://github.com/org/repo/pull/43",
+				PRNumber:        43,
+				Wave:            1,
+				EscalationCount: 1,
+				RetryCount:      1,
+				Duration:        4 * time.Hour,
+			},
+		},
+		Effort: engine.Estimate{
+			Summary: engine.EstimateSummary{
+				StoryCount:  2,
+				TotalPoints: 8,
+				HoursLow:    4.0,
+				HoursHigh:   8.0,
+				QuoteLow:    600.0,
+				QuoteHigh:   1200.0,
+				Rate:        150.0,
+				Currency:    "USD",
+			},
+		},
+		Timeline: []engine.TimelineEntry{
+			{Timestamp: now.Add(-2 * time.Hour), EventType: "REQ_SUBMITTED", Description: "Requirement submitted"},
+			{Timestamp: now.Add(-time.Hour), EventType: "STORY_MERGED", StoryID: "s-001", Description: "Story merged: Setup OAuth middleware"},
+		},
+		AgentStats: []engine.AgentStat{
+			{AgentID: "agent-1", StoriesWorked: 1, Escalations: 0},
+			{AgentID: "agent-2", StoriesWorked: 1, Escalations: 1},
+		},
+	}
+}
+
+// buildInProgressReportData returns a ReportData with in-progress status.
+func buildInProgressReportData() engine.ReportData {
+	now := time.Now().UTC()
+	return engine.ReportData{
+		RequirementID: "req-456",
+		Title:         "Payment Integration",
+		Description:   "Add Stripe payment processing",
+		RepoPath:      "/tmp/payment-repo",
+		ReqStatus:     "in_progress",
+		Status:        engine.ReportStatusNeedsContext,
+		GeneratedAt:   now,
+		Stories: []engine.ReportStory{
+			{
+				ID:         "s-010",
+				Title:      "Stripe webhook handler",
+				Status:     "merged",
+				Complexity: 5,
+				PRUrl:      "https://github.com/org/repo/pull/10",
+				PRNumber:   10,
+				Wave:       1,
+			},
+			{
+				ID:         "s-011",
+				Title:      "Payment UI",
+				Status:     "in_progress",
+				Complexity: 3,
+				Wave:       1,
+			},
+		},
+		Effort: engine.Estimate{
+			Summary: engine.EstimateSummary{
+				StoryCount:  2,
+				TotalPoints: 8,
+				HoursLow:    4.0,
+				HoursHigh:   8.0,
+				QuoteLow:    600.0,
+				QuoteHigh:   1200.0,
+				Rate:        150.0,
+				Currency:    "USD",
+			},
+		},
+		Timeline: []engine.TimelineEntry{
+			{Timestamp: now.Add(-time.Hour), EventType: "REQ_SUBMITTED", Description: "Requirement submitted"},
+		},
+	}
+}
+
+func TestRenderMarkdown_CompletedReport(t *testing.T) {
+	data := buildCompletedReportData()
+	out := engine.RenderMarkdown(data, "acme-corp", false)
+
+	checks := []string{
+		"# Delivery Report:",
+		"User Authentication Feature",
+		"acme-corp",
+		"req-123",
+		"Completed",
+		"Setup OAuth middleware",
+		"Add Google provider",
+		"#42",
+		"#43",
+		"HoursLow",
+	}
+	for _, want := range checks {
+		if !strings.Contains(out, want) {
+			t.Errorf("RenderMarkdown: expected output to contain %q\nOutput:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderMarkdown_InProgressReport(t *testing.T) {
+	data := buildInProgressReportData()
+	out := engine.RenderMarkdown(data, "beta-project", false)
+
+	if !strings.Contains(out, "In Progress") {
+		t.Errorf("RenderMarkdown: expected 'In Progress' in output\nOutput:\n%s", out)
+	}
+	if !strings.Contains(out, "beta-project") {
+		t.Errorf("RenderMarkdown: expected project name in output\nOutput:\n%s", out)
+	}
+	// merged count: 1 of 2
+	if !strings.Contains(out, "1") {
+		t.Errorf("RenderMarkdown: expected merged count in output\nOutput:\n%s", out)
+	}
+}
+
+func TestRenderMarkdown_InternalSections(t *testing.T) {
+	data := buildCompletedReportData()
+	out := engine.RenderMarkdown(data, "acme-corp", true)
+
+	internalSections := []string{
+		"Internal: Story Detail",
+		"Internal: Agent Performance",
+		"Internal: Timeline Detail",
+		"agent-1",
+		"agent-2",
+	}
+	for _, want := range internalSections {
+		if !strings.Contains(out, want) {
+			t.Errorf("RenderMarkdown internal=true: expected %q in output\nOutput:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderMarkdown_NoInternalSectionsWhenPublic(t *testing.T) {
+	data := buildCompletedReportData()
+	out := engine.RenderMarkdown(data, "acme-corp", false)
+
+	forbidden := []string{
+		"Internal: Story Detail",
+		"Internal: Agent Performance",
+		"Internal: Timeline Detail",
+	}
+	for _, bad := range forbidden {
+		if strings.Contains(out, bad) {
+			t.Errorf("RenderMarkdown internal=false: must not contain %q\nOutput:\n%s", bad, out)
+		}
+	}
+}
+
+func TestRenderHTML_ContainsStructure(t *testing.T) {
+	data := buildCompletedReportData()
+	out := engine.RenderHTML(data, "acme-corp", false)
+
+	checks := []string{
+		"<!DOCTYPE html>",
+		"<style>",
+		"acme-corp",
+		"User Authentication Feature",
+		"Setup OAuth middleware",
+		"Add Google provider",
+		`href="https://github.com/org/repo/pull/42"`,
+		`href="https://github.com/org/repo/pull/43"`,
+	}
+	for _, want := range checks {
+		if !strings.Contains(out, want) {
+			t.Errorf("RenderHTML: expected output to contain %q\nOutput:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderHTML_EscapesXSS(t *testing.T) {
+	data := buildCompletedReportData()
+	// Inject XSS payloads into project and title
+	xssProject := "<script>alert('xss')</script>"
+	data.Title = "<img src=x onerror=alert(1)>"
+	out := engine.RenderHTML(data, xssProject, false)
+
+	// Raw tags must not appear
+	if strings.Contains(out, "<script>") {
+		t.Errorf("RenderHTML: raw <script> tag found in output (XSS not escaped)\nOutput:\n%s", out)
+	}
+	if strings.Contains(out, "<img src=x") {
+		t.Errorf("RenderHTML: raw <img> tag found in output (XSS not escaped)\nOutput:\n%s", out)
+	}
+	// Escaped versions must appear
+	if !strings.Contains(out, "&lt;script&gt;") {
+		t.Errorf("RenderHTML: escaped &lt;script&gt; not found in output\nOutput:\n%s", out)
+	}
+}
+
+func TestFormatDuration(t *testing.T) {
+	cases := []struct {
+		d    time.Duration
+		want string
+	}{
+		{0, "0s"},
+		{45 * time.Second, "45s"},
+		{5*time.Minute + 30*time.Second, "5m 30s"},
+		{2*time.Hour + 15*time.Minute, "2h 15m"},
+		{time.Hour, "1h 0m"},
+	}
+	for _, tc := range cases {
+		got := engine.FormatDuration(tc.d)
+		if got != tc.want {
+			t.Errorf("FormatDuration(%v): want %q, got %q", tc.d, tc.want, got)
+		}
 	}
 }

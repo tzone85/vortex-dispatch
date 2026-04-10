@@ -22,11 +22,10 @@ func newStatusCmd() *cobra.Command {
 }
 
 func runStatus(cmd *cobra.Command, _ []string) error {
-	cfgPath, _ := cmd.Flags().GetString("config")
 	reqFilter, _ := cmd.Flags().GetString("req")
 	showAll, _ := cmd.Flags().GetBool("all")
 
-	s, err := loadStores(cfgPath)
+	s, err := loadStores(cmd)
 	if err != nil {
 		return err
 	}

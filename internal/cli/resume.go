@@ -26,6 +26,8 @@ func newResumeCmd() *cobra.Command {
 		RunE:  runResume,
 	}
 	cmd.Flags().Bool("godmode", false, "skip permission prompts on LLM calls (fully autonomous)")
+	cmd.Flags().Bool("review", false, "Force manual review mode for this run")
+	cmd.Flags().Bool("auto", false, "Force auto mode for this run (skip review gates)")
 	cmd.SilenceUsage = true
 	return cmd
 }
@@ -49,6 +51,35 @@ func runResume(cmd *cobra.Command, args []string) error {
 	req, err := s.Proj.GetRequirement(reqID)
 	if err != nil {
 		return fmt.Errorf("requirement not found: %w", err)
+	}
+
+	// Resolve and persist review mode
+	reviewFlag, _ := cmd.Flags().GetBool("review")
+	autoFlag, _ := cmd.Flags().GetBool("auto")
+	if reviewFlag && autoFlag {
+		return fmt.Errorf("cannot use both --review and --auto")
+	}
+
+	reviewGate := engine.NewReviewGate(s.Events)
+	if reviewFlag || autoFlag {
+		mode := "manual"
+		if autoFlag {
+			mode = "auto"
+		}
+		modeEvt := state.NewEvent(state.EventReviewModeSet, "system", "", map[string]any{
+			"req_id": reqID,
+			"mode":   mode,
+		})
+		s.Events.Append(modeEvt)
+		s.Proj.Project(modeEvt)
+	}
+
+	// Plan approval gate
+	effectiveMode := reviewGate.ResolveMode(reqID, s.Config.Merge)
+	if effectiveMode == "manual" || effectiveMode == "plan_only" {
+		if !reviewGate.PlanApproved(reqID) {
+			return fmt.Errorf("plan approval required. Run 'vxd approve-plan %s' first", reqID)
+		}
 	}
 
 	// If paused, emit REQ_RESUMED event to transition back to planned
@@ -240,6 +271,7 @@ func runResume(cmd *cobra.Command, args []string) error {
 	// Enable auto-resume: when a wave completes, the monitor automatically
 	// dispatches the next wave of ready stories instead of exiting.
 	monitor.SetAutoResume(dispatcher, executor)
+	monitor.SetReviewGate(reviewGate)
 
 	rc := &engine.RunContext{
 		ReqID:          reqID,

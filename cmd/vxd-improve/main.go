@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"net"
 	"path/filepath"
 	"sort"
 	"time"
@@ -30,6 +31,10 @@ func main() {
 	runID := now.UTC().Format(time.RFC3339)
 
 	fmt.Fprintf(os.Stderr, "=== VXD Self-Improvement Engine — %s ===\n", date)
+
+	// Wait for network — Mac may have just woken from sleep and WiFi isn't ready yet.
+	// launchd fires immediately on wake, but DNS can take 5-15 seconds to resolve.
+	waitForNetwork(30 * time.Second)
 
 	// Idempotency check
 	runsDir := filepath.Join(cfg.AuditDir, "runs")
@@ -412,4 +417,22 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// waitForNetwork polls DNS resolution until it succeeds or timeout expires.
+// This handles the case where launchd fires immediately on Mac wake but
+// WiFi hasn't reconnected yet (DNS fails with "no such host").
+func waitForNetwork(timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	testHost := "api.resend.com"
+
+	for time.Now().Before(deadline) {
+		_, err := net.LookupHost(testHost)
+		if err == nil {
+			return // network is ready
+		}
+		log.Printf("Waiting for network (DNS lookup failed: %v)...", err)
+		time.Sleep(3 * time.Second)
+	}
+	log.Printf("WARNING: Network not available after %s — proceeding anyway (may fail)", timeout)
 }

@@ -159,3 +159,68 @@ func ListProjects(baseDir string) ([]ProjectMetadata, error) {
 func ProjectDir(baseDir, projectName string) string {
 	return filepath.Join(baseDir, "projects", projectName)
 }
+
+// MigrateOldLayout moves pre-isolation VXD state files from the flat layout
+// (~/.vxd/events.jsonl, ~/.vxd/vxd.db, etc.) into ~/.vxd/projects/_legacy/.
+//
+// Trigger: ~/.vxd/events.jsonl exists AND ~/.vxd/projects/ does not exist.
+// Returns true if migration was performed, false if skipped (already migrated
+// or no old files). Idempotent: safe to call on every startup.
+func MigrateOldLayout(baseDir string) (bool, error) {
+	// Check if projects/ already exists — skip if so (idempotent guard)
+	projectsDir := filepath.Join(baseDir, "projects")
+	if _, err := os.Stat(projectsDir); err == nil {
+		return false, nil
+	}
+
+	// Check if old layout exists (events.jsonl is the sentinel file)
+	oldEvents := filepath.Join(baseDir, "events.jsonl")
+	if _, err := os.Stat(oldEvents); os.IsNotExist(err) {
+		return false, nil
+	}
+
+	// Create legacy directory
+	legacyDir := filepath.Join(projectsDir, "_legacy")
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		return false, fmt.Errorf("create legacy dir: %w", err)
+	}
+
+	// Move files that exist
+	filesToMove := []string{"events.jsonl", "vxd.db"}
+	for _, name := range filesToMove {
+		src := filepath.Join(baseDir, name)
+		dst := filepath.Join(legacyDir, name)
+		if _, err := os.Stat(src); err == nil {
+			if err := os.Rename(src, dst); err != nil {
+				return false, fmt.Errorf("move %s: %w", name, err)
+			}
+		}
+	}
+
+	// Move directories that exist
+	dirsToMove := []string{"worktrees", "logs"}
+	for _, name := range dirsToMove {
+		src := filepath.Join(baseDir, name)
+		dst := filepath.Join(legacyDir, name)
+		if _, err := os.Stat(src); err == nil {
+			if err := os.Rename(src, dst); err != nil {
+				return false, fmt.Errorf("move %s/: %w", name, err)
+			}
+		}
+	}
+
+	// Write legacy metadata
+	meta := ProjectMetadata{
+		Name:         "_legacy",
+		MigratedFrom: baseDir,
+		MigratedAt:   time.Now().UTC().Format(time.RFC3339),
+		Note:         "Auto-migrated from pre-isolation layout",
+		CreatedAt:    time.Now().UTC(),
+		LastActivity: time.Now().UTC(),
+	}
+	if err := WriteMetadata(legacyDir, meta); err != nil {
+		return false, fmt.Errorf("write legacy metadata: %w", err)
+	}
+
+	return true, nil
+}

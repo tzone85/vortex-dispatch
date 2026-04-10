@@ -355,3 +355,56 @@ func TestDefaultYAML_HasHeader(t *testing.T) {
 		t.Fatalf("expected YAML to start with %q, got %q", header, string(data[:40]))
 	}
 }
+
+func TestDefaultConfig_IncludesBilling(t *testing.T) {
+	cfg := config.DefaultConfig()
+
+	if cfg.Billing.DefaultRate != 150.0 {
+		t.Fatalf("expected default rate 150.0, got %f", cfg.Billing.DefaultRate)
+	}
+	if cfg.Billing.Currency != "USD" {
+		t.Fatalf("expected currency 'USD', got %s", cfg.Billing.Currency)
+	}
+	if len(cfg.Billing.HoursPerPoint) != 6 {
+		t.Fatalf("expected 6 hour tiers, got %d", len(cfg.Billing.HoursPerPoint))
+	}
+	low, high := cfg.Billing.HoursPerPoint[3][0], cfg.Billing.HoursPerPoint[3][1]
+	if low != 2.0 || high != 3.0 {
+		t.Fatalf("expected 3pt = [2.0, 3.0], got [%f, %f]", low, high)
+	}
+	if cfg.Billing.LLMCosts.Mode != "subscription" {
+		t.Fatalf("expected mode 'subscription', got %s", cfg.Billing.LLMCosts.Mode)
+	}
+}
+
+func TestValidation_BillingRate(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Billing.DefaultRate = -10
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for negative rate")
+	}
+}
+
+func TestValidation_BillingCurrency(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Billing.Currency = ""
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for empty currency")
+	}
+}
+
+func TestValidation_BillingLLMMode(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Billing.LLMCosts.Mode = "free"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for invalid LLM cost mode")
+	}
+}
+
+func TestValidation_BillingHoursPerPoint(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Billing.HoursPerPoint[3] = [2]float64{5.0, 2.0} // low > high
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for hours_per_point low > high")
+	}
+}

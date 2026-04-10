@@ -31,6 +31,10 @@ func newResumeCmd() *cobra.Command {
 }
 
 func runResume(cmd *cobra.Command, args []string) error {
+	if err := runDispatchPreflight(cmd); err != nil {
+		return err
+	}
+
 	reqID := args[0]
 
 	s, err := loadStores(cmd)

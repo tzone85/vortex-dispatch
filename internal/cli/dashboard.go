@@ -30,10 +30,9 @@ func newDashboardCmd() *cobra.Command {
 }
 
 func runDashboard(cmd *cobra.Command, _ []string) error {
-	cfgPath, _ := cmd.Flags().GetString("config")
 	showAll, _ := cmd.Flags().GetBool("all")
 
-	s, err := loadStores(cfgPath)
+	s, err := loadStores(cmd)
 	if err != nil {
 		return err
 	}

@@ -43,8 +43,7 @@ func runReq(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	cfgPath, _ := cmd.Flags().GetString("config")
-	s, err := loadStores(cfgPath)
+	s, err := loadStores(cmd)
 	if err != nil {
 		return err
 	}

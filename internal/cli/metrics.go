@@ -27,10 +27,9 @@ Example output:
 }
 
 func runMetrics(cmd *cobra.Command, _ []string) error {
-	cfgPath, _ := cmd.Flags().GetString("config")
 	limit, _ := cmd.Flags().GetInt("limit")
 
-	s, err := loadStores(cfgPath)
+	s, err := loadStores(cmd)
 	if err != nil {
 		return err
 	}

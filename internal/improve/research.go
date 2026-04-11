@@ -205,6 +205,10 @@ var trackedProjects = []TrackedProject{
 		"https://aws.amazon.com/blogs/aws/category/artificial-intelligence/amazon-machine-learning/amazon-bedrock/",
 		"https://github.com/aws-samples/amazon-bedrock-samples",
 	}, Category: "llm_providers"},
+	{Name: "AgentFlow", URLs: []string{
+		"https://github.com/shouc/agentflow",
+		"https://github.com/shouc/agentflow/releases",
+	}, Category: "competitors"},
 }
 
 // HistoricalTopicForDay returns the deep-dive search query for today.

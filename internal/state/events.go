@@ -64,6 +64,10 @@ const (
 	EventStoryAwaitingApproval EventType = "STORY_AWAITING_APPROVAL"
 	EventStoryApproved         EventType = "STORY_APPROVED"
 	EventStoryRejected         EventType = "STORY_REJECTED"
+
+	// Recovery events.
+	EventStoryReset        EventType = "STORY_RESET"
+	EventRecoveryCompleted EventType = "RECOVERY_COMPLETED"
 )
 
 // Event represents a single domain event in the append-only event store.

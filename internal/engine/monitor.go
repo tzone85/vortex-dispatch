@@ -34,6 +34,11 @@ type Monitor struct {
 	escalation       *EscalationMachine
 	manager          *Manager
 
+	// checkpointPath is the file path for writing crash recovery checkpoints.
+	// When set, the monitor writes phase-transition checkpoints before and
+	// after the merge step so that resume can detect interrupted merges.
+	checkpointPath string
+
 	// reviewGate resolves the human-review mode for a requirement and
 	// controls whether stories pause for approval before merging.
 	reviewGate *ReviewGate
@@ -108,6 +113,11 @@ func (m *Monitor) SetManager(mgr *Manager) {
 // for manual approval when the mode is "manual".
 func (m *Monitor) SetReviewGate(rg *ReviewGate) {
 	m.reviewGate = rg
+}
+
+// SetCheckpointPath enables checkpoint writes for crash recovery.
+func (m *Monitor) SetCheckpointPath(path string) {
+	m.checkpointPath = path
 }
 
 // SetPlanner enables tier-3 (tech lead) re-planning. When set, the monitor
@@ -324,6 +334,20 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 		log.Printf("[pipeline] QA passed for %s", storyID)
 	}
 
+	// Write checkpoint before merge for crash recovery.
+	if m.checkpointPath != "" {
+		cp := Checkpoint{
+			ReqID:        storyID,
+			Phase:        PhaseMerging,
+			MergingStory: storyID,
+			Timestamp:    time.Now().UTC(),
+			PID:          os.Getpid(),
+		}
+		if err := WriteCheckpoint(m.checkpointPath, cp); err != nil {
+			log.Printf("[pipeline] checkpoint write error: %v", err)
+		}
+	}
+
 	// 3. Merge (serialized: rebase onto latest main, then push + merge)
 	if m.merger != nil {
 		m.mergeMu.Lock()
@@ -402,6 +426,19 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 			if err := vxdgit.DeleteRemoteBranch(repoDir, branch); err != nil {
 				log.Printf("[pipeline] remote branch cleanup for %s: %v", storyID, err)
 			}
+		}
+	}
+
+	// Clear merge checkpoint after successful merge.
+	if m.checkpointPath != "" {
+		cp := Checkpoint{
+			ReqID:     storyID,
+			Phase:     PhaseMonitoring,
+			Timestamp: time.Now().UTC(),
+			PID:       os.Getpid(),
+		}
+		if err := WriteCheckpoint(m.checkpointPath, cp); err != nil {
+			log.Printf("[pipeline] checkpoint write error: %v", err)
 		}
 	}
 

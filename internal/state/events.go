@@ -56,6 +56,14 @@ const (
 	EventWorktreePruned EventType = "WORKTREE_PRUNED"
 	EventBranchDeleted  EventType = "BRANCH_DELETED"
 	EventGCCompleted    EventType = "GC_COMPLETED"
+
+	// Review gate events.
+	EventReviewModeSet         EventType = "REVIEW_MODE_SET"
+	EventPlanApproved          EventType = "PLAN_APPROVED"
+	EventPlanRejected          EventType = "PLAN_REJECTED"
+	EventStoryAwaitingApproval EventType = "STORY_AWAITING_APPROVAL"
+	EventStoryApproved         EventType = "STORY_APPROVED"
+	EventStoryRejected         EventType = "STORY_REJECTED"
 )
 
 // Event represents a single domain event in the append-only event store.

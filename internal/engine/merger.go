@@ -107,6 +107,66 @@ func (m *Merger) Merge(storyID, storyTitle, repoDir, branch string) (MergeResult
 	return result, nil
 }
 
+// CreatePROnly pushes a branch and creates a PR without auto-merging,
+// regardless of the AutoMerge config. This is used when the review gate
+// is in "manual" mode — the PR waits for human approval.
+func (m *Merger) CreatePROnly(storyID, storyTitle, repoDir, branch string) (MergeResult, error) {
+	if err := m.ghOps.PushBranch(repoDir, branch); err != nil {
+		return MergeResult{}, fmt.Errorf("push branch %s: %w", branch, err)
+	}
+
+	prTitle := fmt.Sprintf("[VXD] %s", storyTitle)
+	prBody := m.buildPRBody(storyID, storyTitle)
+
+	pr, err := m.ghOps.CreatePR(repoDir, prTitle, prBody, m.config.BaseBranch, branch)
+	if err != nil {
+		return MergeResult{}, fmt.Errorf("create PR for %s: %w", storyID, err)
+	}
+
+	evt := state.NewEvent(state.EventStoryPRCreated, "merger", storyID, map[string]any{
+		"pr_number": pr.Number,
+		"pr_url":    pr.URL,
+		"branch":    branch,
+	})
+	if err := m.eventStore.Append(evt); err != nil {
+		return MergeResult{}, fmt.Errorf("emit pr created: %w", err)
+	}
+	if err := m.projStore.Project(evt); err != nil {
+		return MergeResult{}, fmt.Errorf("project pr created: %w", err)
+	}
+
+	return MergeResult{PRNumber: pr.Number, PRURL: pr.URL, Merged: false}, nil
+}
+
+// MergeExistingPR merges an already-created PR for a story. This is called
+// by the "vxd approve" command after a human reviews and approves the PR.
+func (m *Merger) MergeExistingPR(storyID, repoDir string) error {
+	story, err := m.projStore.GetStory(storyID)
+	if err != nil {
+		return fmt.Errorf("get story %s: %w", storyID, err)
+	}
+	if story.PRNumber == 0 {
+		return fmt.Errorf("story %s has no PR", storyID)
+	}
+
+	if err := m.ghOps.MergePR(repoDir, story.PRNumber); err != nil {
+		return fmt.Errorf("merge PR #%d: %w", story.PRNumber, err)
+	}
+
+	evt := state.NewEvent(state.EventStoryMerged, "merger", storyID, map[string]any{
+		"pr_number": story.PRNumber,
+		"pr_url":    story.PRUrl,
+	})
+	if err := m.eventStore.Append(evt); err != nil {
+		return fmt.Errorf("emit merged: %w", err)
+	}
+	if err := m.projStore.Project(evt); err != nil {
+		return fmt.Errorf("project merged: %w", err)
+	}
+
+	return nil
+}
+
 // buildPRBody interpolates the configured PR template with story data.
 // Falls back to a simple default if no template is configured.
 func (m *Merger) buildPRBody(storyID, storyTitle string) string {

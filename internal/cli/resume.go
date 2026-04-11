@@ -9,11 +9,13 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/tzone85/vortex-dispatch/internal/artifact"
 	"github.com/tzone85/vortex-dispatch/internal/config"
 	"github.com/tzone85/vortex-dispatch/internal/engine"
 	vxdgit "github.com/tzone85/vortex-dispatch/internal/git"
 	"github.com/tzone85/vortex-dispatch/internal/graph"
 	"github.com/tzone85/vortex-dispatch/internal/runtime"
+	"github.com/tzone85/vortex-dispatch/internal/scratchboard"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 	"github.com/tzone85/vortex-dispatch/internal/tmux"
 )
@@ -202,6 +204,21 @@ func runResume(cmd *cobra.Command, args []string) error {
 	dispatcher := engine.NewDispatcher(s.Config, s.Events, s.Proj)
 	executor := engine.NewExecutor(reg, s.Config, s.Events, s.Proj)
 
+	// Initialize artifact store for per-story persistence.
+	stateDir0 := expandHome(s.Config.Workspace.StateDir)
+	artifactDir := filepath.Join(stateDir0, "artifacts")
+	artStore, artErr := artifact.NewStore(artifactDir)
+	if artErr == nil {
+		executor.SetArtifactStore(artStore)
+	}
+
+	// Initialize scratchboard for cross-agent knowledge sharing.
+	sbPath := filepath.Join(stateDir0, "scratchboards", reqID+".jsonl")
+	sb, sbErr := scratchboard.New(sbPath)
+	if sbErr == nil {
+		executor.SetScratchboard(sb)
+	}
+
 	var activeAgents []engine.ActiveAgent
 
 	if len(orphanAgents) > 0 {
@@ -297,6 +314,9 @@ func runResume(cmd *cobra.Command, args []string) error {
 
 	monitor := engine.NewMonitor(reg, watchdog, reviewer, qaRunner, merger, s.Config, s.Events, s.Proj)
 	monitor.SetCheckpointPath(checkpointPath)
+	if artStore != nil {
+		monitor.SetArtifactStore(artStore)
+	}
 
 	// Enable LLM-powered conflict resolution during rebase.
 	if llmClient != nil {

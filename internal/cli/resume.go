@@ -267,7 +267,20 @@ func runResume(cmd *cobra.Command, args []string) error {
 		reviewer = engine.NewReviewer(llmClient, seniorModel.Model, seniorModel.MaxTokens, s.Events, s.Proj)
 	}
 
-	qaRunner := engine.NewQA(engine.QAConfig{}, &engine.ExecRunner{}, s.Events, s.Proj)
+	// Convert config success criteria to engine criteria
+	var successCriteria []engine.Criterion
+	for _, sc := range s.Config.QA.SuccessCriteria {
+		successCriteria = append(successCriteria, engine.Criterion{
+			Kind:    engine.CriterionKind(sc.Kind),
+			Value:   sc.Value,
+			Path:    sc.Path,
+			Message: sc.Message,
+		})
+	}
+
+	qaRunner := engine.NewQA(engine.QAConfig{
+		SuccessCriteria: successCriteria,
+	}, &engine.ExecRunner{}, s.Events, s.Proj)
 
 	var merger *engine.Merger
 	if vxdgit.GHAvailable() {

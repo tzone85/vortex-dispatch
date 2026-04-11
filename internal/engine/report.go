@@ -57,6 +57,7 @@ type ReportStory struct {
 	RetryCount       int
 	Duration         time.Duration
 	EscalationTier   int
+	Attempts         []Attempt
 }
 
 // TimelineEntry is a single significant event in the delivery timeline.
@@ -131,6 +132,7 @@ func (rb *ReportBuilder) Build(reqID string) (ReportData, error) {
 // event counts for escalations and retries for each story.
 func (rb *ReportBuilder) buildStories(stories []state.Story) ([]ReportStory, error) {
 	result := make([]ReportStory, 0, len(stories))
+	tracker := NewAttemptTracker(rb.es)
 
 	for _, s := range stories {
 		escalations, err := rb.es.List(state.EventFilter{
@@ -148,6 +150,8 @@ func (rb *ReportBuilder) buildStories(stories []state.Story) ([]ReportStory, err
 
 		duration := rb.storyDuration(s)
 
+		attempts, _ := tracker.ListAttempts(s.ID)
+
 		result = append(result, ReportStory{
 			ID:              s.ID,
 			Title:           s.Title,
@@ -160,6 +164,7 @@ func (rb *ReportBuilder) buildStories(stories []state.Story) ([]ReportStory, err
 			RetryCount:      retries,
 			Duration:        duration,
 			EscalationTier:  s.EscalationTier,
+			Attempts:        attempts,
 		})
 	}
 

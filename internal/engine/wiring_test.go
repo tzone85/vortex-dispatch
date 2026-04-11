@@ -777,3 +777,25 @@ func TestWiring_Checkpoint_AtomicWriteAndRead(t *testing.T) {
 		t.Error("WIRING FAILURE: ClearCheckpoint should remove the file")
 	}
 }
+
+// --------------------------------------------------------------------------
+// Report Attempt Tracker Wiring Test
+// --------------------------------------------------------------------------
+
+func TestWiring_ReportStory_IncludesAttempts(t *testing.T) {
+	// Verify that ReportStory has an Attempts field and carries attempt data.
+	story := engine.ReportStory{
+		ID:    "s1",
+		Title: "Test",
+		Attempts: []engine.Attempt{
+			{Number: 1, Role: "junior", Outcome: "qa_failed", Error: "test failed"},
+			{Number: 2, Role: "senior", Outcome: "success"},
+		},
+	}
+	if len(story.Attempts) != 2 {
+		t.Error("WIRING FAILURE: ReportStory.Attempts not populated")
+	}
+	if story.Attempts[0].Error != "test failed" {
+		t.Error("WIRING FAILURE: Attempt error detail not preserved")
+	}
+}

@@ -70,6 +70,21 @@ func RenderMarkdown(data ReportData, project string, internal bool) string {
 	}
 	b.WriteString("\n")
 
+	for _, story := range data.Stories {
+		if len(story.Attempts) > 1 {
+			fmt.Fprintf(&b, "### %s — Attempt History\n\n", story.Title)
+			for _, att := range story.Attempts {
+				duration := att.Duration.Round(time.Second).String()
+				fmt.Fprintf(&b, "- Attempt %d (%s): %s (%s)", att.Number, att.Role, att.Outcome, duration)
+				if att.Error != "" {
+					fmt.Fprintf(&b, " — %s", att.Error)
+				}
+				b.WriteString("\n")
+			}
+			b.WriteString("\n")
+		}
+	}
+
 	// 7. Internal: Agent Performance
 	b.WriteString("## Internal: Agent Performance\n\n")
 	b.WriteString("| Agent | Stories Worked | Escalations |\n")
@@ -168,6 +183,21 @@ func RenderHTML(data ReportData, project string, internal bool) string {
 				FormatDuration(story.Duration), story.EscalationTier)
 		}
 		b.WriteString("</tbody>\n</table>\n\n")
+
+		for _, story := range data.Stories {
+			if len(story.Attempts) > 1 {
+				fmt.Fprintf(&b, "<h3>%s — Attempt History</h3>\n<ul>\n", escapeHTML(story.Title))
+				for _, att := range story.Attempts {
+					duration := att.Duration.Round(time.Second).String()
+					fmt.Fprintf(&b, "<li>Attempt %d (%s): %s (%s)", att.Number, escapeHTML(att.Role), escapeHTML(att.Outcome), duration)
+					if att.Error != "" {
+						fmt.Fprintf(&b, " — %s", escapeHTML(att.Error))
+					}
+					b.WriteString("</li>\n")
+				}
+				b.WriteString("</ul>\n\n")
+			}
+		}
 
 		// Internal: Agent Performance
 		b.WriteString("<h2>Internal: Agent Performance</h2>\n")

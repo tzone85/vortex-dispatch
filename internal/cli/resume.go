@@ -28,6 +28,7 @@ func newResumeCmd() *cobra.Command {
 	cmd.Flags().Bool("godmode", false, "skip permission prompts on LLM calls (fully autonomous)")
 	cmd.Flags().Bool("review", false, "Force manual review mode for this run")
 	cmd.Flags().Bool("auto", false, "Force auto mode for this run (skip review gates)")
+	cmd.Flags().Bool("force", false, "Force override of lock file if another instance appears stuck")
 	cmd.SilenceUsage = true
 	return cmd
 }
@@ -44,6 +45,21 @@ func runResume(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer s.Close()
+
+	// Acquire advisory lock to prevent concurrent VXD runs.
+	stateDir := expandHome(s.Config.Workspace.StateDir)
+	lockPath := filepath.Join(stateDir, "vxd.lock")
+	forceFlag, _ := cmd.Flags().GetBool("force")
+	if forceFlag {
+		if _, lockErr := engine.ForceAcquireLock(lockPath, reqID); lockErr != nil {
+			return fmt.Errorf("force acquire lock: %w", lockErr)
+		}
+	} else {
+		if _, lockErr := engine.AcquireLock(lockPath, reqID); lockErr != nil {
+			return lockErr
+		}
+	}
+	defer engine.ReleaseLock(lockPath)
 
 	out := cmd.OutOrStdout()
 

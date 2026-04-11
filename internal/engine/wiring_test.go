@@ -20,6 +20,7 @@ import (
 	"github.com/tzone85/vortex-dispatch/internal/engine"
 	"github.com/tzone85/vortex-dispatch/internal/graph"
 	"github.com/tzone85/vortex-dispatch/internal/llm"
+	"github.com/tzone85/vortex-dispatch/internal/runtime"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
 
@@ -891,5 +892,46 @@ func TestWiring_QAConfig_SuccessCriteriaFromConfig(t *testing.T) {
 	}
 	if engineCriteria[1].Path != "coverage.html" {
 		t.Errorf("WIRING FAILURE: second criterion path = %q, want coverage.html", engineCriteria[1].Path)
+	}
+}
+
+// --------------------------------------------------------------------------
+// Adapter/Runner Separation Wiring Tests
+// --------------------------------------------------------------------------
+// These verify that the Adapter and Runner interfaces exist, CLIAdapter
+// produces valid PreparedExecution values, and TmuxRunner satisfies Runner.
+
+func TestWiring_AdapterRunner_SeparationExists(t *testing.T) {
+	// Verify CLIAdapter produces a valid PreparedExecution.
+	adapter := runtime.NewCLIAdapter("test", "echo", []string{"hello"}, []string{"test-model"})
+
+	dir := t.TempDir()
+	exec, err := adapter.Prepare(runtime.SessionConfig{
+		WorkDir: dir,
+		Model:   "test-model",
+		Goal:    "test goal",
+	})
+	if err != nil {
+		t.Fatalf("WIRING FAILURE: CLIAdapter.Prepare failed: %v", err)
+	}
+	if exec.Command == "" {
+		t.Error("WIRING FAILURE: PreparedExecution.Command should not be empty")
+	}
+	if exec.WorkDir != dir {
+		t.Errorf("WIRING FAILURE: PreparedExecution.WorkDir = %q, want %q", exec.WorkDir, dir)
+	}
+
+	// Verify TmuxRunner satisfies Runner.
+	runner := runtime.NewTmuxRunner()
+	if runner == nil {
+		t.Error("WIRING FAILURE: NewTmuxRunner returned nil")
+	}
+
+	// Verify adapter metadata pass-through.
+	if adapter.Name() != "test" {
+		t.Errorf("WIRING FAILURE: adapter.Name() = %q, want test", adapter.Name())
+	}
+	if len(adapter.SupportedModels()) != 1 || adapter.SupportedModels()[0] != "test-model" {
+		t.Errorf("WIRING FAILURE: adapter.SupportedModels() = %v, want [test-model]", adapter.SupportedModels())
 	}
 }

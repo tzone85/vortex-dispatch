@@ -408,3 +408,21 @@ func TestValidation_BillingHoursPerPoint(t *testing.T) {
 		t.Fatal("expected error for hours_per_point low > high")
 	}
 }
+
+func TestValidation_ReviewMode(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Merge.ReviewMode = "invalid"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for invalid review mode")
+	}
+}
+
+func TestValidation_ReviewMode_ValidValues(t *testing.T) {
+	for _, mode := range []string{"", "auto", "manual", "plan_only"} {
+		cfg := config.DefaultConfig()
+		cfg.Merge.ReviewMode = mode
+		if err := cfg.Validate(); err != nil {
+			t.Fatalf("expected no error for review mode %q, got: %v", mode, err)
+		}
+	}
+}

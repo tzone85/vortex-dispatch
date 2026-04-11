@@ -3,7 +3,9 @@ package engine
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -67,9 +69,10 @@ func (e *ExecRunner) Run(ctx context.Context, workDir, name string, args ...stri
 
 // QAConfig describes the commands to run for each QA check.
 type QAConfig struct {
-	LintCommand  string
-	BuildCommand string
-	TestCommand  string
+	LintCommand     string
+	BuildCommand    string
+	TestCommand     string
+	SuccessCriteria []Criterion
 }
 
 // QA runs lint, build, and test commands against a worktree directory and
@@ -128,6 +131,28 @@ func (q *QA) Run(ctx context.Context, storyID, worktreePath string) (QAResult, e
 
 		if !checkResult.Passed {
 			result.Passed = false
+		}
+	}
+
+	// Evaluate declarative success criteria (if configured).
+	if len(q.config.SuccessCriteria) > 0 {
+		// Read agent output from log file if available.
+		agentOutput := ""
+		logPath := filepath.Join(worktreePath, "..", "logs", storyID+".log")
+		if data, err := os.ReadFile(logPath); err == nil {
+			agentOutput = string(data)
+		}
+
+		criteriaResults := EvaluateCriteria(q.config.SuccessCriteria, worktreePath, agentOutput)
+		for _, cr := range criteriaResults {
+			result.Checks = append(result.Checks, QACheckResult{
+				Name:   fmt.Sprintf("criterion:%s", cr.Criterion.Kind),
+				Passed: cr.Passed,
+				Output: cr.Detail,
+			})
+			if !cr.Passed {
+				result.Passed = false
+			}
 		}
 	}
 

@@ -862,3 +862,34 @@ func TestWiring_ReportStory_IncludesAttempts(t *testing.T) {
 		t.Error("WIRING FAILURE: Attempt error detail not preserved")
 	}
 }
+
+// --------------------------------------------------------------------------
+// QA Config — Success Criteria Wiring
+// --------------------------------------------------------------------------
+
+func TestWiring_QAConfig_SuccessCriteriaFromConfig(t *testing.T) {
+	// Verify that config.SuccessCriterion converts to engine.Criterion
+	cfgCriteria := []config.SuccessCriterion{
+		{Kind: "output_contains", Value: "PASS"},
+		{Kind: "file_exists", Path: "coverage.html"},
+	}
+
+	var engineCriteria []engine.Criterion
+	for _, sc := range cfgCriteria {
+		engineCriteria = append(engineCriteria, engine.Criterion{
+			Kind:  engine.CriterionKind(sc.Kind),
+			Value: sc.Value,
+			Path:  sc.Path,
+		})
+	}
+
+	if len(engineCriteria) != 2 {
+		t.Fatalf("WIRING FAILURE: expected 2 criteria, got %d", len(engineCriteria))
+	}
+	if engineCriteria[0].Kind != engine.CriterionOutputContains {
+		t.Errorf("WIRING FAILURE: first criterion kind = %q, want output_contains", engineCriteria[0].Kind)
+	}
+	if engineCriteria[1].Path != "coverage.html" {
+		t.Errorf("WIRING FAILURE: second criterion path = %q, want coverage.html", engineCriteria[1].Path)
+	}
+}

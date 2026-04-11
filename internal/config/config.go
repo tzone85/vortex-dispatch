@@ -16,6 +16,7 @@ type Config struct {
 	Planning  PlanningConfig           `yaml:"planning"`
 	Runtimes  map[string]RuntimeConfig `yaml:"runtimes"`
 	Billing   BillingConfig            `yaml:"billing"`
+	QA        QAConfig                 `yaml:"qa"`
 }
 
 // PlanningConfig controls how the planner decomposes requirements into stories.
@@ -96,6 +97,19 @@ type RuntimeConfig struct {
 	Args      []string         `yaml:"args"`
 	Models    []string         `yaml:"models"`
 	Detection RuntimeDetection `yaml:"detection"`
+}
+
+// QAConfig controls quality assurance checks.
+type QAConfig struct {
+	SuccessCriteria []SuccessCriterion `yaml:"success_criteria,omitempty"`
+}
+
+// SuccessCriterion defines a declarative QA check.
+type SuccessCriterion struct {
+	Kind    string `yaml:"kind"`
+	Value   string `yaml:"value,omitempty"`
+	Path    string `yaml:"path,omitempty"`
+	Message string `yaml:"message,omitempty"`
 }
 
 // BillingConfig controls cost estimation and client quoting.
@@ -202,6 +216,18 @@ func (c Config) Validate() error {
 	validReviewModes := map[string]bool{"": true, "auto": true, "manual": true, "plan_only": true}
 	if !validReviewModes[c.Merge.ReviewMode] {
 		return fmt.Errorf("merge.review_mode must be \"auto\", \"manual\", or \"plan_only\"; got %q", c.Merge.ReviewMode)
+	}
+
+	// QA validation
+	validCriterionKinds := map[string]bool{
+		"output_contains": true, "output_not_contains": true,
+		"file_exists": true, "file_contains": true,
+		"file_not_empty": true, "exit_code_zero": true,
+	}
+	for i, sc := range c.QA.SuccessCriteria {
+		if !validCriterionKinds[sc.Kind] {
+			return fmt.Errorf("qa.success_criteria[%d].kind must be one of output_contains, output_not_contains, file_exists, file_contains, file_not_empty, exit_code_zero; got %q", i, sc.Kind)
+		}
 	}
 
 	return nil

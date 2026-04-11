@@ -125,10 +125,16 @@ Follow these rules strictly:
 func (c *CLIRuntime) BuildCommand(cfg SessionConfig) (string, error) {
 	cmdStr := c.command
 	for _, arg := range c.args {
-		cmdStr += " " + arg
+		if err := ValidateShellArg(arg); err != nil {
+			return "", fmt.Errorf("invalid runtime arg: %w", err)
+		}
+		cmdStr += " " + QuoteShellArg(arg)
 	}
 	if cfg.Model != "" {
-		cmdStr += " --model " + cfg.Model
+		if err := ValidateModelName(cfg.Model); err != nil {
+			return "", fmt.Errorf("invalid model name: %w", err)
+		}
+		cmdStr += fmt.Sprintf(" --model %q", cfg.Model)
 	}
 
 	// Write the combined prompt (system context + goal) to a file and pass

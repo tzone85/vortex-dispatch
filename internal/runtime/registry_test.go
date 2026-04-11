@@ -181,11 +181,65 @@ func TestBuildCommand_ModelFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build command: %v", err)
 	}
-	if !strings.Contains(cmd, "--model opus-4") {
+	if !strings.Contains(cmd, `--model "opus-4"`) {
 		t.Errorf("expected --model flag, got: %s", cmd)
 	}
 	if !strings.Contains(cmd, " -p ") {
 		t.Errorf("expected -p flag, got: %s", cmd)
+	}
+}
+
+func TestBuildCommand_RejectsUnsafeModel(t *testing.T) {
+	rt := &runtime.CLIRuntime{}
+	cfg := map[string]config.RuntimeConfig{
+		"test": {
+			Command: "claude",
+			Args:    []string{"-p", "-"},
+			Detection: config.RuntimeDetection{
+				IdlePattern: `\$`,
+			},
+		},
+	}
+	reg, err := runtime.NewRegistry(cfg)
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+	rtIface, _ := reg.Get("test")
+	rt = rtIface.(*runtime.CLIRuntime)
+
+	dir := t.TempDir()
+	scfg := runtime.SessionConfig{Model: "model; rm -rf /", Goal: "test", WorkDir: dir}
+	_, err = rt.BuildCommand(scfg)
+	if err == nil {
+		t.Fatal("BuildCommand should reject unsafe model name")
+	}
+}
+
+func TestBuildCommand_QuotesModel(t *testing.T) {
+	cfg := map[string]config.RuntimeConfig{
+		"test": {
+			Command: "claude",
+			Args:    []string{"-p", "-"},
+			Detection: config.RuntimeDetection{
+				IdlePattern: `\$`,
+			},
+		},
+	}
+	reg, err := runtime.NewRegistry(cfg)
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+	rtIface, _ := reg.Get("test")
+	rt := rtIface.(*runtime.CLIRuntime)
+
+	dir := t.TempDir()
+	scfg := runtime.SessionConfig{Model: "claude-sonnet-4-5-20250514", Goal: "test", WorkDir: dir}
+	cmd, err := rt.BuildCommand(scfg)
+	if err != nil {
+		t.Fatalf("BuildCommand: %v", err)
+	}
+	if !strings.Contains(cmd, `--model "claude-sonnet-4-5-20250514"`) {
+		t.Errorf("model not properly quoted in command: %s", cmd)
 	}
 }
 

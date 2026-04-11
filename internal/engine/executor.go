@@ -8,9 +8,11 @@ import (
 	"strings"
 
 	"github.com/tzone85/vortex-dispatch/internal/agent"
+	"github.com/tzone85/vortex-dispatch/internal/artifact"
 	"github.com/tzone85/vortex-dispatch/internal/config"
 	vxdgit "github.com/tzone85/vortex-dispatch/internal/git"
 	"github.com/tzone85/vortex-dispatch/internal/runtime"
+	"github.com/tzone85/vortex-dispatch/internal/scratchboard"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
 
@@ -24,10 +26,12 @@ type ActiveAgent struct {
 // Executor spawns agents for dispatched assignments by creating git worktrees,
 // launching tmux sessions with configured runtimes, and emitting lifecycle events.
 type Executor struct {
-	registry   *runtime.Registry
-	config     config.Config
-	eventStore state.EventStore
-	projStore  state.ProjectionStore
+	registry      *runtime.Registry
+	config        config.Config
+	eventStore    state.EventStore
+	projStore     state.ProjectionStore
+	artifactStore *artifact.Store
+	scratchboard  *scratchboard.Scratchboard
 }
 
 // NewExecutor creates an Executor wired to the runtime registry, configuration,
@@ -39,6 +43,16 @@ func NewExecutor(reg *runtime.Registry, cfg config.Config, es state.EventStore, 
 		eventStore: es,
 		projStore:  ps,
 	}
+}
+
+// SetArtifactStore sets the artifact store for persisting per-story artifacts.
+func (e *Executor) SetArtifactStore(store *artifact.Store) {
+	e.artifactStore = store
+}
+
+// SetScratchboard sets the shared scratchboard for cross-agent knowledge.
+func (e *Executor) SetScratchboard(sb *scratchboard.Scratchboard) {
+	e.scratchboard = sb
 }
 
 // SpawnResult holds the outcome of spawning an agent for one assignment.
@@ -100,6 +114,16 @@ func (e *Executor) spawn(repoDir string, a Assignment, story PlannedStory) Spawn
 	}
 
 	waveContext := ReadWaveContext(worktreePath)
+
+	// Inject scratchboard snapshot into wave context so parallel agents
+	// share discoveries without a native runtime tool integration.
+	if e.scratchboard != nil {
+		snap := e.scratchboard.Snapshot(10)
+		if snap != "" {
+			waveContext = waveContext + "\n" + snap
+		}
+	}
+
 	isExisting := detectExistingCodebase(worktreePath)
 	isBug := detectBugFix(story.Title, story.Description)
 	isInfra := detectInfrastructure(story.Title, story.Description)
@@ -179,6 +203,17 @@ func (e *Executor) spawn(repoDir string, a Assignment, story PlannedStory) Spawn
 	}); err != nil {
 		result.Error = fmt.Errorf("spawn runtime for %s: %w", a.StoryID, err)
 		return result
+	}
+
+	// Write launch config artifact for reproducibility.
+	if e.artifactStore != nil {
+		e.artifactStore.Write(a.StoryID, artifact.TypeLaunchConfig, artifact.LaunchConfig{
+			StoryID:   a.StoryID,
+			Runtime:   rtName,
+			Model:     modelCfg.Model,
+			Prompt:    goalPrompt,
+			WaveBrief: waveContext,
+		})
 	}
 
 	// Emit STORY_STARTED event with tier and role so AttemptTracker can

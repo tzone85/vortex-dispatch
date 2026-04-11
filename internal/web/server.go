@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/tzone85/vortex-dispatch/internal/graph"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
 
@@ -26,6 +27,7 @@ type Server struct {
 	port       int
 	reqFilter  state.ReqFilter
 	httpServer *http.Server
+	dagExport  *graph.DAGExport
 }
 
 func NewServer(es state.EventStore, ps *state.SQLiteStore, port int, filter state.ReqFilter) *Server {
@@ -37,6 +39,11 @@ func NewServer(es state.EventStore, ps *state.SQLiteStore, port int, filter stat
 	}
 	s.hub = NewHub(s)
 	return s
+}
+
+// SetDAG sets the DAG export for inclusion in state snapshots.
+func (s *Server) SetDAG(dag *graph.DAGExport) {
+	s.dagExport = dag
 }
 
 func (s *Server) Start(ctx context.Context) error {

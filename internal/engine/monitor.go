@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tzone85/vortex-dispatch/internal/artifact"
 	"github.com/tzone85/vortex-dispatch/internal/config"
 	vxdgit "github.com/tzone85/vortex-dispatch/internal/git"
 	"github.com/tzone85/vortex-dispatch/internal/graph"
@@ -33,6 +34,10 @@ type Monitor struct {
 	projStore        state.ProjectionStore
 	escalation       *EscalationMachine
 	manager          *Manager
+
+	// artifactStore persists per-story artifacts (diffs, review results,
+	// QA results) for post-mortem inspection.
+	artifactStore *artifact.Store
 
 	// checkpointPath is the file path for writing crash recovery checkpoints.
 	// When set, the monitor writes phase-transition checkpoints before and
@@ -85,6 +90,11 @@ func NewMonitor(
 		projStore:  ps,
 		escalation: NewEscalationMachine(es, cfg.Routing),
 	}
+}
+
+// SetArtifactStore enables per-story artifact persistence (diffs, reviews, QA).
+func (m *Monitor) SetArtifactStore(store *artifact.Store) {
+	m.artifactStore = store
 }
 
 // SetConflictResolver enables LLM-based automatic conflict resolution during
@@ -282,6 +292,11 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 		return
 	}
 
+	// Persist the diff as an artifact for post-mortem inspection.
+	if m.artifactStore != nil {
+		m.artifactStore.WriteRaw(storyID, artifact.TypeGitDiff, diff)
+	}
+
 	// 1. Code Review
 	if m.reviewer != nil {
 		// Look up story details for the reviewer
@@ -314,6 +329,14 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 			m.resetStoryToDraft(storyID, "reviewer", fmt.Sprintf("review rejected: %s", result.Summary))
 			return
 		}
+		// Persist review result as artifact.
+		if m.artifactStore != nil {
+			m.artifactStore.Write(storyID, artifact.TypeReviewResult, map[string]any{
+				"passed":  result.Passed,
+				"summary": result.Summary,
+			})
+		}
+
 		log.Printf("[pipeline] review passed for %s", storyID)
 	}
 
@@ -331,6 +354,14 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 			m.resetStoryToDraft(storyID, "qa", summary)
 			return
 		}
+		// Persist QA result as artifact.
+		if m.artifactStore != nil {
+			m.artifactStore.Write(storyID, artifact.TypeQAResult, map[string]any{
+				"passed": result.Passed,
+				"checks": result.Checks,
+			})
+		}
+
 		log.Printf("[pipeline] QA passed for %s", storyID)
 	}
 

@@ -4,6 +4,7 @@ package web
 import (
 	"encoding/json"
 
+	"github.com/tzone85/vortex-dispatch/internal/graph"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
 
@@ -14,6 +15,7 @@ type StateSnapshot struct {
 	Events       []EventSummary      `json:"events"`
 	Escalations  []state.Escalation  `json:"escalations"`
 	Requirements []state.Requirement `json:"requirements"`
+	DAG          *graph.DAGExport    `json:"dag,omitempty"`
 }
 
 type PipelineCounts struct {
@@ -84,6 +86,9 @@ func (s *Server) BuildSnapshot() (StateSnapshot, error) {
 			StoryID:   evt.StoryID,
 		})
 	}
+
+	// Include DAG export if available.
+	snap.DAG = s.dagExport
 
 	return snap, nil
 }

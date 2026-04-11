@@ -15,6 +15,7 @@ import (
 	"github.com/tzone85/vortex-dispatch/internal/graph"
 	"github.com/tzone85/vortex-dispatch/internal/runtime"
 	"github.com/tzone85/vortex-dispatch/internal/state"
+	"github.com/tzone85/vortex-dispatch/internal/tmux"
 )
 
 func newResumeCmd() *cobra.Command {
@@ -153,6 +154,28 @@ func runResume(cmd *cobra.Command, args []string) error {
 	// detect these as StatusTerminated and run postExecutionPipeline.
 	orphanAgents := recoverOrphanedStories(stories, s.Proj, s.Config)
 
+	// Run consistency check for crash recovery.
+	checkpointPath := filepath.Join(stateDir, "checkpoint.json")
+	recoveryIssues := runConsistencyCheck(stories, s.Config, stateDir)
+	if len(recoveryIssues) > 0 {
+		fmt.Fprintf(out, "\nRecovery: found %d inconsistent stories\n", len(recoveryIssues))
+		for _, issue := range recoveryIssues {
+			fmt.Fprintf(out, "  [RECOVERY] %s: %s\n", issue.StoryID, issue.Detail)
+			if issue.Action == engine.ActionResetToDraft {
+				evt := state.NewEvent(state.EventStoryReset, "recovery", issue.StoryID, map[string]any{
+					"reason": issue.Detail,
+				})
+				s.Events.Append(evt)
+				s.Proj.Project(evt)
+			}
+		}
+		recoveryEvt := state.NewEvent(state.EventRecoveryCompleted, "system", "", map[string]any{
+			"issues_found": len(recoveryIssues),
+		})
+		s.Events.Append(recoveryEvt)
+		s.Proj.Project(recoveryEvt)
+	}
+
 	// Build story map for executor
 	storyMap := make(map[string]engine.PlannedStory, len(plannedStories))
 	for _, ps := range plannedStories {
@@ -260,6 +283,7 @@ func runResume(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	monitor := engine.NewMonitor(reg, watchdog, reviewer, qaRunner, merger, s.Config, s.Events, s.Proj)
+	monitor.SetCheckpointPath(checkpointPath)
 
 	// Enable LLM-powered conflict resolution during rebase.
 	if llmClient != nil {
@@ -310,6 +334,40 @@ func runResume(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func dirExists(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && fi.IsDir()
+}
+
+func runConsistencyCheck(stories []state.Story, cfg config.Config, stateDir string) []engine.RecoveryIssue {
+	worktreeBase := filepath.Join(stateDir, "worktrees")
+
+	var cp *engine.Checkpoint
+	checkpointPath := filepath.Join(stateDir, "checkpoint.json")
+	if read, err := engine.ReadCheckpoint(checkpointPath); err == nil {
+		cp = &read
+	}
+
+	var recoveryStories []engine.RecoveryStory
+	for _, story := range stories {
+		if story.Status != "in_progress" && story.Status != "merging" {
+			continue
+		}
+		rs := engine.RecoveryStory{
+			ID:          story.ID,
+			Status:      story.Status,
+			HasWorktree: dirExists(filepath.Join(worktreeBase, story.ID)),
+		}
+		if story.AgentID != "" {
+			sessionName := fmt.Sprintf("vxd-%s", story.ID)
+			rs.HasTmux = tmux.SessionExists(sessionName)
+		}
+		recoveryStories = append(recoveryStories, rs)
+	}
+
+	return engine.CheckConsistency(recoveryStories, cp)
 }
 
 // rebuildDAG reconstructs the dependency graph from the story_deps table

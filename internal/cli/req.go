@@ -91,10 +91,22 @@ func runReq(cmd *cobra.Command, args []string) error {
 			if deepErr := repolearn.ScanDeep(ctx, profile, client, modelCfg.Model); deepErr != nil {
 				log.Printf("[req] Pass 3 deep analysis failed: %v", deepErr)
 			} else {
-				if saveErr := repolearn.SaveProfile(s.ProjectDir, profile); saveErr != nil {
-					log.Printf("[req] failed to save updated profile: %v", saveErr)
-				} else {
-					fmt.Fprintf(out, "Deep analysis complete.\n")
+				// ScanDeep returns nil even on LLM failure (stores error as signal).
+				// Check if the LLM actually succeeded vs. stored an error signal.
+				hasError := false
+				for _, sig := range profile.Signals {
+					if sig.Kind == "llm_error" {
+						hasError = true
+						fmt.Fprintf(out, "Deep analysis: LLM unavailable, skipped.\n")
+						break
+					}
+				}
+				if !hasError {
+					if saveErr := repolearn.SaveProfile(s.ProjectDir, profile); saveErr != nil {
+						log.Printf("[req] failed to save updated profile: %v", saveErr)
+					} else {
+						fmt.Fprintf(out, "Deep analysis complete.\n")
+					}
 				}
 			}
 		}
@@ -189,11 +201,20 @@ func (p *planningFallbackClient) Complete(ctx context.Context, req llm.Completio
 		}
 		if err != nil {
 			log.Printf("[planning] CLI call also failed: %v", err)
+			errMsg := err.Error()
+			// Distinguish billing errors from prompt-too-long errors
+			if strings.Contains(strings.ToLower(errMsg), "credit") ||
+				strings.Contains(strings.ToLower(errMsg), "balance") ||
+				strings.Contains(strings.ToLower(errMsg), "billing") {
+				return llm.CompletionResponse{}, fmt.Errorf(
+					"planning failed: %v. Top up API credits or authenticate Claude CLI with an active subscription", err)
+			}
+			return llm.CompletionResponse{}, fmt.Errorf("planning failed: %w", err)
 		}
 		if resp.Content == "" {
 			log.Printf("[planning] CLI returned empty response (prompt may be too long for -p flag)")
 			return llm.CompletionResponse{}, fmt.Errorf(
-				"planning failed: prompt too large for CLI mode. Try shortening your requirement or splitting it into smaller submissions")
+				"planning failed: CLI returned empty response. Try shortening your requirement or splitting it into smaller submissions")
 		}
 	}
 

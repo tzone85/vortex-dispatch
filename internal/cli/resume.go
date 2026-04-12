@@ -219,6 +219,9 @@ func runResume(cmd *cobra.Command, args []string) error {
 		executor.SetScratchboard(sb)
 	}
 
+	// Wire project directory for RepoProfile loading (repo learning system).
+	executor.SetProjectDir(s.ProjectDir)
+
 	var activeAgents []engine.ActiveAgent
 
 	if len(orphanAgents) > 0 {
@@ -337,6 +340,7 @@ func runResume(cmd *cobra.Command, args []string) error {
 		planningClient, planErr := buildPlanningClient(s.Config.Models.TechLead.Provider, godmode)
 		if planErr == nil {
 			rePlanner := engine.NewPlanner(planningClient, s.Config, s.Events, s.Proj)
+			rePlanner.SetProjectDir(s.ProjectDir)
 			monitor.SetPlanner(rePlanner)
 		}
 	}

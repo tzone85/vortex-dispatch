@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/tzone85/vortex-dispatch/internal/engine"
+	"github.com/tzone85/vortex-dispatch/internal/repolearn"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
 
@@ -41,8 +42,8 @@ func runProjects(cmd *cobra.Command, _ []string) error {
 	}
 
 	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "PROJECT\tREPO PATH\tSTORIES\tMERGED\tSTATUS")
-	fmt.Fprintln(w, "-------\t---------\t-------\t------\t------")
+	fmt.Fprintln(w, "PROJECT\tREPO PATH\tSTORIES\tMERGED\tLEARNED\tSTATUS")
+	fmt.Fprintln(w, "-------\t---------\t-------\t------\t-------\t------")
 
 	for _, p := range projects {
 		stories, merged := countProjectStories(vxdRoot, p.Name)
@@ -57,11 +58,36 @@ func runProjects(cmd *cobra.Command, _ []string) error {
 		if len(repoPath) > 50 {
 			repoPath = "..." + repoPath[len(repoPath)-47:]
 		}
-		fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%s\n", p.Name, repoPath, stories, merged, status)
+		learned := projectLearnStatus(vxdRoot, p.Name)
+		fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%s\t%s\n", p.Name, repoPath, stories, merged, learned, status)
 	}
 
 	w.Flush()
 	return nil
+}
+
+// projectLearnStatus returns a short summary of the learning state for a project.
+func projectLearnStatus(vxdRoot, projectName string) string {
+	projectDir := filepath.Join(vxdRoot, "projects", projectName)
+	profile, err := repolearn.LoadProfile(projectDir)
+	if err != nil || profile.TechStack.PrimaryLanguage == "" {
+		return "none"
+	}
+	return fmt.Sprintf("iter %d (pass %s)", profile.Iteration, formatLearnPasses(profile.CompletedPasses))
+}
+
+func formatLearnPasses(passes []int) string {
+	if len(passes) == 0 {
+		return "-"
+	}
+	result := ""
+	for i, p := range passes {
+		if i > 0 {
+			result += ","
+		}
+		result += fmt.Sprintf("%d", p)
+	}
+	return result
 }
 
 func countProjectStories(vxdRoot, projectName string) (total, merged int) {

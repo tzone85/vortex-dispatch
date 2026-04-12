@@ -11,6 +11,7 @@ import (
 	"github.com/tzone85/vortex-dispatch/internal/artifact"
 	"github.com/tzone85/vortex-dispatch/internal/config"
 	vxdgit "github.com/tzone85/vortex-dispatch/internal/git"
+	"github.com/tzone85/vortex-dispatch/internal/repolearn"
 	"github.com/tzone85/vortex-dispatch/internal/runtime"
 	"github.com/tzone85/vortex-dispatch/internal/scratchboard"
 	"github.com/tzone85/vortex-dispatch/internal/state"
@@ -32,6 +33,7 @@ type Executor struct {
 	projStore     state.ProjectionStore
 	artifactStore *artifact.Store
 	scratchboard  *scratchboard.Scratchboard
+	projectDir    string // path to project state dir (for loading RepoProfile)
 }
 
 // NewExecutor creates an Executor wired to the runtime registry, configuration,
@@ -53,6 +55,11 @@ func (e *Executor) SetArtifactStore(store *artifact.Store) {
 // SetScratchboard sets the shared scratchboard for cross-agent knowledge.
 func (e *Executor) SetScratchboard(sb *scratchboard.Scratchboard) {
 	e.scratchboard = sb
+}
+
+// SetProjectDir sets the project state directory for loading RepoProfile.
+func (e *Executor) SetProjectDir(dir string) {
+	e.projectDir = dir
 }
 
 // SpawnResult holds the outcome of spawning an agent for one assignment.
@@ -128,6 +135,22 @@ func (e *Executor) spawn(repoDir string, a Assignment, story PlannedStory) Spawn
 	isBug := detectBugFix(story.Title, story.Description)
 	isInfra := detectInfrastructure(story.Title, story.Description)
 
+	// Load RepoProfile if available to enrich prompts with pre-learned knowledge.
+	var techStackStr, lintCmd, buildCmd, testCmd string
+	if e.projectDir != "" {
+		if profile, err := repolearn.LoadProfile(e.projectDir); err == nil && profile.TechStack.PrimaryLanguage != "" {
+			techStackStr = profile.Summary()
+			lintCmd = profile.Build.LintCommand
+			buildCmd = profile.Build.BuildCommand
+			testCmd = profile.Test.TestCommand
+		}
+	}
+	// Fallback to shallow git.ScanRepo if no profile
+	if techStackStr == "" {
+		stack := vxdgit.ScanRepo(worktreePath)
+		techStackStr = fmt.Sprintf("%s (%s)", stack.Language, stack.BuildTool)
+	}
+
 	promptCtx := agent.PromptContext{
 		StoryID:            a.StoryID,
 		StoryTitle:         story.Title,
@@ -140,6 +163,10 @@ func (e *Executor) spawn(repoDir string, a Assignment, story PlannedStory) Spawn
 		IsExistingCodebase: isExisting,
 		IsBugFix:           isBug,
 		IsInfrastructure:   isInfra,
+		TechStack:          techStackStr,
+		LintCommand:        lintCmd,
+		BuildCommand:       buildCmd,
+		TestCommand:        testCmd,
 	}
 
 	// If this is a retry (feedback exists from a prior attempt), enhance

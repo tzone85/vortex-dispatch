@@ -20,6 +20,7 @@ import (
 	"github.com/tzone85/vortex-dispatch/internal/engine"
 	"github.com/tzone85/vortex-dispatch/internal/graph"
 	"github.com/tzone85/vortex-dispatch/internal/llm"
+	"github.com/tzone85/vortex-dispatch/internal/repolearn"
 	"github.com/tzone85/vortex-dispatch/internal/runtime"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
@@ -933,5 +934,161 @@ func TestWiring_AdapterRunner_SeparationExists(t *testing.T) {
 	}
 	if len(adapter.SupportedModels()) != 1 || adapter.SupportedModels()[0] != "test-model" {
 		t.Errorf("WIRING FAILURE: adapter.SupportedModels() = %v, want [test-model]", adapter.SupportedModels())
+	}
+}
+
+// --------------------------------------------------------------------------
+// Repo Learning System Wiring Tests
+// --------------------------------------------------------------------------
+// These verify that when a RepoProfile exists, it flows into agent prompts
+// (via PromptContext) and planner context.
+
+func TestWiring_RepoProfile_SummaryEnrichesPromptContext(t *testing.T) {
+	// Verify that a profile's Summary() produces non-empty output that
+	// includes build/test/lint commands — the data the executor injects.
+	profile := repolearn.RepoProfile{
+		TechStack: repolearn.TechStackDetail{
+			PrimaryLanguage:  "go",
+			PrimaryBuildTool: "go",
+			LanguageVersion:  "1.26.1",
+		},
+		Build: repolearn.BuildConfig{
+			BuildCommand: "make build",
+			LintCommand:  "golangci-lint run ./...",
+		},
+		Test: repolearn.TestConfig{
+			TestCommand:   "make test",
+			TestFramework: "go test",
+		},
+		CI: repolearn.CIConfig{System: "github_actions"},
+	}
+
+	summary := profile.Summary()
+	if summary == "" {
+		t.Fatal("WIRING FAILURE: RepoProfile.Summary() returned empty string")
+	}
+	if !strings.Contains(summary, "make build") {
+		t.Error("WIRING FAILURE: Profile summary missing build command")
+	}
+	if !strings.Contains(summary, "golangci-lint") {
+		t.Error("WIRING FAILURE: Profile summary missing lint command")
+	}
+	if !strings.Contains(summary, "make test") {
+		t.Error("WIRING FAILURE: Profile summary missing test command")
+	}
+
+	// Verify the summary works inside PromptContext
+	ctx := agent.PromptContext{
+		StoryID:      "s-learn-1",
+		StoryTitle:   "Fix the parser",
+		TechStack:    summary,
+		LintCommand:  profile.Build.LintCommand,
+		BuildCommand: profile.Build.BuildCommand,
+		TestCommand:  profile.Test.TestCommand,
+	}
+
+	// QA prompt should reference the injected commands
+	qaPrompt := agent.SystemPrompt(agent.RoleQA, ctx)
+	if !strings.Contains(qaPrompt, "golangci-lint run ./...") {
+		t.Error("WIRING FAILURE: QA system prompt does not contain lint command from RepoProfile")
+	}
+	if !strings.Contains(qaPrompt, "make test") {
+		t.Error("WIRING FAILURE: QA system prompt does not contain test command from RepoProfile")
+	}
+}
+
+func TestWiring_RepoProfile_PersistAndLoad(t *testing.T) {
+	// Verify the profile roundtrips correctly through JSON.
+	dir := t.TempDir()
+
+	original := &repolearn.RepoProfile{
+		RepoPath: "/test/repo",
+		TechStack: repolearn.TechStackDetail{
+			PrimaryLanguage:  "typescript",
+			PrimaryBuildTool: "yarn",
+			PrimaryFramework: "Next.js",
+		},
+		Build: repolearn.BuildConfig{
+			BuildCommand: "yarn build",
+			LintCommand:  "yarn lint",
+		},
+		Test: repolearn.TestConfig{
+			TestCommand:   "yarn test",
+			TestFramework: "vitest",
+		},
+	}
+	original.MarkPass(1)
+
+	if err := repolearn.SaveProfile(dir, original); err != nil {
+		t.Fatalf("save profile: %v", err)
+	}
+
+	loaded, err := repolearn.LoadProfile(dir)
+	if err != nil {
+		t.Fatalf("load profile: %v", err)
+	}
+
+	if loaded.TechStack.PrimaryFramework != "Next.js" {
+		t.Errorf("WIRING FAILURE: loaded framework = %q, want Next.js", loaded.TechStack.PrimaryFramework)
+	}
+	if loaded.Build.LintCommand != "yarn lint" {
+		t.Errorf("WIRING FAILURE: loaded lint = %q, want yarn lint", loaded.Build.LintCommand)
+	}
+	if !loaded.PassCompleted(1) {
+		t.Error("WIRING FAILURE: loaded profile missing pass 1 completion")
+	}
+}
+
+func TestWiring_Planner_ProfileContextInjected(t *testing.T) {
+	es, ps, cleanup := newIntegrationStores(t)
+	defer cleanup()
+
+	repoDir := setupExistingCodebaseRepo(t)
+
+	// Create a profile for this project
+	projectDir := t.TempDir()
+	profile := &repolearn.RepoProfile{
+		RepoPath: repoDir,
+		TechStack: repolearn.TechStackDetail{
+			PrimaryLanguage:  "go",
+			PrimaryBuildTool: "go",
+			LanguageVersion:  "1.23",
+		},
+		Build: repolearn.BuildConfig{
+			BuildCommand: "go build ./...",
+			LintCommand:  "golangci-lint run ./...",
+		},
+		Test: repolearn.TestConfig{
+			TestCommand:   "go test ./... -race",
+			TestFramework: "go test",
+		},
+	}
+	profile.MarkPass(1)
+	repolearn.SaveProfile(projectDir, profile)
+
+	// Create a planner with the project dir set
+	plannerResponse := `[{"id":"s-001","title":"Test story","description":"Do the thing","acceptance_criteria":"It works","complexity":2,"depends_on":[]}]`
+	client := llm.NewReplayClient(llm.CompletionResponse{Content: plannerResponse, Model: "test"})
+
+	cfg := config.DefaultConfig()
+	planner := engine.NewPlanner(client, cfg, es, ps)
+	planner.SetProjectDir(projectDir)
+
+	_, err := planner.Plan(context.Background(), "r-learn-1", "Add a new feature", repoDir)
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+
+	// Verify the user message sent to LLM contains the profile context
+	if client.CallCount() < 1 {
+		t.Fatal("expected at least 1 LLM call")
+	}
+	userMsg := client.CallAt(0).Messages[0].Content
+	if !strings.Contains(userMsg, "Repository Profile") {
+		t.Error("WIRING FAILURE: Planner user message does not contain 'Repository Profile' when profile exists.\n" +
+			"The profile was saved to projectDir but the planner didn't inject it.")
+	}
+	if !strings.Contains(userMsg, "golangci-lint") {
+		t.Error("WIRING FAILURE: Planner user message does not contain lint command from profile")
 	}
 }

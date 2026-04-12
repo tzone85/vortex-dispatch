@@ -55,8 +55,11 @@ func TestDryRunClient_ManagerResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
-	if !strings.Contains(resp.Content, "DIAGNOSIS") {
-		t.Error("manager response should contain DIAGNOSIS")
+	if !strings.Contains(resp.Content, "diagnosis") {
+		t.Error("manager response should contain diagnosis field")
+	}
+	if !strings.Contains(resp.Content, "retry") {
+		t.Error("manager response should contain retry action")
 	}
 }
 

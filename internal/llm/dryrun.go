@@ -146,11 +146,22 @@ The implementation meets the acceptance criteria. Code quality is good.
 - Tests cover the main paths`
 }
 
-// managerResponse returns a diagnosis for tier-2 escalation.
+// managerResponse returns a valid JSON diagnosis for tier-2 escalation.
+// The manager parser expects a ManagerAction JSON object.
 func (d *DryRunClient) managerResponse() string {
-	return `DIAGNOSIS: The story failed due to a missing dependency.
-RECOMMENDATION: Add the missing import and retry.
-REWRITE: false`
+	action := map[string]any{
+		"diagnosis": "The story failed because the agent session terminated without producing code changes. This is likely an environment issue (CLI not available or session too short).",
+		"category":  "environment",
+		"action":    "retry",
+		"retry_config": map[string]any{
+			"target_role":    "senior",
+			"reset_tier":     1,
+			"worktree_reset": false,
+			"env_fixes":      []string{"Verify CLI tool is installed and authenticated"},
+		},
+	}
+	data, _ := json.Marshal(action)
+	return string(data)
 }
 
 // supervisorResponse returns a progress assessment.

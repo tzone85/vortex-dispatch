@@ -42,8 +42,11 @@ func TestDryRunClient_ReviewResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
-	if !strings.Contains(resp.Content, "APPROVED") {
-		t.Error("review response should contain APPROVED")
+	if !strings.Contains(resp.Content, "passed") {
+		t.Error("review response should contain passed field")
+	}
+	if !strings.Contains(resp.Content, "true") {
+		t.Error("review response should have passed=true")
 	}
 }
 

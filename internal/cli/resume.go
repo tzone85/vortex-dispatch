@@ -222,6 +222,15 @@ func runResume(cmd *cobra.Command, args []string) error {
 	// Wire project directory for RepoProfile loading (repo learning system).
 	executor.SetProjectDir(s.ProjectDir)
 
+	// Enable Adapter/Runner execution path for decoupled command building.
+	// Uses the first configured runtime to create the adapter.
+	for rtName, rtCfg := range s.Config.Runtimes {
+		adapter := runtime.NewCLIAdapter(rtName, rtCfg.Command, rtCfg.Args, rtCfg.Models)
+		runner := runtime.NewTmuxRunner()
+		executor.SetAdapterRunner(adapter, runner)
+		break // use first configured runtime
+	}
+
 	var activeAgents []engine.ActiveAgent
 
 	if len(orphanAgents) > 0 {

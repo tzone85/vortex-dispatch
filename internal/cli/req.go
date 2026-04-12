@@ -212,9 +212,9 @@ func (p *planningFallbackClient) Complete(ctx context.Context, req llm.Completio
 			return llm.CompletionResponse{}, fmt.Errorf("planning failed: %w", err)
 		}
 		if resp.Content == "" {
-			log.Printf("[planning] CLI returned empty response (prompt may be too long for -p flag)")
+			log.Printf("[planning] CLI returned empty response")
 			return llm.CompletionResponse{}, fmt.Errorf(
-				"planning failed: CLI returned empty response. Try shortening your requirement or splitting it into smaller submissions")
+				"planning failed: CLI returned empty response. Try writing your requirement to a file and submitting with: vxd req --file requirement.md")
 		}
 	}
 

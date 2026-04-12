@@ -136,14 +136,15 @@ func (d *DryRunClient) planningResponse(requirement string) string {
 	return string(data)
 }
 
-// reviewResponse returns an APPROVED verdict that the reviewer checks for.
+// reviewResponse returns a valid JSON review result that the reviewer can parse.
 func (d *DryRunClient) reviewResponse() string {
-	return `APPROVED
-
-The implementation meets the acceptance criteria. Code quality is good.
-- Functions are well-named and focused
-- Error handling is present
-- Tests cover the main paths`
+	result := map[string]any{
+		"passed":   true,
+		"comments": []string{},
+		"summary":  "All acceptance criteria met. Code quality is good — functions are well-named, error handling present, tests cover main paths.",
+	}
+	data, _ := json.Marshal(result)
+	return string(data)
 }
 
 // managerResponse returns a valid JSON diagnosis for tier-2 escalation.

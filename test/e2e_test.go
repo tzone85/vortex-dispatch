@@ -461,3 +461,183 @@ func TestE2E_SingleStoryFastPath(t *testing.T) {
 		t.Fatalf("expected requirement 'completed', got %q", req.Status)
 	}
 }
+
+// TestE2E_DryRunPipeline exercises the full pipeline with DryRunClient:
+// plan → dispatch → simulate agent failure → escalation → retry → QA with criteria → metrics.
+func TestE2E_DryRunPipeline(t *testing.T) {
+	es, ps, cleanup := newStores(t)
+	defer cleanup()
+
+	projectDir := t.TempDir()
+	resolved, _ := filepath.EvalSymlinks(projectDir)
+	projectDir = resolved
+	os.WriteFile(filepath.Join(projectDir, "go.mod"), []byte("module dryrun-test"), 0644)
+
+	dryClient := llm.NewDryRunClient(0) // no delay for tests
+	cfg := config.DefaultConfig()
+	reqID := "r-dry-001"
+
+	// ── Phase 1: Plan with DryRunClient ──
+	planner := engine.NewPlanner(dryClient, cfg, es, ps)
+	result, err := planner.Plan(context.Background(), reqID, "Add health check endpoint with tests", projectDir)
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if len(result.Stories) == 0 {
+		t.Fatal("expected at least 1 story from DryRunClient planning")
+	}
+	t.Logf("Planned %d stories", len(result.Stories))
+
+	// ── Phase 2: Dispatch wave 1 ──
+	dispatcher := engine.NewDispatcher(cfg, es, ps)
+	completed := make(map[string]bool)
+	assignments, err := dispatcher.DispatchWave(result.Graph, completed, reqID, result.Stories, 1)
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if len(assignments) == 0 {
+		t.Fatal("expected at least 1 assignment")
+	}
+	t.Logf("Dispatched %d stories in wave 1", len(assignments))
+
+	storyID := assignments[0].StoryID
+	agentID := assignments[0].AgentID
+
+	// ── Phase 3: Simulate agent failure (no code produced) ──
+	startEvt := state.NewEvent(state.EventStoryStarted, agentID, storyID, map[string]any{
+		"tier": 0, "role": "junior",
+	})
+	es.Append(startEvt)
+	ps.Project(startEvt)
+
+	// Agent produces no changes → review fails
+	failEvt := state.NewEvent(state.EventStoryReviewFailed, "monitor", storyID, map[string]any{
+		"reason": "agent produced no code changes",
+	})
+	es.Append(failEvt)
+	ps.Project(failEvt)
+
+	// ── Phase 4: Verify attempt tracking ──
+	tracker := engine.NewAttemptTracker(es)
+	attempts, err := tracker.ListAttempts(storyID)
+	if err != nil {
+		t.Fatalf("list attempts: %v", err)
+	}
+	if len(attempts) != 1 {
+		t.Fatalf("expected 1 attempt, got %d", len(attempts))
+	}
+	if attempts[0].Outcome != "review_failed" {
+		t.Errorf("attempt outcome = %q, want review_failed", attempts[0].Outcome)
+	}
+	if attempts[0].Role != "junior" {
+		t.Errorf("attempt role = %q, want junior", attempts[0].Role)
+	}
+
+	// ── Phase 5: Simulate retry (tier 1, senior) ──
+	startEvt2 := state.NewEvent(state.EventStoryStarted, "senior-1", storyID, map[string]any{
+		"tier": 1, "role": "senior",
+	})
+	es.Append(startEvt2)
+	ps.Project(startEvt2)
+
+	completeEvt := state.NewEvent(state.EventStoryCompleted, "senior-1", storyID, map[string]any{
+		"status": "done",
+	})
+	es.Append(completeEvt)
+	ps.Project(completeEvt)
+
+	// ── Phase 6: Review passes (DryRunClient returns APPROVED) ──
+	reviewer := engine.NewReviewer(dryClient, "test-model", 4000, es, ps)
+	reviewResult, err := reviewer.Review(
+		context.Background(), storyID, "Health check", "endpoint exists",
+		"diff --git a/health.go\n+func Health() {}", "",
+	)
+	if err != nil {
+		t.Fatalf("review: %v", err)
+	}
+	if !reviewResult.Passed {
+		t.Fatal("DryRunClient review should pass")
+	}
+
+	// ── Phase 7: QA with declarative criteria ──
+	qa := engine.NewQA(engine.QAConfig{
+		BuildCommand: "echo build-ok",
+		TestCommand:  "echo test-ok",
+	}, &mockRunner{}, es, ps)
+
+	qaResult, err := qa.Run(context.Background(), storyID, projectDir)
+	if err != nil {
+		t.Fatalf("qa: %v", err)
+	}
+	if !qaResult.Passed {
+		t.Fatal("QA should pass with mockRunner")
+	}
+
+	// ── Phase 8: Merge ──
+	ghOps := &mockGitHubOps{
+		createPR: engine.PRCreationResult{Number: 1, URL: "https://github.com/test/pull/1"},
+	}
+	merger := engine.NewMerger(config.MergeConfig{AutoMerge: true, BaseBranch: "main"}, ghOps, es, ps)
+	mergeResult, err := merger.Merge(storyID, "Health check", projectDir, "vxd/"+storyID)
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	if !mergeResult.Merged {
+		t.Fatal("expected merge to succeed")
+	}
+	completed[storyID] = true
+
+	// ── Phase 9: Verify attempt history after success ──
+	attempts, _ = tracker.ListAttempts(storyID)
+	if len(attempts) != 2 {
+		t.Fatalf("expected 2 attempts after retry, got %d", len(attempts))
+	}
+	if attempts[0].Outcome != "review_failed" {
+		t.Errorf("attempt 1 outcome = %q, want review_failed", attempts[0].Outcome)
+	}
+	if attempts[1].Outcome != "success" {
+		t.Errorf("attempt 2 outcome = %q, want success", attempts[1].Outcome)
+	}
+	if attempts[1].Role != "senior" {
+		t.Errorf("attempt 2 role = %q, want senior", attempts[1].Role)
+	}
+
+	// ── Phase 10: Verify metrics ──
+	metrics, err := engine.ComputeMetrics(es, ps, 10, "")
+	if err != nil {
+		t.Fatalf("compute metrics: %v", err)
+	}
+	if metrics.TotalStories == 0 {
+		t.Error("metrics should show at least 1 story")
+	}
+	if metrics.StoriesMerged == 0 {
+		t.Error("metrics should show at least 1 merged story")
+	}
+
+	// ── Phase 11: Verify report includes attempts ──
+	builder := engine.NewReportBuilder(es, ps, cfg)
+	report, err := builder.Build(reqID)
+	if err != nil {
+		t.Fatalf("build report: %v", err)
+	}
+	if len(report.Stories) == 0 {
+		t.Fatal("report should contain stories")
+	}
+
+	// Find the story with attempts
+	var reportStory *engine.ReportStory
+	for i := range report.Stories {
+		if report.Stories[i].ID == storyID {
+			reportStory = &report.Stories[i]
+			break
+		}
+	}
+	if reportStory == nil {
+		t.Fatalf("story %s not found in report", storyID)
+	}
+	if len(reportStory.Attempts) != 2 {
+		t.Errorf("report story should have 2 attempts, got %d", len(reportStory.Attempts))
+	}
+
+	t.Logf("DryRun pipeline complete: %d stories planned, %d attempts tracked, metrics and report verified", len(result.Stories), len(attempts))
+}

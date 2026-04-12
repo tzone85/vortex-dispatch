@@ -108,6 +108,14 @@ billing:
 | `vxd events` | View event log |
 | `vxd learn [path]` | Run repo analysis (`--force`, `--pass 1\|2\|3`, `--json`) |
 
+## Spec-Driven Development (SDD)
+Spec-kit is installed (`.specify/`). For new features:
+1. Use `speckit.specify` skill or `.specify/templates/spec-template.md` to create specs
+2. Write Given/When/Then acceptance scenarios BEFORE implementation
+3. Constitution at `.specify/memory/constitution.md` governs all architectural decisions
+4. Specs go to `docs/superpowers/specs/` (hook-allowed path)
+5. Retroactive spec for agentflow features: `docs/superpowers/specs/2026-04-11-agentflow-integration-spec.md`
+
 ## Testing Conventions
 - TDD mandatory: write tests first
 - Wiring tests in `engine/wiring_test.go` — verify features are ACTIVATED, not just implemented
@@ -135,10 +143,14 @@ billing:
 | Binary | `~/.local/bin/vxd` | `~/.local/bin/nxd` |
 | Rule | NEVER reference VXD in NXD code | Keep in sync on core fixes |
 
-## Pending Work (as of 2026-04-11)
-1. ~~Repo Learning System~~ — DONE (`internal/repolearn/`, wired into executor + planner + CLI)
-2. Wire trace parser into `vxd metrics`
-3. Wire Adapter/Runner into executor (replace CLIRuntime.Spawn)
-4. Docker/SSH runners
-5. Port Adapter/Runner + trace + repolearn to NXD
-6. Documentation overhaul with diagrams
+## Pending Work (as of 2026-04-12)
+1. ~~Repo Learning System~~ — DONE
+2. ~~Wire trace parser into `vxd metrics`~~ — DONE
+3. ~~Wire Adapter/Runner into executor~~ — DONE (with fallback to legacy)
+4. ~~Docker/SSH runners~~ — DONE (29 tests)
+5. ~~Port to NXD~~ — DONE
+6. ~~Documentation overhaul~~ — DONE
+7. ~~Retroactive SDD spec for agentflow features~~ — DONE
+8. ~~Add SpecKit to tracked projects~~ — DONE
+9. Wire ScanDeep (Pass 3) into `vxd req` — DONE
+10. Port Docker/SSH runners + repolearn to NXD (remaining sync)

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/tzone85/vortex-dispatch/internal/artifact"
@@ -14,6 +15,7 @@ import (
 	"github.com/tzone85/vortex-dispatch/internal/engine"
 	vxdgit "github.com/tzone85/vortex-dispatch/internal/git"
 	"github.com/tzone85/vortex-dispatch/internal/graph"
+	"github.com/tzone85/vortex-dispatch/internal/llm"
 	"github.com/tzone85/vortex-dispatch/internal/runtime"
 	"github.com/tzone85/vortex-dispatch/internal/scratchboard"
 	"github.com/tzone85/vortex-dispatch/internal/state"
@@ -32,6 +34,7 @@ func newResumeCmd() *cobra.Command {
 	cmd.Flags().Bool("review", false, "Force manual review mode for this run")
 	cmd.Flags().Bool("auto", false, "Force auto mode for this run (skip review gates)")
 	cmd.Flags().Bool("force", false, "Force override of lock file if another instance appears stuck")
+	cmd.Flags().Bool("dry-run", false, "Simulate LLM responses for pipeline testing (no API calls)")
 	cmd.SilenceUsage = true
 	return cmd
 }
@@ -289,6 +292,12 @@ func runResume(cmd *cobra.Command, args []string) error {
 
 	var reviewer *engine.Reviewer
 	llmClient, llmErr := buildLLMClient(s.Config.Models.Senior.Provider, nil, godmode)
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	if dryRun {
+		llmClient = llm.NewDryRunClient(200 * time.Millisecond)
+		llmErr = nil
+		fmt.Fprintf(out, "[DRY RUN] Using simulated LLM responses\n")
+	}
 	if llmErr != nil {
 		log.Printf("Warning: LLM client unavailable, skipping code review: %v", llmErr)
 	} else {
@@ -346,8 +355,16 @@ func runResume(cmd *cobra.Command, args []string) error {
 
 	// Enable tier-3 (tech lead) re-planning for stories that fail after manager diagnosis.
 	if llmClient != nil {
-		planningClient, planErr := buildPlanningClient(s.Config.Models.TechLead.Provider, godmode)
-		if planErr == nil {
+		var planningClient llm.Client
+		if dryRun {
+			planningClient = llm.NewDryRunClient(200 * time.Millisecond)
+		} else {
+			pc, planErr := buildPlanningClient(s.Config.Models.TechLead.Provider, godmode)
+			if planErr == nil {
+				planningClient = pc
+			}
+		}
+		if planningClient != nil {
 			rePlanner := engine.NewPlanner(planningClient, s.Config, s.Events, s.Proj)
 			rePlanner.SetProjectDir(s.ProjectDir)
 			monitor.SetPlanner(rePlanner)

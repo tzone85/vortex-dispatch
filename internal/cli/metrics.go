@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/tzone85/vortex-dispatch/internal/engine"
@@ -35,7 +36,9 @@ func runMetrics(cmd *cobra.Command, _ []string) error {
 	}
 	defer s.Close()
 
-	metrics, err := engine.ComputeMetrics(s.Events, s.Proj, limit)
+	stateDir := expandHome(s.Config.Workspace.StateDir)
+	logDir := filepath.Join(stateDir, "logs")
+	metrics, err := engine.ComputeMetrics(s.Events, s.Proj, limit, logDir)
 	if err != nil {
 		return fmt.Errorf("compute metrics: %w", err)
 	}

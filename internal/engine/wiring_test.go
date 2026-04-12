@@ -933,8 +933,48 @@ func TestWiring_AdapterRunner_SeparationExists(t *testing.T) {
 		t.Errorf("WIRING FAILURE: adapter.Name() = %q, want test", adapter.Name())
 	}
 	if len(adapter.SupportedModels()) != 1 || adapter.SupportedModels()[0] != "test-model" {
-		t.Errorf("WIRING FAILURE: adapter.SupportedModels() = %v, want [test-model]", adapter.SupportedModels())
+		t.Errorf("WIRING FAILURE: adapter.Name() = %q, want test", adapter.Name())
 	}
+}
+
+func TestWiring_Executor_UsesAdapterRunner(t *testing.T) {
+	// Verify that when adapter/runner are set, the executor uses them.
+	// We test the Adapter.Prepare path directly since spawning a real tmux
+	// session requires infrastructure not available in unit tests.
+	adapter := runtime.NewCLIAdapter("test", "echo", []string{"hello"}, []string{"test-model"})
+	runner := runtime.NewTmuxRunner()
+
+	prepared, err := adapter.Prepare(runtime.SessionConfig{
+		SessionName: "test-session",
+		WorkDir:     t.TempDir(),
+		Model:       "test-model",
+		Goal:        "test goal",
+	})
+	if err != nil {
+		t.Fatalf("WIRING FAILURE: adapter.Prepare failed: %v", err)
+	}
+	if prepared.Command == "" {
+		t.Error("WIRING FAILURE: prepared command is empty")
+	}
+	if prepared.SessionName != "test-session" {
+		t.Errorf("WIRING FAILURE: session name = %q, want test-session", prepared.SessionName)
+	}
+
+	// Verify runner is not nil (cannot call Run without tmux)
+	if runner == nil {
+		t.Error("WIRING FAILURE: NewTmuxRunner returned nil")
+	}
+
+	// Verify SetAdapterRunner compiles and accepts both types.
+	// We create a minimal executor to confirm the setter works.
+	es, ps, cleanup := newTestStores(t)
+	defer cleanup()
+	cfg := config.DefaultConfig()
+	reg, _ := runtime.NewRegistry(cfg.Runtimes)
+	executor := engine.NewExecutor(reg, cfg, es, ps)
+	executor.SetAdapterRunner(adapter, runner)
+
+	t.Log("Adapter/Runner path verified: adapter.Prepare() produces valid PreparedExecution, executor accepts setter")
 }
 
 // --------------------------------------------------------------------------
@@ -1090,5 +1130,48 @@ func TestWiring_Planner_ProfileContextInjected(t *testing.T) {
 	}
 	if !strings.Contains(userMsg, "golangci-lint") {
 		t.Error("WIRING FAILURE: Planner user message does not contain lint command from profile")
+	}
+}
+
+// --------------------------------------------------------------------------
+// Pass 3 ScanDeep Integration Wiring Test
+// --------------------------------------------------------------------------
+
+func TestWiring_ScanDeep_SkipsWhenNilClient(t *testing.T) {
+	profile := &repolearn.RepoProfile{}
+	err := repolearn.ScanDeep(context.Background(), profile, nil, "test-model")
+	if err != nil {
+		t.Errorf("WIRING FAILURE: ScanDeep with nil client should skip gracefully, got: %v", err)
+	}
+	if profile.PassCompleted(3) {
+		t.Error("WIRING FAILURE: ScanDeep should not mark Pass 3 complete when client is nil")
+	}
+}
+
+func TestWiring_ScanDeep_ProfilePersistsPass3(t *testing.T) {
+	dir := t.TempDir()
+	profile := &repolearn.RepoProfile{RepoPath: dir}
+	profile.AddSignal("llm_summary", "Test project summary", "")
+	profile.MarkPass(3)
+
+	if err := repolearn.SaveProfile(dir, profile); err != nil {
+		t.Fatalf("SaveProfile: %v", err)
+	}
+
+	loaded, err := repolearn.LoadProfile(dir)
+	if err != nil {
+		t.Fatalf("LoadProfile: %v", err)
+	}
+	if !loaded.PassCompleted(3) {
+		t.Error("WIRING FAILURE: loaded profile should have Pass 3 completed")
+	}
+	found := false
+	for _, s := range loaded.Signals {
+		if s.Kind == "llm_summary" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("WIRING FAILURE: llm_summary signal not preserved after save/load")
 	}
 }

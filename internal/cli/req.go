@@ -16,6 +16,7 @@ import (
 	"github.com/tzone85/vortex-dispatch/internal/agent"
 	"github.com/tzone85/vortex-dispatch/internal/engine"
 	"github.com/tzone85/vortex-dispatch/internal/llm"
+	"github.com/tzone85/vortex-dispatch/internal/repolearn"
 )
 
 func newReqCmd() *cobra.Command {
@@ -80,6 +81,25 @@ func runReq(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	out := cmd.OutOrStdout()
+
+	// Run Pass 3 (LLM deep analysis) if profile exists but Pass 3 hasn't been done.
+	// This is the only place where an LLM client is available during the learn pipeline.
+	if s.ProjectDir != "" {
+		if profile, err := repolearn.LoadProfile(s.ProjectDir); err == nil && !profile.PassCompleted(3) {
+			fmt.Fprintf(out, "Running deep analysis (Pass 3) on repo profile...\n")
+			modelCfg := s.Config.Models.Senior
+			if deepErr := repolearn.ScanDeep(ctx, profile, client, modelCfg.Model); deepErr != nil {
+				log.Printf("[req] Pass 3 deep analysis failed: %v", deepErr)
+			} else {
+				if saveErr := repolearn.SaveProfile(s.ProjectDir, profile); saveErr != nil {
+					log.Printf("[req] failed to save updated profile: %v", saveErr)
+				} else {
+					fmt.Fprintf(out, "Deep analysis complete.\n")
+				}
+			}
+		}
+	}
+
 	fmt.Fprintf(out, "Planning requirement: %s\n", requirement)
 	fmt.Fprintf(out, "Requirement ID: %s\n\n", reqID)
 

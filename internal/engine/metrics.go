@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -32,26 +33,37 @@ type PipelineMetrics struct {
 	// Escalation breakdown
 	EscalationsPerTier map[int]int // tier → count
 
+	// Agent activity (from trace analysis)
+	TotalToolCalls   int
+	TotalFileEdits   int
+	TotalFileCreates int
+	TotalCommands    int
+	TotalErrors      int
+	TotalTests       int
+
 	// Per-requirement breakdown
-	RequirementStats   []RequirementStat
+	RequirementStats []RequirementStat
 }
 
 // RequirementStat holds metrics for a single requirement.
 type RequirementStat struct {
-	ReqID            string
-	Title            string
-	Status           string
-	StoryCount       int
-	MergedCount      int
-	EscalationCount  int
-	FirstPassRate    float64
-	TotalDuration    time.Duration
+	ReqID           string
+	Title           string
+	Status          string
+	StoryCount      int
+	MergedCount     int
+	EscalationCount int
+	FirstPassRate   float64
+	TotalDuration   time.Duration
+	ToolCalls       int
+	FileEdits       int
+	Errors          int
 }
 
 // ComputeMetrics calculates pipeline metrics from the event store.
 // Uses *SQLiteStore directly because ListRequirementsFiltered is not on the
 // ProjectionStore interface.
-func ComputeMetrics(es state.EventStore, ps *state.SQLiteStore, limit int) (PipelineMetrics, error) {
+func ComputeMetrics(es state.EventStore, ps *state.SQLiteStore, limit int, logDir string) (PipelineMetrics, error) {
 	m := PipelineMetrics{
 		EscalationsPerTier: make(map[int]int),
 	}
@@ -151,6 +163,33 @@ func ComputeMetrics(es state.EventStore, ps *state.SQLiteStore, limit int) (Pipe
 		m.RequirementStats = append(m.RequirementStats, reqStat)
 	}
 
+	// Analyze agent logs for trace data
+	if logDir != "" {
+		for i, req := range allReqs {
+			stories, sErr := ps.ListStories(state.StoryFilter{ReqID: req.ID})
+			if sErr != nil {
+				continue
+			}
+			for _, story := range stories {
+				logPath := filepath.Join(logDir, story.ID+".log")
+				traceEvents, tErr := ParseTraceFile(logPath)
+				if tErr != nil {
+					continue // log file may not exist
+				}
+				summary := Summarize(traceEvents)
+				m.TotalToolCalls += summary.ToolCalls
+				m.TotalFileEdits += summary.FileEdits
+				m.TotalFileCreates += summary.FileCreates
+				m.TotalCommands += summary.Commands
+				m.TotalErrors += summary.Errors
+				m.TotalTests += summary.Tests
+				m.RequirementStats[i].ToolCalls += summary.ToolCalls
+				m.RequirementStats[i].FileEdits += summary.FileEdits
+				m.RequirementStats[i].Errors += summary.Errors
+			}
+		}
+	}
+
 	// Compute averages
 	if m.TotalStories > 0 {
 		m.FirstPassRate = float64(m.StoriesPassed) / float64(m.TotalStories) * 100
@@ -170,6 +209,16 @@ func FormatMetrics(m PipelineMetrics) string {
 	b.WriteString(fmt.Sprintf("Stories:       %d total, %d merged, %d escalated\n", m.TotalStories, m.StoriesMerged, m.StoriesEscalated))
 	b.WriteString(fmt.Sprintf("First-pass:    %.0f%% (stories that passed review+QA without retries)\n", m.FirstPassRate))
 	b.WriteString(fmt.Sprintf("Avg time:      %s per story\n", formatDuration(m.AvgTotalTime)))
+
+	if m.TotalToolCalls > 0 {
+		b.WriteString("\nAgent Activity:\n")
+		b.WriteString(fmt.Sprintf("  Tool calls:   %d\n", m.TotalToolCalls))
+		b.WriteString(fmt.Sprintf("  File edits:   %d\n", m.TotalFileEdits))
+		b.WriteString(fmt.Sprintf("  File creates: %d\n", m.TotalFileCreates))
+		b.WriteString(fmt.Sprintf("  Commands:     %d\n", m.TotalCommands))
+		b.WriteString(fmt.Sprintf("  Test runs:    %d\n", m.TotalTests))
+		b.WriteString(fmt.Sprintf("  Errors:       %d\n", m.TotalErrors))
+	}
 
 	if len(m.EscalationsPerTier) > 0 {
 		b.WriteString("\nEscalations:\n")

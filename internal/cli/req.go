@@ -34,6 +34,7 @@ The requirement text can be provided as:
 	}
 	cmd.Flags().StringP("file", "f", "", "read requirement from a file (use - for stdin)")
 	cmd.Flags().Bool("godmode", false, "skip permission prompts on LLM calls (fully autonomous)")
+	cmd.Flags().Bool("dry-run", false, "Simulate LLM responses for pipeline testing (no API calls)")
 	cmd.SilenceUsage = true
 	return cmd
 }
@@ -63,6 +64,12 @@ func runReq(cmd *cobra.Command, args []string) error {
 	client, err := buildPlanningClient(s.Config.Models.TechLead.Provider, godmode)
 	if err != nil {
 		return err
+	}
+
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	if dryRun {
+		client = llm.NewDryRunClient(500 * time.Millisecond)
+		fmt.Fprintf(cmd.OutOrStdout(), "[DRY RUN] Using simulated LLM responses\n")
 	}
 
 	// Generate requirement ID

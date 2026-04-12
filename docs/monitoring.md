@@ -98,7 +98,7 @@ vxd events --type SUPERVISOR_DRIFT_DETECTED
 
 ## Escalations
 
-When an agent repeatedly fails (stuck, review rejected, QA failures), VXD creates an escalation.
+When an agent repeatedly fails (stuck, review rejected, QA failures), VXD escalates through a 5-tier chain.
 
 ### Escalation Triggers
 
@@ -108,13 +108,27 @@ When an agent repeatedly fails (stuck, review rejected, QA failures), VXD create
 | QA failures | `max_qa_failures_before_escalation` (default: 3) | Escalate to next tier |
 | Agent stuck | After stuck detection + retry | Escalate to next tier |
 
-### Escalation Path
+### Escalation Chain (5 Tiers)
 
 ```
-Junior ──► Intermediate ──► Senior ──► Manual intervention
-```
+Tier 0: Same-role retry with smart error analysis
+        - Classifies errors into 8 categories (missing_symbol, syntax, type_error,
+          import, test_failure, build_config, environment, timeout)
+        - Provides targeted fix suggestions to the retry agent
+        - Actual build/test/lint output is passed, not just "QA failed"
 
-If a Senior agent fails repeatedly, the escalation is marked as unresolved and requires human attention.
+Tier 1: Senior developer (more capable model)
+
+Tier 2: Manager diagnosis (Sonnet-class LLM)
+        - Analyzes full failure history across all attempts
+        - May rewrite the story description (STORY_REWRITTEN event)
+
+Tier 3: Tech Lead re-planning
+        - Decomposes failing story into smaller sub-stories (STORY_SPLIT event)
+        - Updates the dependency DAG
+
+Tier 4: Pause (human intervention required)
+```
 
 ### Viewing Escalations
 
@@ -128,6 +142,75 @@ vxd escalations
 ```
 
 Escalations also appear in the Dashboard's Escalation panel.
+
+## Crash Recovery
+
+VXD is designed to recover gracefully when the orchestrator process dies mid-run.
+
+### Lock File
+
+On `vxd resume`, an advisory lock file is acquired at `~/.vxd/projects/<name>/state/run.lock`. This prevents concurrent VXD instances from corrupting state.
+
+- The lock file contains the PID of the owning process
+- Stale locks (PID no longer alive) are automatically cleaned up
+- Use `--force` to override a stuck lock
+
+### Checkpoints
+
+The monitor writes checkpoints at phase transitions:
+
+```
+Phase transitions: dispatching → monitoring → merging → completed
+```
+
+Each checkpoint records:
+- Requirement ID, wave number, current phase
+- Active agents (story ID, session name, worktree path, branch)
+- Merging story (if mid-merge)
+- PID and timestamp
+
+Checkpoints are written atomically (temp file + rename) to prevent corruption.
+
+### Consistency Check
+
+On resume, VXD inspects all stories and detects 5 recovery scenarios:
+
+| Scenario | Detection | Recovery Action |
+|----------|-----------|-----------------|
+| Lost story | in_progress, no tmux, no worktree | Reset to draft |
+| Orphan agent | Dead tmux session, worktree exists | Reset to draft |
+| Mid-merge crash | PR created but not merged | Resume merge |
+| Pre-PR crash | Review passed, no PR | Create PR and merge |
+| Stuck in review | Review passed, QA never ran | Reset to review_passed |
+
+A `RECOVERY_COMPLETED` event is emitted with details of all corrective actions.
+
+## Trace Normalization
+
+VXD parses agent output logs to extract structured trace events for monitoring and metrics.
+
+### Trace Event Kinds
+
+| Kind | Detection | Example |
+|------|-----------|---------|
+| `tool_call` | Tool invocation patterns (Read, Write, Edit, Bash, etc.) | `Read /path/to/file` |
+| `file_edit` | Edited/Updated/Modified + filename | `Edited main.go` |
+| `file_create` | Created/Wrote + filename | `Created handler.go` |
+| `command` | Shell prompt + command | `$ go test ./...` |
+| `error` | Error/FAIL/panic/fatal patterns | `FAIL: TestHandler` |
+| `test` | PASS/FAIL/ok test patterns | `ok  pkg  0.5s` |
+| `commit` | Git commit patterns | `[main abc123]` |
+| `progress` | General activity indicators | Status messages |
+
+### Metrics from Traces
+
+The `vxd metrics` command aggregates trace data across all stories:
+
+- **Total tool calls** — how many tool invocations agents made
+- **Total file edits / creates** — volume of code changes
+- **Total commands** — shell commands executed
+- **Total errors** — errors encountered during execution
+- **Total tests** — test runs detected
 
 ## Dashboard
 
@@ -254,8 +337,10 @@ VXD is designed to run autonomously, but some situations require human attention
 
 | Signal | What to do |
 |--------|-----------|
-| Senior escalation (unresolved) | Review the story requirements — they may be ambiguous or infeasible |
+| Tier 4 pause (escalation exhausted) | Review the story requirements — they may be ambiguous or infeasible |
 | Repeated QA failures across stories | Check if lint/build/test commands are correct in config |
 | Supervisor drift detected | Review the original requirement and story decomposition |
 | Agent stuck with high `stuck_threshold_s` | Check if the runtime CLI is responsive (`tmux attach -t <session>`) |
-| No progress after `vxd resume` | Verify API keys are set and runtime CLIs are installed |
+| No progress after `vxd resume` | Run `vxd preflight` to verify environment, check API keys and CLIs |
+| Stories awaiting approval | Use `vxd review`, `vxd approve`, or `vxd reject` to advance the pipeline |
+| Lock file blocking resume | Another VXD may be running; use `--force` if it is stale |

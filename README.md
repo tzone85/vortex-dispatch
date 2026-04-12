@@ -30,7 +30,10 @@ For users without Claude Code CLI, VXD falls back to direct API calls using `ANT
 ```bash
 go install github.com/tzone85/vortex-dispatch/cmd/vxd@latest
 vxd init
+vxd preflight                     # Validate environment
+vxd estimate "Build a REST API"   # Estimate cost before committing
 vxd req "Build a REST API for user management with CRUD endpoints"
+vxd resume <req-id>               # Dispatch agents
 vxd status
 vxd dashboard
 ```
@@ -55,15 +58,28 @@ vhs docs/demo.tape
 - **Agent hierarchy with complexity-based routing** -- Fibonacci scoring routes stories to the right tier
 - **Event-sourced architecture** -- append-only event log with materialized SQLite projections
 - **Pluggable runtimes via YAML config** -- swap between Claude Code, Codex, and Gemini CLI
+- **Adapter/Runner execution model** -- pure command prep (Adapter) separated from execution (TmuxRunner, DockerRunner, SSHRunner)
+- **5-tier escalation chain** -- same-role retry with smart error analysis, senior, manager diagnosis, tech lead re-planning, pause
+- **Smart retry with error analysis** -- 8 error categories with targeted fix suggestions passed to retry agents
+- **Human review gates** -- three modes (auto, plan_only, manual) for plan approval and PR review
+- **Crash recovery** -- lock files, checkpoints, and consistency checks for resuming after process death
+- **Pre-flight validation** -- 12 environment checks across 3 severity tiers before pipeline execution
+- **Cost estimation** -- quick heuristic and LLM-based estimation with Fibonacci-to-hours mapping
 - **Watchdog monitoring** -- stuck detection, permission bypass, context freshness checks
 - **Supervisor oversight** -- periodic drift detection and reprioritization
 - **Senior code review** -- automated review via LLM with approve/request-changes verdicts
-- **Automated QA pipeline** -- lint, build, and test execution per story
+- **Automated QA pipeline** -- lint, build, and test with declarative success criteria (6 kinds)
 - **Auto-merge with PR creation** -- stories flow from code to merged PR hands-free
 - **LLM-powered conflict resolution** -- rebase conflicts auto-resolved via Senior model instead of blocking
-- **Tiered cleanup** -- worktree pruning, branch garbage collection with configurable retention
+- **Client delivery reports** -- markdown and HTML reports with effort summary, timeline, and agent performance
+- **Pipeline metrics** -- success rates, timing, escalations, and trace-based agent activity stats
+- **Repo learning** -- 3-pass analysis (static scan, git history, LLM deep analysis) builds persistent profiles for agents
+- **Agent context sharing** -- WAVE_CONTEXT.md captures prior wave changes, injected into subsequent waves
 - **TUI dashboard** -- single-pane Bubbletea interface (all 5 sections visible at once: agents, pipeline, stories, activity, escalations)
 - **Web dashboard** -- browser-based dashboard via `vxd dashboard --web` with real-time WebSocket updates and full control panel
+- **Multi-project isolation** -- per-project state under `~/.vxd/projects/<name>/`
+- **Tiered cleanup** -- worktree pruning, branch garbage collection with configurable retention
+- **Self-improvement engine** -- daily autonomous pipeline: research, analysis, implementation, PR, email report
 - **Reputation scoring** -- per-agent performance tracking across assignments
 
 ## CLI Commands
@@ -71,9 +87,9 @@ vhs docs/demo.tape
 | Command | Description |
 |---------|-------------|
 | `vxd init` | Initialize workspace, create `~/.vxd/` dirs, generate default config, set up stores |
-| `vxd req <requirement>` | Submit a requirement (supports `--file`/`-f` for file input, `--godmode` for autonomous) |
+| `vxd req <requirement>` | Submit a requirement (supports `--file`/`-f`, `--godmode`, `--skip-preflight`) |
 | `vxd status [--req ID]` | Show requirement and story status, optionally filtered by requirement |
-| `vxd resume <req-id>` | Resume a paused pipeline (supports `--godmode` for autonomous) |
+| `vxd resume <req-id>` | Resume a paused pipeline (`--godmode`, `--review`, `--auto`, `--force`) |
 | `vxd agents [--status S]` | List all agents with current story, session, and status |
 | `vxd escalations` | List all escalation events with story, agent, reason, and status |
 | `vxd gc [--dry-run]` | Garbage-collect merged branches and worktrees past retention |
@@ -82,6 +98,19 @@ vhs docs/demo.tape
 | `vxd events [--type T] [--story S] [--limit N]` | List events from the event store, newest first |
 | `vxd dashboard` | Launch the live TUI dashboard |
 | `vxd dashboard --web [--port 8787]` | Launch the web dashboard (browser-based, default port 8787) |
+| `vxd preflight` | Run pre-flight environment checks (12 checks, 3 severity tiers) |
+| `vxd estimate <requirement>` | Estimate cost (`--quick`, `--json`, `--rate`, `--save`) |
+| `vxd report <req-id>` | Generate client delivery report (`--html`, `--internal`, `--output`) |
+| `vxd metrics [--req ID]` | Show pipeline performance metrics with agent activity stats |
+| `vxd learn [repo-path]` | Analyse a repository and build a persistent profile (`--pass`, `--force`) |
+| `vxd projects` | List all tracked projects |
+| `vxd approve-plan <req-id>` | Approve a plan for dispatch (review gates) |
+| `vxd reject-plan <req-id>` | Reject a plan (review gates) |
+| `vxd review <story-id>` | Show story details for review |
+| `vxd approve <story-id>` | Approve a story's PR for merge (`--all <req-id>` for batch) |
+| `vxd reject <story-id>` | Reject a story's PR (returns to in_progress) |
+| `vxd pause <req-id>` | Pause a running requirement |
+| `vxd memory` | Launch the memory dashboard |
 
 ### Submitting Requirements
 
@@ -128,12 +157,14 @@ Run `vxd init` to generate `vxd.yaml` with sensible defaults, then customize:
 | Section | Purpose |
 |---------|---------|
 | `workspace` | State directory, backend (dolt/sqlite), log level and retention |
-| `models` | LLM provider and model per agent role (tech_lead, senior, intermediate, junior, qa, supervisor) |
+| `models` | LLM provider and model per agent role (tech_lead, senior, intermediate, junior, qa, supervisor, manager) |
 | `routing` | Complexity thresholds, retry and escalation limits |
 | `monitor` | Poll interval, stuck threshold, context freshness token limit |
 | `cleanup` | Worktree pruning strategy, branch retention days |
-| `merge` | Auto-merge toggle, base branch, PR template |
+| `merge` | Auto-merge toggle, base branch, PR template, review_mode |
 | `runtimes` | CLI runtime definitions (command, args, model list, detection patterns) |
+| `billing` | Hourly rate, Fibonacci-to-hours mapping for cost estimation |
+| `qa` | Lint/build/test commands, declarative success criteria |
 
 ## Architecture
 
@@ -171,12 +202,13 @@ Events are appended at every stage. SQLite projections materialize the current s
 
 | Role | Model Tier | Responsibility |
 |------|------------|----------------|
-| Tech Lead | Opus | Requirement decomposition, story planning, dependency graphs |
-| Senior | Sonnet | Complex stories (5+ points), code review of junior/intermediate work |
-| Intermediate | Haiku / Sonnet | Medium stories (3-5 points) |
-| Junior | Haiku / GPT-4o-mini | Simple stories (1-3 points) |
-| QA | Sonnet | Lint, build, test execution per story |
-| Supervisor | Sonnet | Drift detection, reprioritization, escalation handling |
+| Tech Lead | Claude Opus | Requirement decomposition, story planning, dependency graphs |
+| Senior | Claude Sonnet | Complex stories (5+ points), code review, conflict resolution |
+| Intermediate | Gemma 4 / Claude Sonnet | Medium stories (3-5 points) |
+| Junior | Gemma 4 / Claude Haiku | Simple stories (1-3 points) |
+| QA | Claude Sonnet | Lint, build, test execution per story |
+| Supervisor | Claude Sonnet | Drift detection, reprioritization |
+| Manager | Claude Sonnet | Failure diagnosis, story rewriting at escalation tier 2 |
 
 ## Project Structure
 
@@ -184,24 +216,43 @@ Events are appended at every stage. SQLite projections materialize the current s
 cmd/vxd/              CLI entry point
 internal/
   agent/              Role definitions, complexity scoring, prompts
-  cli/                Cobra command implementations
+  artifact/           Artifact store (launch configs, diffs, traces)
+  cli/                Cobra command implementations (25+ commands)
   config/             YAML config loader and validation
-  dashboard/          Bubbletea TUI (pipeline, agents, activity, escalations)
-  engine/             Core orchestration
+  dashboard/          Bubbletea TUI (single-pane, all sections visible)
+  engine/             Core orchestration (35+ files)
     planner.go        Tech Lead decomposition
     dispatcher.go     Wave-based parallel dispatch
-    watchdog.go       Stuck detection, permission bypass
-    supervisor.go     Drift detection, reprioritization
+    executor.go       Agent lifecycle management
+    monitor.go        Polling loop with review gates and checkpoints
+    escalation.go     5-tier escalation machine
+    smart_retry.go    Error analysis with fix suggestions
+    manager.go        Manager diagnosis and story rewriting
     reviewer.go       Senior code review
-    qa.go             Lint/build/test pipeline
+    review_gate.go    Human review mode resolution
+    qa.go             Lint/build/test with declarative criteria
     merger.go         PR creation and auto-merge
     reaper.go         Tiered cleanup and GC
+    checkpoint.go     Crash recovery checkpoints
+    recovery.go       Consistency check and recovery
+    lockfile.go       Advisory lock with PID-based stale detection
+    cost.go           Cost estimation
+    report.go         Client delivery reports
+    trace.go          Agent output trace normalization
+    metrics.go        Pipeline performance metrics
+    wave_context.go   Cross-story context sharing
   git/                Branch, worktree, and GitHub PR operations
   graph/              Dependency DAG with topological sort
-  llm/                LLM clients (Claude CLI, Anthropic API, OpenAI API)
-  runtime/            Pluggable runtime registry
+  improve/            Self-improvement engine (research, analysis, revenue)
+  llm/                LLM clients (Anthropic, OpenAI, Google AI, Claude CLI, Fallback)
+  memory/             Memory dashboard + MemPalace integration
+  preflight/          Pre-flight validation (12 checks, 3 severity tiers)
+  repolearn/          3-pass repo learning (static, git history, LLM deep)
+  runtime/            Adapter/Runner pattern (tmux, Docker, SSH)
+  scratchboard/       Shared memory across parallel agents
   state/              Event store (file-based) + SQLite projections
   tmux/               Session management (create, capture, send-keys)
+  web/                Web dashboard (WebSocket, static files, command handlers)
 migrations/           SQLite schema migrations
 test/                 E2E tests
 ```

@@ -209,6 +209,10 @@ var trackedProjects = []TrackedProject{
 		"https://github.com/shouc/agentflow",
 		"https://github.com/shouc/agentflow/releases",
 	}, Category: "competitors"},
+	{Name: "SpecKit", URLs: []string{
+		"https://github.com/github/spec-kit",
+		"https://github.com/github/spec-kit/releases",
+	}, Category: "go_ecosystem"},
 }
 
 // HistoricalTopicForDay returns the deep-dive search query for today.

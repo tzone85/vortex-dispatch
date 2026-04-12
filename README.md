@@ -150,6 +150,36 @@ planning:
 
 The `--godmode` flag takes precedence over the config value. When not passed, the config value is used (default: `false`).
 
+### Repo Learning
+
+Before dispatching agents, run `vxd learn` to build a persistent profile of the target repository. This eliminates the codebase archaeology phase where agents waste early iterations figuring out the tech stack, build commands, and test conventions.
+
+```bash
+# Analyse the current directory
+vxd learn
+
+# Analyse a specific repo
+vxd learn /path/to/project
+
+# Re-run all passes (even if previously completed)
+vxd learn --force
+
+# Run only a specific pass
+vxd learn --pass 1   # Static scan only
+vxd learn --pass 2   # Git history only
+
+# Output the full profile as JSON
+vxd learn --json
+```
+
+The analysis runs in three passes:
+
+- **Pass 1 — Static scan**: Detects language, framework, build/lint/test commands (from Makefile, package.json, Cargo.toml, etc.), CI system, directory structure, entry points, dependencies, and signals (monorepo, no tests, Docker, vendored deps)
+- **Pass 2 — Git history**: Analyses commit message format (conventional/ticket-prefix/freeform), contributor count, churn hotspots (most-changed files), and branch naming patterns
+- **Pass 3 — Deep analysis**: LLM-assisted summary of project purpose, architecture, key patterns, and gotchas (runs automatically during `vxd req` when an LLM client is available)
+
+The profile is saved to `~/.vxd/projects/<name>/repo-profile.json` and automatically loaded by the executor and planner to enrich agent prompts with pre-learned knowledge. Use `vxd projects` to see the learning status of all tracked projects.
+
 ## Configuration
 
 Run `vxd init` to generate `vxd.yaml` with sensible defaults, then customize:

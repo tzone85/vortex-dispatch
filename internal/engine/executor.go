@@ -34,6 +34,12 @@ type Executor struct {
 	artifactStore *artifact.Store
 	scratchboard  *scratchboard.Scratchboard
 	projectDir    string // path to project state dir (for loading RepoProfile)
+
+	// Adapter/Runner for decoupled execution. When both are set, spawn()
+	// uses Adapter.Prepare() + Runner.Run() instead of the monolithic
+	// Runtime.Spawn(). Nil means fall back to legacy path.
+	adapter *runtime.CLIAdapter
+	runner  runtime.Runner
 }
 
 // NewExecutor creates an Executor wired to the runtime registry, configuration,
@@ -60,6 +66,14 @@ func (e *Executor) SetScratchboard(sb *scratchboard.Scratchboard) {
 // SetProjectDir sets the project state directory for loading RepoProfile.
 func (e *Executor) SetProjectDir(dir string) {
 	e.projectDir = dir
+}
+
+// SetAdapterRunner enables the decoupled Adapter/Runner execution path.
+// When set, spawn() uses Adapter.Prepare() + Runner.Run() instead of
+// the monolithic Runtime.Spawn().
+func (e *Executor) SetAdapterRunner(a *runtime.CLIAdapter, r runtime.Runner) {
+	e.adapter = a
+	e.runner = r
 }
 
 // SpawnResult holds the outcome of spawning an agent for one assignment.
@@ -219,17 +233,32 @@ func (e *Executor) spawn(repoDir string, a Assignment, story PlannedStory) Spawn
 	os.MkdirAll(logDir, 0o755)
 	logFile := filepath.Join(logDir, a.StoryID+".log")
 
-	// Spawn the runtime session
-	if err := rt.Spawn(runtime.SessionConfig{
+	// Spawn the runtime session — use Adapter/Runner if configured,
+	// fall back to monolithic Runtime.Spawn().
+	sessionCfg := runtime.SessionConfig{
 		SessionName:  a.SessionName,
 		WorkDir:      worktreePath,
 		Model:        modelCfg.Model,
 		Goal:         goalPrompt,
 		SystemPrompt: agent.SystemPrompt(a.Role, promptCtx),
 		LogFile:      logFile,
-	}); err != nil {
-		result.Error = fmt.Errorf("spawn runtime for %s: %w", a.StoryID, err)
-		return result
+	}
+
+	if e.adapter != nil && e.runner != nil {
+		prepared, err := e.adapter.Prepare(sessionCfg)
+		if err != nil {
+			result.Error = fmt.Errorf("prepare execution for %s: %w", a.StoryID, err)
+			return result
+		}
+		if err := e.runner.Run(prepared); err != nil {
+			result.Error = fmt.Errorf("run execution for %s: %w", a.StoryID, err)
+			return result
+		}
+	} else {
+		if err := rt.Spawn(sessionCfg); err != nil {
+			result.Error = fmt.Errorf("spawn runtime for %s: %w", a.StoryID, err)
+			return result
+		}
 	}
 
 	// Write launch config artifact for reproducibility.

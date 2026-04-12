@@ -269,13 +269,14 @@ func TestE2E_FullPipeline(t *testing.T) {
 	}
 
 	// Every story should have status = "merged".
-	for _, storyID := range []string{"s-e2e-1", "s-e2e-2", "s-e2e-3"} {
-		story, err := ps.GetStory(storyID)
+	// Use the actual prefixed IDs from planResult (planner prefixes with reqID[:8]).
+	for _, ps0 := range planResult.Stories {
+		story, err := ps.GetStory(ps0.ID)
 		if err != nil {
-			t.Fatalf("get story %s: %v", storyID, err)
+			t.Fatalf("get story %s: %v", ps0.ID, err)
 		}
 		if story.Status != "merged" {
-			t.Fatalf("expected story %s status 'merged', got %q", storyID, story.Status)
+			t.Fatalf("expected story %s status 'merged', got %q", ps0.ID, story.Status)
 		}
 	}
 
@@ -335,9 +336,8 @@ func TestE2E_FullPipeline(t *testing.T) {
 		t.Fatalf("expected 4 LLM calls, got %d", replayClient.CallCount())
 	}
 
-	// Verify dependency ordering: s-e2e-1 must have been dispatched before
-	// s-e2e-2 and s-e2e-3. We check that s-e2e-1 appears in the assigned events
-	// before the others by checking the event timestamps.
+	// Verify dependency ordering: the first story (no deps) must have been
+	// dispatched before the others. Use the actual prefixed ID.
 	assignEvents, err := es.List(state.EventFilter{Type: state.EventStoryAssigned})
 	if err != nil {
 		t.Fatalf("list assign events: %v", err)
@@ -345,8 +345,9 @@ func TestE2E_FullPipeline(t *testing.T) {
 	if len(assignEvents) != 3 {
 		t.Fatalf("expected 3 assign events, got %d", len(assignEvents))
 	}
-	if assignEvents[0].StoryID != "s-e2e-1" {
-		t.Fatalf("expected first assigned story to be s-e2e-1, got %s", assignEvents[0].StoryID)
+	firstStoryID := planResult.Stories[0].ID // the story with no dependencies
+	if assignEvents[0].StoryID != firstStoryID {
+		t.Fatalf("expected first assigned story to be %s, got %s", firstStoryID, assignEvents[0].StoryID)
 	}
 }
 

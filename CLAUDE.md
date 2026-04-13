@@ -153,4 +153,6 @@ Spec-kit is installed (`.specify/`). For new features:
 7. ~~Retroactive SDD spec for agentflow features~~ — DONE
 8. ~~Add SpecKit to tracked projects~~ — DONE
 9. Wire ScanDeep (Pass 3) into `vxd req` — DONE
-10. Port Docker/SSH runners + repolearn to NXD (remaining sync)
+10. ~~Port repolearn to NXD~~ — DONE (28 tests passing)
+11. Port Docker/SSH runners to NXD (remaining sync)
+12. Fix GitHub Actions billing to unblock CI

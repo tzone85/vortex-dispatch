@@ -79,7 +79,7 @@ vhs docs/demo.tape
 - **Web dashboard** -- browser-based dashboard via `vxd dashboard --web` with real-time WebSocket updates and full control panel
 - **Multi-project isolation** -- per-project state under `~/.vxd/projects/<name>/`
 - **Tiered cleanup** -- worktree pruning, branch garbage collection with configurable retention
-- **Self-improvement engine** -- daily autonomous pipeline: research, analysis, implementation, PR, email report
+- **Self-improvement engine** -- daily autonomous pipeline: research, analysis, implementation, PR, email report; weekly competitor repo clone+diff for pattern extraction
 - **Reputation scoring** -- per-agent performance tracking across assignments
 
 ## CLI Commands
@@ -273,7 +273,7 @@ internal/
     wave_context.go   Cross-story context sharing
   git/                Branch, worktree, and GitHub PR operations
   graph/              Dependency DAG with topological sort
-  improve/            Self-improvement engine (research, analysis, revenue)
+  improve/            Self-improvement engine (research, analysis, repo learning, revenue)
   llm/                LLM clients (Anthropic, OpenAI, Google AI, Claude CLI, Fallback)
   memory/             Memory dashboard + MemPalace integration
   preflight/          Pre-flight validation (12 checks, 3 severity tiers)

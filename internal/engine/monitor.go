@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/tzone85/vortex-dispatch/internal/artifact"
+	"github.com/tzone85/vortex-dispatch/internal/codegraph"
 	"github.com/tzone85/vortex-dispatch/internal/config"
 	vxdgit "github.com/tzone85/vortex-dispatch/internal/git"
 	"github.com/tzone85/vortex-dispatch/internal/graph"
@@ -47,6 +48,11 @@ type Monitor struct {
 	// reviewGate resolves the human-review mode for a requirement and
 	// controls whether stories pause for approval before merging.
 	reviewGate *ReviewGate
+
+	// codeGraph enables blast-radius analysis before code review.
+	// When set, the monitor runs detect-changes and passes the impact
+	// analysis to the reviewer for richer context.
+	codeGraph *codegraph.Runner
 
 	// planner enables tier-3 (tech lead) re-planning. When set, the
 	// monitor can decompose failing stories into smaller replacements.
@@ -123,6 +129,13 @@ func (m *Monitor) SetManager(mgr *Manager) {
 // for manual approval when the mode is "manual".
 func (m *Monitor) SetReviewGate(rg *ReviewGate) {
 	m.reviewGate = rg
+}
+
+// SetCodeGraph enables blast-radius analysis before code review.
+// When set, the monitor runs detect-changes on the worktree and passes
+// the impact analysis to the reviewer as additional context.
+func (m *Monitor) SetCodeGraph(cg *codegraph.Runner) {
+	m.codeGraph = cg
 }
 
 // SetCheckpointPath enables checkpoint writes for crash recovery.
@@ -311,7 +324,20 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 		// that already exist (prevents hallucinations about "missing" files).
 		fileTree := captureFileTree(ag.WorktreePath)
 
-		result, err := m.reviewer.Review(ctx, storyID, storyTitle, storyAC, diff, fileTree)
+		// Run blast-radius analysis if codegraph is available.
+		blastRadius := ""
+		if m.codeGraph != nil && m.codeGraph.Available() {
+			impact, cgErr := m.codeGraph.DetectChanges(ctx, ag.WorktreePath, "HEAD~1")
+			if cgErr != nil {
+				log.Printf("[pipeline] codegraph detect-changes warning for %s: %v", storyID, cgErr)
+			} else if !impact.Empty() {
+				blastRadius = impact.FormatMarkdown()
+				log.Printf("[pipeline] codegraph: risk=%.2f, %d changed functions, %d test gaps for %s",
+					impact.RiskScore, len(impact.ChangedFunctions), len(impact.TestGaps), storyID)
+			}
+		}
+
+		result, err := m.reviewer.Review(ctx, storyID, storyTitle, storyAC, diff, fileTree, blastRadius)
 		if err != nil {
 			// Fatal API errors (auth failures, billing exhaustion,
 			// permission denied) will never succeed on retry — pause

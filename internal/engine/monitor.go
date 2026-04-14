@@ -64,6 +64,11 @@ type Monitor struct {
 	dispatcher *Dispatcher
 	executor   *Executor
 
+	// dryRun causes the post-execution pipeline to simulate a successful
+	// agent diff instead of checking the real worktree. This prevents
+	// infinite retry loops when --dry-run agents produce no real changes.
+	dryRun bool
+
 	// mergeMu serializes the rebase-push-merge cycle so that each story
 	// rebases onto the latest main before merging, preventing conflicts
 	// when parallel agents touch the same files.
@@ -148,6 +153,13 @@ func (m *Monitor) SetCheckpointPath(path string) {
 // Planner's RePlan method.
 func (m *Monitor) SetPlanner(p *Planner) {
 	m.planner = p
+}
+
+// SetDryRun enables dry-run mode. In this mode, the post-execution pipeline
+// writes a simulated change to the worktree so the pipeline can exercise
+// the full review→QA→merge flow without real agent output.
+func (m *Monitor) SetDryRun(enabled bool) {
+	m.dryRun = enabled
 }
 
 // RunContext carries the state needed for auto-resume across waves.
@@ -288,6 +300,13 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 	// especially in -p (prompt) mode. This safety net ensures we capture
 	// the work before checking the diff.
 	autoCommit(ag.WorktreePath, storyID)
+
+	// In dry-run mode, simulate a successful agent by writing a placeholder
+	// file and committing it. This allows the full pipeline (review → QA → merge)
+	// to exercise without real agent output.
+	if m.dryRun {
+		simulateDryRunChanges(ag.WorktreePath, storyID)
+	}
 
 	// Check if agent produced any changes.
 	// Distinguish between git infrastructure errors (which count toward
@@ -723,6 +742,13 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 			storyLookup[ps.ID] = ps
 		}
 
+		// Track stories handled by manager/tech-lead this wave so they
+		// don't get re-dispatched in the same wave. We use a separate set
+		// rather than marking them "completed" because completed=true tells
+		// the DAG that the story's dependency is satisfied — which is wrong
+		// when the manager resets it to draft for retry.
+		handledThisWave := make(map[string]bool)
+
 		for _, id := range readyIDs {
 			if completed[id] {
 				continue
@@ -742,8 +768,7 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 				continue
 			}
 
-			// Mark as completed so DispatchWave skips this story.
-			completed[id] = true
+			handledThisWave[id] = true
 
 			switch tier {
 			case 2:
@@ -753,6 +778,13 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 				log.Printf("[auto-resume] intercepting tier-%d story %s for tech-lead escalation", tier, id)
 				m.handleTechLeadEscalation(ctx, story, repoDir, rc)
 			}
+		}
+
+		// Mark handled stories as completed for this wave only, so
+		// DispatchWave skips them. This prevents re-dispatch in the same
+		// cycle while still blocking dependents correctly.
+		for id := range handledThisWave {
+			completed[id] = true
 		}
 	}
 
@@ -1103,6 +1135,32 @@ func FindDependents(stories []PlannedStory, storyID string) []string {
 		}
 	}
 	return deps
+}
+
+// simulateDryRunChanges writes a placeholder file and commits it so the
+// post-execution pipeline has a non-empty diff to work with. Without this,
+// dry-run mode would retry forever because the agent produces no real output.
+func simulateDryRunChanges(worktreePath, storyID string) {
+	simFile := filepath.Join(worktreePath, "dry-run-simulation.txt")
+	content := fmt.Sprintf("[DRY RUN] Simulated changes for story %s\nThis file would be replaced by real agent output.\n", storyID)
+	if err := os.WriteFile(simFile, []byte(content), 0o644); err != nil {
+		log.Printf("[dry-run] failed to write simulation file: %v", err)
+		return
+	}
+
+	// Stage and commit
+	addCmd := exec.Command("git", "add", "dry-run-simulation.txt")
+	addCmd.Dir = worktreePath
+	if err := addCmd.Run(); err != nil {
+		log.Printf("[dry-run] git add failed: %v", err)
+		return
+	}
+
+	commitCmd := exec.Command("git", "commit", "-m", fmt.Sprintf("[dry-run] simulated changes for %s", storyID))
+	commitCmd.Dir = worktreePath
+	commitCmd.Run() // ignore error (may already be committed)
+
+	log.Printf("[dry-run] simulated changes committed for %s", storyID)
 }
 
 // autoCommit stages and commits any uncommitted changes in the worktree.

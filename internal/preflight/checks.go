@@ -77,6 +77,23 @@ func CheckLLMAvailable() Result {
 		Message: fmt.Sprintf("LLM available (%s)", strings.Join(sources, " + "))}
 }
 
+// CheckAnthropicKeyConflict warns when ANTHROPIC_API_KEY is set alongside
+// Claude CLI. The API key takes priority over the Max subscription (OAuth),
+// so agents will fail with "credit balance too low" if the key is exhausted
+// even when the user has an active Max subscription.
+func CheckAnthropicKeyConflict() Result {
+	apiKey := os.Getenv("ANTHROPIC_API_KEY")
+	_, cliErr := exec.LookPath("claude")
+	hasCLI := cliErr == nil
+
+	if apiKey != "" && hasCLI {
+		return Result{Name: "anthropic_key", Severity: SeverityWarning, Passed: false,
+			Message: "ANTHROPIC_API_KEY is set alongside Claude CLI — agents will use API credits instead of Max subscription. Run 'unset ANTHROPIC_API_KEY' if you have a Max subscription"}
+	}
+	return Result{Name: "anthropic_key", Severity: SeverityWarning, Passed: true,
+		Message: "No API key conflict"}
+}
+
 // --- WARNING checks ---
 
 // CheckGHCLI verifies gh CLI is installed and authenticated.
@@ -243,6 +260,7 @@ func CheckBillingConfig() Result {
 func DispatchChecks() []Check {
 	return []Check{
 		CheckTmux, CheckClaudeCLI, CheckGitRepo, CheckLLMAvailable,
+		CheckAnthropicKeyConflict,
 		CheckGHCLI, CheckNetwork, CheckStaleSessions, CheckGoogleAPIKey,
 	}
 }

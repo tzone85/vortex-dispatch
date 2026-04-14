@@ -40,7 +40,7 @@ vxd dashboard
 
 ### Demo
 
-![VXD Demo](https://vhs.charm.sh/vhs-5yT705ybH66DOTmCJKviR8.gif)
+![VXD Demo](https://vhs.charm.sh/vhs-23AYbABlUZ9ssvssNj9pWX.gif)
 
 See the [full tutorial](docs/tutorial.md) for a step-by-step walkthrough.
 
@@ -300,10 +300,119 @@ Full training guides are available in the [`docs/`](docs/) directory:
 - **[Architecture](docs/architecture.md)** -- Event sourcing, internals, data flow
 - **[Contributing](docs/contributing.md)** -- Adding runtimes, components, commands
 
+## Troubleshooting
+
+### Agents terminate immediately with no code changes
+
+**Cause:** `ANTHROPIC_API_KEY` is set in your shell. Claude CLI uses API credits instead of your Max subscription, and the credits are exhausted.
+
+**Fix:**
+```bash
+unset ANTHROPIC_API_KEY
+vxd resume <req-id> --auto
+```
+
+VXD's preflight check will warn you about this conflict:
+```
+⚠ ANTHROPIC_API_KEY is set alongside Claude CLI — agents will use API credits
+  instead of Max subscription. Run 'unset ANTHROPIC_API_KEY' if you have a
+  Max subscription
+```
+
+**Permanent fix:** Remove `ANTHROPIC_API_KEY` from your shell profile (`~/.zshrc` or `~/.bashrc`) if you use a Max subscription.
+
+### Web dashboard shows blank stories/escalations
+
+**Cause:** Stale VXD binary without JSON tags on model structs (fixed in April 2026).
+
+**Fix:** Rebuild VXD:
+```bash
+go build -o ~/.local/bin/vxd ./cmd/vxd
+```
+
+### Pipeline pauses with "agent produced no code changes"
+
+**Causes:**
+1. **API key conflict** (see above)
+2. **Read-only stories** — the planner created a "Codebase Assessment" story that produces no code. VXD requires every story to produce a diff.
+
+**Fix:** The planner prompt now instructs the tech lead not to create read-only assessment stories. Rebuild VXD to get the latest prompt.
+
+### PR conflicts after merging
+
+**Cause:** When multiple stories modify the same file, the second PR's branch diverges after the first merges.
+
+**Fix:** Use `auto_merge: true` in `vxd.yaml`:
+```yaml
+merge:
+  auto_merge: true
+  base_branch: main
+```
+
+In auto-merge mode, VXD rebases each story onto main before merging, resolving conflicts via the LLM-powered ConflictResolver. Without auto-merge, PRs are created but must be rebased and merged manually or via `vxd approve`.
+
+### Merging open PRs in order
+
+```bash
+# Auto-merge all pending PRs for a requirement (rebases in sequence)
+vxd approve --all <req-id>
+
+# Or approve/merge individual stories
+vxd approve <story-id>
+```
+
+### Review modes
+
+Control how much human oversight VXD requires:
+
+```yaml
+# vxd.yaml
+merge:
+  auto_merge: true     # Merge PRs automatically after QA passes
+  review_mode: auto    # auto | plan_only | manual
+```
+
+| Mode | Plan Approval | PR Approval | Best For |
+|------|--------------|-------------|----------|
+| `auto` | Not required | Not required | Trusted pipelines, CI/CD |
+| `plan_only` | Required (`vxd approve-plan`) | Not required | Review decomposition, auto-merge |
+| `manual` | Required | Required (`vxd approve`) | Full human oversight |
+
+Override per-run:
+```bash
+vxd resume <req-id> --auto     # Force auto mode for this run
+vxd resume <req-id> --review   # Force manual review for this run
+```
+
+### Monitoring a running pipeline
+
+```bash
+# TUI dashboard (real-time, keyboard navigation)
+vxd dashboard
+
+# Web dashboard (browser-based, WebSocket updates)
+vxd dashboard --web
+vxd dashboard --web --port 8788  # Custom port if 8787 is in use
+
+# Check status from CLI
+vxd status --req <req-id>
+
+# Peek at agent tmux sessions
+tmux list-sessions
+tmux attach -t <session-name>   # Watch agent work live
+```
+
+### Column headers in the dashboard
+
+| Column | Meaning |
+|--------|---------|
+| **C** | Complexity — Fibonacci story points (1, 2, 3, 5, 8, 13) |
+| **T** | Tier — escalation tier (0 = no escalation, 1 = senior retry, 2 = manager, 3 = tech lead re-plan, 4 = paused) |
+
 ## Testing
 
 ```bash
-go test ./...                    # Unit + integration (128 tests)
+go test ./...                    # Unit + integration
 go test -tags e2e ./test/        # E2E tests
 go test ./... -race -coverprofile=coverage.out  # With race detection + coverage
 ```

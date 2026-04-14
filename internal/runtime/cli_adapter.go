@@ -83,12 +83,14 @@ func (a *CLIAdapter) Prepare(cfg SessionConfig) (PreparedExecution, error) {
 		env[key] = val
 	}
 
-	// Prepend env exports and unset CLAUDECODE to prevent nested-session errors.
+	// Prepend env exports, unset CLAUDECODE to prevent nested-session errors,
+	// and unset ANTHROPIC_API_KEY so Claude CLI uses the Max subscription
+	// instead of a potentially expired/empty API key from the environment.
 	var envExports string
 	for key, val := range env {
 		envExports += fmt.Sprintf("export %s=%q; ", key, val)
 	}
-	cmdStr = envExports + "unset CLAUDECODE; " + cmdStr
+	cmdStr = envExports + "unset CLAUDECODE ANTHROPIC_API_KEY; " + cmdStr
 
 	// Add CLAUDE.md to setup files so agents don't brainstorm/plan.
 	if cfg.WorkDir != "" {

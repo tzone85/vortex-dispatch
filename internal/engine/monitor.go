@@ -1292,8 +1292,29 @@ func gitDiff(worktreePath string) (string, error) {
 	return string(out), nil
 }
 
-// isGitignoreOnlyDiff returns true when the only file changed between
-// mergeBase and HEAD is .gitignore.
+// vxdArtifactPatterns are files created by VXD infrastructure, not by the
+// agent's actual work. A diff containing ONLY these files means the agent
+// produced no real code changes.
+var vxdArtifactPatterns = []string{
+	".gitignore",
+	"CLAUDE.md",
+	".vxd-prompts/",
+	".serena/",
+	"dry-run-simulation.txt",
+}
+
+// isArtifactFile returns true if the file path matches a VXD infrastructure artifact.
+func isArtifactFile(path string) bool {
+	for _, pattern := range vxdArtifactPatterns {
+		if path == pattern || strings.HasPrefix(path, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+// isGitignoreOnlyDiff returns true when the only files changed between
+// mergeBase and HEAD are VXD infrastructure artifacts (not real code).
 func isGitignoreOnlyDiff(worktreePath, mergeBase string) bool {
 	cmd := exec.Command("git", "diff", "--name-only", mergeBase, "HEAD")
 	cmd.Dir = worktreePath
@@ -1306,7 +1327,11 @@ func isGitignoreOnlyDiff(worktreePath, mergeBase string) bool {
 		return false // no files changed — caller already handles empty diff
 	}
 	for _, f := range strings.Split(files, "\n") {
-		if strings.TrimSpace(f) != ".gitignore" {
+		f = strings.TrimSpace(f)
+		if f == "" {
+			continue
+		}
+		if !isArtifactFile(f) {
 			return false
 		}
 	}

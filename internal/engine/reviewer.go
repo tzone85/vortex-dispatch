@@ -62,11 +62,17 @@ func (r *Reviewer) Review(ctx context.Context, storyID, title, acceptanceCriteri
 		fileTreeCtx = fmt.Sprintf("\nExisting file tree (files already on disk, not just the diff):\n%s\n", extra[0])
 	}
 
+	// Build optional blast-radius context from codegraph analysis.
+	blastRadiusCtx := ""
+	if len(extra) > 1 && extra[1] != "" {
+		blastRadiusCtx = "\n" + extra[1]
+	}
+
 	prompt := fmt.Sprintf(`Review this code change for the following story:
 
 Story: %s
 Acceptance Criteria: %s
-%s
+%s%s
 Diff:
 %s
 
@@ -82,13 +88,14 @@ Review the code for:
 3. Test coverage - are changes tested?
 4. Security - any vulnerabilities?
 5. Performance - any obvious issues?
+6. Blast radius - if blast radius analysis is provided above, check whether high-risk callers or dependents might break.
 
 Respond with JSON:
 {
   "passed": true/false,
   "comments": [{"file": "path", "line": 0, "severity": "critical|major|minor|info", "comment": "..."}],
   "summary": "brief summary"
-}`, title, acceptanceCriteria, fileTreeCtx, diff)
+}`, title, acceptanceCriteria, fileTreeCtx, blastRadiusCtx, diff)
 
 	resp, err := r.llmClient.Complete(ctx, llm.CompletionRequest{
 		Model:     r.model,

@@ -134,7 +134,7 @@ func (c *CLIRuntime) BuildCommand(cfg SessionConfig) (string, error) {
 		if err := ValidateModelName(cfg.Model); err != nil {
 			return "", fmt.Errorf("invalid model name: %w", err)
 		}
-		cmdStr += fmt.Sprintf(" --model %q", cfg.Model)
+		cmdStr += fmt.Sprintf(" --model '%s'", cfg.Model)
 	}
 
 	// Write the combined prompt (system context + goal) to a file and pass
@@ -151,12 +151,16 @@ func (c *CLIRuntime) BuildCommand(cfg SessionConfig) (string, error) {
 		if err := os.WriteFile(promptFile, []byte(prompt), 0o644); err != nil {
 			return "", fmt.Errorf("write prompt file: %w", err)
 		}
-		cmdStr = fmt.Sprintf("%s -p \"$(cat %q)\"", cmdStr, promptFile)
+		// Use single quotes around $(cat ...) to avoid nested double-quote
+		// issues in tmux's sh -c invocation. The $(...) must remain outside
+		// single quotes so the shell expands it, so we concatenate:
+		//   -p "$(cat '/path/to/prompt.txt')"
+		cmdStr = fmt.Sprintf("%s -p \"$(cat '%s')\"", cmdStr, promptFile)
 	}
 
 	// Tee output to a log file so we can inspect it after the session exits.
 	if cfg.LogFile != "" {
-		cmdStr += fmt.Sprintf(" 2>&1 | tee %q", cfg.LogFile)
+		cmdStr += fmt.Sprintf(" 2>&1 | tee '%s'", cfg.LogFile)
 	}
 
 	// Pass through non-Anthropic API keys and unset CLAUDECODE to prevent

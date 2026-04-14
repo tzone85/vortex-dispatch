@@ -38,7 +38,7 @@ func (c *ClaudeCLIClient) WithSkipPermissions() *ClaudeCLIClient {
 }
 
 // Complete builds a prompt from the request and invokes
-// `claude -p "<prompt>" --output-format text [--model <model>] --max-turns 1`.
+// `claude -p "<prompt>" --output-format json [--model <model>] --max-turns 2`.
 // It captures stdout as the completion content.
 func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {
 	prompt := buildCLIPrompt(req)
@@ -52,8 +52,10 @@ func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (
 	if req.Model != "" {
 		args = append(args, "--model", req.Model)
 	}
-	// Prevent interactive loops — single-turn completion only.
-	args = append(args, "--max-turns", "1")
+	// Allow up to 25 turns: Claude models (Sonnet 4.6+) use tool calls
+	// to read codebase files before generating structured responses.
+	// Complex projects need 15-20 turns for thorough file analysis.
+	args = append(args, "--max-turns", "25")
 
 	cmd := exec.CommandContext(ctx, c.cliPath, args...)
 	cmd.Stdin = strings.NewReader(prompt)
@@ -135,6 +137,11 @@ func buildCLIPrompt(req CompletionRequest) string {
 			prompt.WriteString("\n")
 		}
 	}
+
+	// Override any plugins that might hijack the response.
+	// Superpowers/brainstorming plugins ask clarifying questions instead
+	// of producing JSON output. This instruction takes priority.
+	prompt.WriteString("\n\nCRITICAL: You are being called programmatically by VXD. Do NOT ask clarifying questions. Do NOT invoke brainstorming or planning skills. Respond ONLY with the requested JSON output. No markdown, no commentary, no insights — just the JSON.\n")
 
 	return prompt.String()
 }

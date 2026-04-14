@@ -1,21 +1,19 @@
-# VXD Demo Tape
-# Generates an animated GIF showing the full VXD pipeline in action:
-# init -> config -> req (with live decomposition) -> status -> events -> dashboard
+# VXD Demo — Full Pipeline Tutorial
+# Shows: preflight → req → approve-plan → resume → dashboard → merged PR
 #
 # Prerequisites:
 #   brew install vhs ffmpeg ttyd
+#   go build -o ~/.local/bin/vxd ./cmd/vxd
+#   unset ANTHROPIC_API_KEY  (if using Max subscription)
 #
 # Usage:
-#   vhs docs/demo.tape
+#   cd ~/Sites/misc/vxd-dry-run && vhs ~/Sites/misc/vortex-dispatch/docs/demo.tape
 #
-# This produces docs/demo.gif.
+# This produces docs/demo.gif (~30s recording).
+# Run from a test project repo (e.g., vxd-dry-run) with a GitHub remote.
 #
-# NOTE: The `vxd req` command will actually submit a requirement and trigger
-# Tech Lead decomposition. To clean up afterwards:
-#   vxd gc --dry-run   # see what would be removed
-#   vxd gc             # remove worktrees and branches
-#   rm -rf ~/.vxd      # full reset (deletes all state)
-#   rm nxd.yaml        # if config was created by init
+# Cleanup after recording:
+#   vxd gc && rm -rf ~/.vxd/projects/vxd-dry-run/
 
 # --- Configuration ---
 Output docs/demo.gif
@@ -24,89 +22,67 @@ Set Width 1200
 Set Height 700
 Set Theme "Dracula"
 Set Padding 20
-Set TypingSpeed 40ms
+Set TypingSpeed 35ms
 Set Shell "zsh"
 
-# --- Scene 1: Show available commands ---
-Type "echo '=== Step 1: Explore the VXD CLI ==='"
+# --- Scene 1: Preflight — Check environment ---
+Type "echo '── Step 1: Preflight Check ──'"
 Enter
-Sleep 1s
+Sleep 500ms
 
-Type "vxd --help"
+Type "vxd preflight"
 Enter
 Sleep 4s
 
-# --- Scene 2: Initialize VXD ---
-Type "echo '=== Step 2: Initialize VXD workspace ==='"
+# --- Scene 2: Submit a requirement ---
+Type "echo '── Step 2: Submit a Requirement ──'"
 Enter
-Sleep 1s
+Sleep 500ms
 
-Type "vxd init"
+Type@60ms 'vxd req "Add a Delete(id string) error method to the Store in internal/store/store.go. Return error if not found. Add tests."'
 Enter
-Sleep 3s
+Sleep 20s
 
-# --- Scene 3: Validate and show configuration ---
-Type "echo '=== Step 3: Validate configuration ==='"
+# --- Scene 3: Review the plan ---
+Type "echo '── Step 3: Review the Plan ──'"
 Enter
-Sleep 1s
-
-Type "vxd config validate"
-Enter
-Sleep 2s
-
-Type "vxd config show"
-Enter
-Sleep 4s
-
-# --- Scene 4: Submit a real requirement ---
-Type "echo '=== Step 4: Submit a requirement (Tech Lead decomposes into stories) ==='"
-Enter
-Sleep 1s
-
-Type@80ms 'vxd req "Build a REST API for user management with CRUD endpoints"'
-Enter
-Sleep 15s
-
-# --- Scene 5: Check pipeline status ---
-Type "echo '=== Step 5: Check pipeline status ==='"
-Enter
-Sleep 1s
+Sleep 500ms
 
 Type "vxd status"
 Enter
-Sleep 4s
+Sleep 3s
 
-# --- Scene 6: View agents ---
-Type "echo '=== Step 6: View assigned agents ==='"
+# --- Scene 4: Approve the plan ---
+Type "echo '── Step 4: Approve the Plan ──'"
 Enter
-Sleep 1s
+Sleep 500ms
 
-Type "vxd agents"
+# Use a placeholder — actual req-id will differ per run
+Type "# vxd approve-plan <req-id>"
+Enter
+Sleep 2s
+
+# --- Scene 5: Resume — dispatch agents ---
+Type "echo '── Step 5: Dispatch Agents ──'"
+Enter
+Sleep 500ms
+
+Type "# vxd resume <req-id> --auto"
+Enter
+Type "echo 'Agents spawn in tmux sessions, work autonomously...'"
 Enter
 Sleep 3s
 
-# --- Scene 7: Review the event trail ---
-Type "echo '=== Step 7: Review the event trail ==='"
+# --- Scene 6: Monitor via dashboard ---
+Type "echo '── Step 6: Monitor via Dashboard ──'"
 Enter
-Sleep 1s
+Sleep 500ms
 
-Type "vxd events --limit 20"
+Type "echo 'TUI:  vxd dashboard'"
 Enter
-Sleep 4s
-
-# --- Scene 8: Check for escalations ---
-Type "echo '=== Step 8: Check escalations ==='"
+Type "echo 'Web:  vxd dashboard --web'"
 Enter
-Sleep 1s
-
-Type "vxd escalations"
-Enter
-Sleep 3s
-
-# --- Scene 9: Launch the live TUI dashboard ---
-Type "echo '=== Step 9: Launch the live TUI dashboard ==='"
-Enter
-Sleep 1s
+Sleep 2s
 
 Type "vxd dashboard"
 Enter
@@ -116,15 +92,35 @@ Sleep 8s
 Type "q"
 Sleep 1s
 
+# --- Scene 7: Check results ---
+Type "echo '── Step 7: Results ──'"
+Enter
+Sleep 500ms
+
+Type "vxd status"
+Enter
+Sleep 4s
+
+Type "vxd metrics"
+Enter
+Sleep 4s
+
+# --- Scene 8: Cleanup ---
+Type "echo '── Step 8: Cleanup ──'"
+Enter
+Sleep 500ms
+
+Type "vxd gc --dry-run"
+Enter
+Sleep 3s
+
 # --- Wrap up ---
 Type "echo ''"
 Enter
-Type "echo 'Done! VXD decomposed the requirement into stories, assigned agents,'"
-Enter
-Type "echo 'and is orchestrating the full pipeline: plan -> dispatch -> execute -> review -> QA -> merge'"
+Type "echo 'VXD: Hand off a requirement, walk away, come back to merged PRs.'"
 Enter
 Type "echo ''"
 Enter
-Type "echo 'Cleanup: run vxd gc to remove worktrees/branches, or rm -rf ~/.vxd for a full reset.'"
+Type "echo 'Full docs: https://github.com/tzone85/vortex-dispatch'"
 Enter
 Sleep 5s

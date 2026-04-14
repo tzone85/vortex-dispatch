@@ -347,6 +347,12 @@ func runResume(cmd *cobra.Command, args []string) error {
 		log.Printf("[resume] codegraph enabled: %s", cg.BinPath)
 	}
 
+	// Enable dry-run mode: simulates agent changes so the full pipeline
+	// (review → QA → merge) exercises without real agent output.
+	if dryRun {
+		monitor.SetDryRun(true)
+	}
+
 	// Enable LLM-powered conflict resolution during rebase.
 	if llmClient != nil {
 		seniorModel := s.Config.Models.Senior

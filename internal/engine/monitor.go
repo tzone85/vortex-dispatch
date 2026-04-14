@@ -542,6 +542,9 @@ func (m *Monitor) rebaseAndMerge(ctx context.Context, storyID, branch, repoDir, 
 
 	log.Printf("[pipeline] fetching %s and rebasing %s for %s", baseBranch, branch, storyID)
 
+	// Safety net: commit any unstaged changes before rebasing.
+	autoCommit(worktreePath, storyID)
+
 	if err := vxdgit.FetchBranch(repoDir, baseBranch); err != nil {
 		return MergeResult{}, fmt.Errorf("fetch %s: %w", baseBranch, err)
 	}
@@ -576,6 +579,8 @@ func (m *Monitor) rebaseAndCreatePR(ctx context.Context, storyID, branch, repoDi
 	}
 
 	log.Printf("[pipeline] fetching %s and rebasing %s for %s (manual review)", baseBranch, branch, storyID)
+
+	autoCommit(worktreePath, storyID)
 
 	if err := vxdgit.FetchBranch(repoDir, baseBranch); err != nil {
 		return MergeResult{}, fmt.Errorf("fetch %s: %w", baseBranch, err)

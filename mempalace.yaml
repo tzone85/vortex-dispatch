@@ -1,0 +1,24 @@
+wing: vortex_dispatch
+rooms:
+- name: cmd
+  description: Files from cmd/
+- name: testdata
+  description: Files from testdata/
+- name: repos
+  description: Files from repos/
+- name: migrations
+  description: Files from migrations/
+- name: testing
+  description: Files from test/
+- name: internal
+  description: Files from internal/
+- name: documentation
+  description: Files from docs/
+- name: scripts
+  description: Files from scripts/
+- name: formulas
+  description: Files from formulas/
+- name: configuration
+  description: Files from config/
+- name: general
+  description: Files that don't fit other rooms

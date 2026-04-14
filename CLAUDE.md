@@ -143,16 +143,40 @@ Spec-kit is installed (`.specify/`). For new features:
 | Binary | `~/.local/bin/vxd` | `~/.local/bin/nxd` |
 | Rule | NEVER reference VXD in NXD code | Keep in sync on core fixes |
 
-## Pending Work (as of 2026-04-12)
-1. ~~Repo Learning System~~ — DONE
-2. ~~Wire trace parser into `vxd metrics`~~ — DONE
-3. ~~Wire Adapter/Runner into executor~~ — DONE (with fallback to legacy)
-4. ~~Docker/SSH runners~~ — DONE (29 tests)
-5. ~~Port to NXD~~ — DONE
-6. ~~Documentation overhaul~~ — DONE
-7. ~~Retroactive SDD spec for agentflow features~~ — DONE
-8. ~~Add SpecKit to tracked projects~~ — DONE
-9. Wire ScanDeep (Pass 3) into `vxd req` — DONE
-10. ~~Port repolearn to NXD~~ — DONE (28 tests passing)
-11. Port Docker/SSH runners to NXD (remaining sync)
-12. Fix GitHub Actions billing to unblock CI
+## Critical Operational Knowledge
+
+### ANTHROPIC_API_KEY Conflict
+- When `ANTHROPIC_API_KEY` is set AND Claude CLI is installed, CLI uses API credits instead of Max subscription
+- VXD actively removes this key from tmux global env (`tmux set-environment -g -u ANTHROPIC_API_KEY`)
+- The CLI adapter also unsets it in the command string (`unset CLAUDECODE ANTHROPIC_API_KEY;`)
+- Preflight check `CheckAnthropicKeyConflict` warns about this condition
+- **User fix:** `unset ANTHROPIC_API_KEY` before running VXD
+
+### Claude CLI Max-Turns
+- `ClaudeCLIClient` uses `--max-turns 25` for planning/review calls
+- Sonnet 4.6+ uses tool calls to read files before responding — needs 10-20 turns for complex projects
+- If planning fails with "error_max_turns", increase this in `internal/llm/claude_cli.go`
+
+### Plugin Interference
+- Claude CLI loads superpowers/brainstorming plugins that hijack structured JSON responses
+- The `buildCLIPrompt` appends "CRITICAL: You are being called programmatically by VXD..." to override plugins
+- `extractJSON` in `internal/engine/jsonutil.go` handles preamble text before JSON by finding first `[` or `{`
+- CLAUDE.md in worktrees controls agent behavior at project level
+
+### Code Review Graph (codegraph)
+- `internal/codegraph/` integrates code-review-graph (Python, installed via `uv tool install`)
+- Provides blast-radius analysis before code review
+- Gracefully degrades — if binary not installed, all functions return empty results
+- Graph stored in `.code-review-graph/graph.db` (SQLite)
+
+## Pending Work (as of 2026-04-14)
+1. ~~All items from 2026-04-12~~ — DONE
+2. ~~Code-review-graph integration~~ — DONE (VXD + NXD)
+3. ~~Test coverage boost~~ — VXD 84.4%, NXD 70.1%
+4. ~~Pipeline bug fixes~~ — 9 bugs found and fixed via real pipeline testing
+5. ~~Web dashboard JSON fix~~ — model structs now have JSON tags
+6. Port Docker/SSH runners to NXD (remaining sync)
+7. Fix GitHub Actions billing to unblock CI
+8. Re-planner guardrails — prevent hallucinated sub-stories during tier-3 splits
+9. Post-merge rebase check — auto-detect and resolve conflicts on open PRs
+10. NXD native runtime unstaged changes — auto-commit before rebase

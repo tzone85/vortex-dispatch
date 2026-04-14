@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/tzone85/vortex-dispatch/internal/agent"
+	"github.com/tzone85/vortex-dispatch/internal/codegraph"
 	"github.com/tzone85/vortex-dispatch/internal/config"
 	"github.com/tzone85/vortex-dispatch/internal/engine"
 	"github.com/tzone85/vortex-dispatch/internal/graph"
@@ -1173,5 +1174,106 @@ func TestWiring_ScanDeep_ProfilePersistsPass3(t *testing.T) {
 	}
 	if !found {
 		t.Error("WIRING FAILURE: llm_summary signal not preserved after save/load")
+	}
+}
+
+// --------------------------------------------------------------------------
+// Code Graph Wiring Tests
+// --------------------------------------------------------------------------
+// These verify that the codegraph integration is wired into the pipeline.
+
+func TestWiring_CodeGraph_ReviewerAcceptsBlastRadius(t *testing.T) {
+	// Verify that the reviewer's Review() function accepts blast-radius
+	// context as extra[1] without error.
+	es, ps, cleanup := newIntegrationStores(t)
+	defer cleanup()
+
+	replayClient := llm.NewReplayClient(llm.CompletionResponse{
+		Content: `{"passed":true,"comments":[],"summary":"ok with blast radius"}`,
+	})
+
+	reviewer := engine.NewReviewer(replayClient, "test-model", 1000, es, ps)
+
+	// Simulate a review with blast-radius context
+	blastRadius := "## Blast Radius Analysis (risk: 0.6/1.0)\n3 changed functions"
+	result, err := reviewer.Review(
+		context.Background(),
+		"test-story-1",
+		"Test Story",
+		"Should work",
+		"diff --git a/foo.go b/foo.go\n+func foo() {}\n",
+		"file-tree-context",
+		blastRadius,
+	)
+	if err != nil {
+		t.Fatalf("Review with blast-radius failed: %v", err)
+	}
+	if !result.Passed {
+		t.Error("WIRING FAILURE: review should pass with blast-radius context")
+	}
+}
+
+func TestWiring_CodeGraph_MonitorAcceptsCodeGraph(t *testing.T) {
+	// Verify that Monitor.SetCodeGraph() compiles and doesn't panic.
+	es, ps, cleanup := newIntegrationStores(t)
+	defer cleanup()
+
+	replayClient := llm.NewReplayClient(llm.CompletionResponse{
+		Content: `{"passed":true,"comments":[],"summary":"ok"}`,
+	})
+
+	reviewer := engine.NewReviewer(replayClient, "model", 1000, es, ps)
+	watchdog := engine.NewWatchdog(engine.WatchdogConfig{StuckThresholdS: 120}, es)
+	qa := engine.NewQA(engine.QAConfig{}, &mockRunner{results: map[string]mockRunResult{"go": {output: "ok"}}}, es, ps)
+	cfg := config.DefaultConfig()
+
+	monitor := engine.NewMonitor(nil, watchdog, reviewer, qa, nil, cfg, es, ps)
+
+	// SetCodeGraph should accept a runner (even one with no binary)
+	cg := &codegraph.Runner{}
+	monitor.SetCodeGraph(cg)
+	// No panic = wiring is correct
+	t.Log("CodeGraph runner successfully wired into Monitor via SetCodeGraph()")
+}
+
+func TestWiring_CodeGraph_ImpactAnalysis_FormatMarkdown(t *testing.T) {
+	// Verify the analysis formatting produces valid context for the reviewer.
+	ia := &codegraph.ImpactAnalysis{
+		RiskScore: 0.55,
+		Summary:   "5 changed functions, 2 test gaps",
+		ReviewPriorities: []codegraph.ChangedNode{
+			{Name: "Process", FilePath: "/repo/engine/process.go", LineStart: 10, LineEnd: 50, RiskScore: 0.7},
+		},
+		TestGaps: []codegraph.TestGap{
+			{Name: "Process", FilePath: "/repo/engine/process.go", LineStart: 10, LineEnd: 50},
+		},
+	}
+
+	md := ia.FormatMarkdown()
+	if md == "" {
+		t.Fatal("WIRING FAILURE: FormatMarkdown returned empty string for non-empty analysis")
+	}
+	if !strings.Contains(md, "Blast Radius") {
+		t.Error("WIRING FAILURE: markdown missing 'Blast Radius' header")
+	}
+	if !strings.Contains(md, "Process") {
+		t.Error("WIRING FAILURE: markdown missing function name 'Process'")
+	}
+}
+
+func TestWiring_CodeGraph_GracefulDegradation(t *testing.T) {
+	// Verify that an unavailable runner returns empty results, not errors.
+	cg := &codegraph.Runner{} // no binary
+	if cg.Available() {
+		t.Fatal("WIRING FAILURE: empty runner should report unavailable")
+	}
+
+	ctx := context.Background()
+	ia, err := cg.DetectChanges(ctx, "/tmp/nonexistent", "HEAD~1")
+	if err != nil {
+		t.Fatalf("WIRING FAILURE: DetectChanges should not error when unavailable: %v", err)
+	}
+	if !ia.Empty() {
+		t.Error("WIRING FAILURE: DetectChanges should return empty analysis when unavailable")
 	}
 }

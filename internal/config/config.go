@@ -60,6 +60,7 @@ type RoutingConfig struct {
 	MaxQAFailuresBeforeEscalation int `yaml:"max_qa_failures_before_escalation"`
 	MaxSeniorRetries              int `yaml:"max_senior_retries"`
 	MaxManagerAttempts            int `yaml:"max_manager_attempts"`
+	MaxConcurrentAgents           int `yaml:"max_concurrent_agents"`
 }
 
 // MonitorConfig controls the supervisor monitoring loop.
@@ -176,6 +177,10 @@ func (c Config) Validate() error {
 
 	if !validLogArchive[c.Cleanup.LogArchive] {
 		return fmt.Errorf("cleanup.log_archive must be \"dolt\", \"file\", or \"none\"; got %q", c.Cleanup.LogArchive)
+	}
+
+	if c.Routing.MaxConcurrentAgents < 1 || c.Routing.MaxConcurrentAgents > 50 {
+		return fmt.Errorf("routing.max_concurrent_agents must be between 1 and 50, got %d", c.Routing.MaxConcurrentAgents)
 	}
 
 	if c.Routing.JuniorMaxComplexity < 1 || c.Routing.JuniorMaxComplexity > 13 {

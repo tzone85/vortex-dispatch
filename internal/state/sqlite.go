@@ -130,6 +130,19 @@ func NewSQLiteStore(dsn string) (*SQLiteStore, error) {
 		db.Exec(m) // errors ignored for idempotency
 	}
 
+	indexStatements := []string{
+		`CREATE INDEX IF NOT EXISTS idx_stories_req_id ON stories(req_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_stories_status ON stories(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_story_deps_story_id ON story_deps(story_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_escalations_story_id ON escalations(story_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_agent_scores_agent_id ON agent_scores(agent_id)`,
+	}
+	for _, stmt := range indexStatements {
+		if _, err := db.Exec(stmt); err != nil {
+			return nil, fmt.Errorf("create index: %w", err)
+		}
+	}
+
 	return &SQLiteStore{db: db}, nil
 }
 

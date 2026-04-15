@@ -14,6 +14,7 @@ import (
 	"github.com/tzone85/vortex-dispatch/internal/graph"
 	"github.com/tzone85/vortex-dispatch/internal/llm"
 	"github.com/tzone85/vortex-dispatch/internal/repolearn"
+	"github.com/tzone85/vortex-dispatch/internal/sanitize"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
 
@@ -67,6 +68,14 @@ func NewPlanner(client llm.Client, cfg config.Config, es state.EventStore, ps st
 // graph. It emits REQ_SUBMITTED, STORY_CREATED (per story), and REQ_PLANNED
 // events.
 func (p *Planner) Plan(ctx context.Context, reqID, requirement, repoPath string) (PlanResult, error) {
+	// Validate requirement before sending to LLM
+	if sanitize.DetectPromptInjection(requirement) {
+		return PlanResult{}, fmt.Errorf("requirement rejected: prompt injection detected")
+	}
+	if sanitize.ScanForSecrets(requirement) {
+		return PlanResult{}, fmt.Errorf("requirement rejected: embedded secret detected — remove credentials before submitting")
+	}
+
 	// Emit requirement submitted
 	reqPayload := map[string]any{
 		"id":          reqID,

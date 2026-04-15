@@ -72,6 +72,12 @@ func (d *Dispatcher) DispatchWave(dag *graph.DAG, completed map[string]bool, req
 	// Determine which stories to dispatch this wave
 	dispatchable := d.selectDispatchable(readyStories)
 
+	// Enforce concurrent agent limit
+	if max := d.config.Routing.MaxConcurrentAgents; max > 0 && len(dispatchable) > max {
+		log.Printf("[dispatcher] capping wave from %d to %d stories (max_concurrent_agents)", len(dispatchable), max)
+		dispatchable = dispatchable[:max]
+	}
+
 	// Load agent reputations for preferential routing (best-effort).
 	reps, repErr := AgentReputations(d.eventStore)
 	if repErr != nil {

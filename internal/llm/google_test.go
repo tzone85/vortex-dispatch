@@ -16,8 +16,8 @@ func TestGoogleAIClient_ImplementsClientInterface(t *testing.T) {
 
 func TestGoogleAIClient_Complete(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.URL.Query().Get("key"); got != "test-key" {
-			t.Errorf("expected key 'test-key', got %q", got)
+		if got := r.Header.Get("x-goog-api-key"); got != "test-key" {
+			t.Errorf("expected x-goog-api-key header 'test-key', got %q", got)
 		}
 
 		if r.URL.Path != "/v1beta/models/gemma-4-27b-it:generateContent" {
@@ -201,6 +201,39 @@ func TestGoogleAIClient_AssistantRoleMapsToModel(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("complete: %v", err)
+	}
+}
+
+func TestGoogleAIClient_APIKeyInHeader(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("key"); got != "" {
+			t.Errorf("API key found in URL query string — security vulnerability")
+		}
+		if got := r.Header.Get("x-goog-api-key"); got != "test-key" {
+			t.Errorf("expected x-goog-api-key header 'test-key', got %q", got)
+		}
+		resp := map[string]any{
+			"candidates": []map[string]any{
+				{"content": map[string]any{
+					"parts": []map[string]any{{"text": "ok"}},
+					"role":  "model",
+				}, "finishReason": "STOP"},
+			},
+			"usageMetadata": map[string]any{
+				"promptTokenCount": 10, "candidatesTokenCount": 5,
+			},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client := llm.NewGoogleAIClient("test-key").WithBaseURL(server.URL)
+	_, err := client.Complete(context.Background(), llm.CompletionRequest{
+		Model: "gemma-4-27b-it", MaxTokens: 100,
+		Messages: []llm.Message{{Role: llm.RoleUser, Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

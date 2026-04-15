@@ -72,7 +72,14 @@ type Monitor struct {
 	// dagMu serializes DAG mutations (e.g. story splits) so that
 	// concurrent pipelines don't corrupt the graph.
 	dagMu sync.Mutex
+
+	// dryRun, when true, skips side-effecting operations (merge, push) so
+	// the monitor can be exercised in tests without touching external services.
+	dryRun bool
 }
+
+// SetDryRun enables or disables dry-run mode on the monitor.
+func (m *Monitor) SetDryRun(v bool) { m.dryRun = v }
 
 // NewMonitor creates a Monitor wired to all pipeline components.
 func NewMonitor(

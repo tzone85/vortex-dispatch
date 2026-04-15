@@ -61,7 +61,7 @@ func (fl *FeedbackLoop) AppendFeedback(entry FeedbackEntry) error {
 		return fmt.Errorf("create feedback dir: %w", err)
 	}
 
-	f, err := os.OpenFile(fl.feedbackPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(fl.feedbackPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("open feedback file: %w", err)
 	}

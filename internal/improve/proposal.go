@@ -91,7 +91,7 @@ func (d *ProposalDrafter) DraftProposal(ctx context.Context, opp Opportunity) (s
 		return "", fmt.Errorf("create work dir: %w", err)
 	}
 	promptFile := filepath.Join(d.workDir, fmt.Sprintf("proposal-%s.md", opp.ID))
-	if err := os.WriteFile(promptFile, []byte(prompt), 0o644); err != nil {
+	if err := os.WriteFile(promptFile, []byte(prompt), 0o600); err != nil {
 		return "", fmt.Errorf("write prompt file: %w", err)
 	}
 

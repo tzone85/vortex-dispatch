@@ -34,6 +34,7 @@ func DefaultConfig() Config {
 			MaxQAFailuresBeforeEscalation: 3,
 			MaxSeniorRetries:              2,
 			MaxManagerAttempts:            2,
+			MaxConcurrentAgents:           5,
 		},
 		Monitor: MonitorConfig{
 			PollIntervalMs:         10000,

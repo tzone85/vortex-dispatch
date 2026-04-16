@@ -111,6 +111,7 @@ vhs docs/demo.tape
 | `vxd reject <story-id>` | Reject a story's PR (returns to in_progress) |
 | `vxd pause <req-id>` | Pause a running requirement |
 | `vxd memory` | Launch the memory dashboard |
+| `vxd backup [--output DIR]` | Create tar.gz archive of project state (events.jsonl, store.db, config) |
 
 ### Submitting Requirements
 
@@ -180,6 +181,66 @@ The analysis runs in three passes:
 
 The profile is saved to `~/.vxd/projects/<name>/repo-profile.json` and automatically loaded by the executor and planner to enrich agent prompts with pre-learned knowledge. Use `vxd projects` to see the learning status of all tracked projects.
 
+### SLA Tracking
+
+VXD tracks per-story duration against configurable SLA thresholds and emits `STORY_SLA_BREACHED` events when stories exceed their limit:
+
+```yaml
+sla:
+  max_minutes_per_complexity:
+    1: 60      # 1pt = 1 hour
+    2: 120     # 2pt = 2 hours
+    3: 240     # 3pt = 4 hours
+    5: 480     # 5pt = 8 hours
+    8: 960     # 8pt = 16 hours
+    13: 1920   # 13pt = 32 hours
+  auto_escalate: false   # opt-in: trigger tier escalation on breach
+```
+
+Breaches surface in `vxd metrics` (count + rate), `vxd report` (⚠ badge per story), and the event log. Set `auto_escalate: true` to automatically promote breached stories to the next tier.
+
+### Secrets Management
+
+LLM API keys are loaded via a swappable secrets provider. Default is environment variables; HashiCorp Vault is supported for production:
+
+```yaml
+# Default — read from env (no config needed)
+secrets:
+  provider: env
+
+# Phase 2 — read from Vault
+secrets:
+  provider: vault
+  vault_addr: http://127.0.0.1:8200
+  vault_token: "..."        # or set VAULT_TOKEN env var
+  vault_mount: secret        # optional, defaults to "secret"
+  vault_path: vxd            # optional, defaults to "vxd"
+```
+
+Vault uses KV v2 (modern default). Store secrets as a single map at the configured path:
+```bash
+vault kv put secret/vxd \
+  ANTHROPIC_API_KEY="sk-ant-..." \
+  GOOGLE_API_KEY="AIza..." \
+  GITHUB_TOKEN="ghp_..."
+```
+
+Switching providers requires no code changes — only the config file.
+
+### Health Endpoint
+
+When running `vxd dashboard --web`, a `/health` endpoint returns JSON `{status: "ok", version: "0.1.0"}` for systemd, Docker, or Kubernetes liveness probes.
+
+### Backups
+
+Create a tar.gz archive of the project state directory:
+```bash
+vxd backup                    # to current directory
+vxd backup --output /backups  # to specific directory
+```
+
+Archives include `events.jsonl`, `store.db`, and other state files. Combined with the append-only event log design, this provides a baseline disaster recovery story (RPO = backup interval, RTO = restore + replay time).
+
 ## Configuration
 
 Run `vxd init` to generate `vxd.yaml` with sensible defaults, then customize:
@@ -195,6 +256,8 @@ Run `vxd init` to generate `vxd.yaml` with sensible defaults, then customize:
 | `runtimes` | CLI runtime definitions (command, args, model list, detection patterns) |
 | `billing` | Hourly rate, Fibonacci-to-hours mapping for cost estimation |
 | `qa` | Lint/build/test commands, declarative success criteria |
+| `sla` | Per-complexity duration limits, optional auto-escalation on breach |
+| `secrets` | Secrets provider (`env` or `vault`) and Vault connection settings |
 
 ## Architecture
 

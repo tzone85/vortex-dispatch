@@ -18,6 +18,16 @@ type Config struct {
 	Billing   BillingConfig            `yaml:"billing"`
 	QA        QAConfig                 `yaml:"qa"`
 	SLA       SLAConfig                `yaml:"sla"`
+	Secrets   SecretsConfig            `yaml:"secrets"`
+}
+
+// SecretsConfig configures the secrets provider.
+type SecretsConfig struct {
+	Provider   string `yaml:"provider"`    // "env" (default) | "vault"
+	VaultAddr  string `yaml:"vault_addr"`  // e.g. http://127.0.0.1:8200
+	VaultToken string `yaml:"vault_token"` // X-Vault-Token; consider using VAULT_TOKEN env instead
+	VaultMount string `yaml:"vault_mount"` // KV v2 mount path, default "secret"
+	VaultPath  string `yaml:"vault_path"`  // path within mount, default "vxd"
 }
 
 // PlanningConfig controls how the planner decomposes requirements into stories.
@@ -189,6 +199,16 @@ func (c Config) Validate() error {
 
 	if c.Routing.MaxConcurrentAgents < 1 || c.Routing.MaxConcurrentAgents > 50 {
 		return fmt.Errorf("routing.max_concurrent_agents must be between 1 and 50, got %d", c.Routing.MaxConcurrentAgents)
+	}
+
+	switch c.Secrets.Provider {
+	case "", "env", "vault":
+		// valid
+	default:
+		return fmt.Errorf("secrets.provider must be \"env\" or \"vault\", got %q", c.Secrets.Provider)
+	}
+	if c.Secrets.Provider == "vault" && c.Secrets.VaultAddr == "" {
+		return fmt.Errorf("secrets.vault_addr is required when secrets.provider is \"vault\"")
 	}
 
 	if c.Routing.JuniorMaxComplexity < 1 || c.Routing.JuniorMaxComplexity > 13 {

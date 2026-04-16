@@ -93,6 +93,9 @@ func loadStores(cmd *cobra.Command) (stores, error) {
 	allEvents, _ := es.List(state.EventFilter{Type: state.EventStoryCreated})
 	ps.BackfillAcceptanceCriteria(allEvents)
 
+	// Initialize secrets provider from config (default: env)
+	configureSecretsFromConfig(cfg)
+
 	return stores{
 		Config:     cfg,
 		Events:     es,

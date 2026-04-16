@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+launchd plist for the VXD self-improvement daemon (macOS Phase 1 deployment).
+
+Install:
+  cp deploy/com.vxd.improve.plist ~/Library/LaunchAgents/
+  launchctl load ~/Library/LaunchAgents/com.vxd.improve.plist
+  launchctl list | grep vxd  # verify loaded
+
+Logs:
+  ~/.vxd/launchd-stdout.log
+  ~/.vxd/launchd-stderr.log
+
+Edit the paths and environment variables below to match your install.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.vxd.improve</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/YOURUSER/.local/bin/vxd-improve</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/YOURUSER/Sites/misc/vortex-dispatch</string>
+
+    <!-- Run daily at 06:00 -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>6</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <!-- Environment for the daemon -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>HOME</key>
+        <string>/Users/YOURUSER</string>
+        <!-- Secrets — populate via 'launchctl setenv' or use a wrapper script
+             that sources ~/.vxd/secrets.env and exec's vxd-improve. -->
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/YOURUSER/.vxd/launchd-stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/YOURUSER/.vxd/launchd-stderr.log</string>
+
+    <!-- Don't restart on failure — daemon is idempotent per day -->
+    <key>KeepAlive</key>
+    <false/>
+
+    <!-- Run only when network is reachable -->
+    <key>NetworkState</key>
+    <true/>
+</dict>
+</plist>

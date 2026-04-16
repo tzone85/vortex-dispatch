@@ -1,0 +1,52 @@
+# systemd unit for the VXD self-improvement daemon (Phase 2 Linux deployment).
+#
+# Install:
+#   sudo cp deploy/vxd-improve.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable vxd-improve.timer  # see vxd-improve.timer below
+#
+# This unit runs the daemon ONCE then exits — pair with vxd-improve.timer
+# for daily scheduling. Do NOT use Restart=always; the daemon is idempotent
+# per day and exits on success.
+
+[Unit]
+Description=VXD Self-Improvement Engine (daily research + opportunity scraping)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=vxd
+Group=vxd
+WorkingDirectory=/home/vxd/vortex-dispatch
+
+# Secrets — prefer EnvironmentFile over inline Environment for hygiene
+EnvironmentFile=-/etc/vxd/secrets.env
+Environment="HOME=/home/vxd"
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+
+ExecStart=/usr/local/bin/vxd-improve
+
+# Limit resource consumption — vxd-improve is bursty during scraping
+MemoryMax=2G
+CPUQuota=200%
+TasksMax=200
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/vxd/.vxd /home/vxd/vortex-dispatch/docs/self-improvement /home/vxd/vortex-dispatch/docs/opportunities
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Logging via journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vxd-improve
+
+[Install]
+WantedBy=multi-user.target

@@ -4,6 +4,7 @@ package web
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"log"
@@ -59,6 +60,9 @@ func (s *Server) Start(ctx context.Context) error {
 	// WebSocket endpoint
 	mux.HandleFunc("/ws", s.hub.HandleWebSocket)
 
+	// Health check endpoint (for systemd/Docker/K8s probes)
+	mux.HandleFunc("/health", healthHandler)
+
 	addr := fmt.Sprintf("localhost:%d", s.port)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -84,6 +88,18 @@ func (s *Server) Start(ctx context.Context) error {
 	}()
 
 	return s.httpServer.Serve(listener)
+}
+
+// healthHandler returns a JSON status response for liveness probes.
+// Used by systemd, Docker, Kubernetes for health checks.
+func healthHandler(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	resp := map[string]string{
+		"status":  "ok",
+		"version": "0.1.0",
+	}
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func openBrowser(url string) {

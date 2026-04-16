@@ -1,0 +1,22 @@
+# systemd timer that fires vxd-improve.service daily at 06:00 local time.
+#
+# Install:
+#   sudo cp deploy/vxd-improve.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now vxd-improve.timer
+#   systemctl list-timers vxd-improve  # verify schedule
+
+[Unit]
+Description=Daily trigger for VXD self-improvement engine
+Requires=vxd-improve.service
+
+[Timer]
+OnCalendar=*-*-* 06:00:00
+# Catch up if the system was off when the timer fired
+Persistent=true
+# Add up to 30 minutes of jitter to avoid thundering-herd on shared infra
+RandomizedDelaySec=30m
+Unit=vxd-improve.service
+
+[Install]
+WantedBy=timers.target

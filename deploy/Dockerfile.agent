@@ -1,0 +1,47 @@
+# Phase 2 agent container — used by DockerRunner.
+#
+# Each VXD story spawns one container instance. The container needs:
+#   - Git (for worktree operations from the mount)
+#   - Claude Code CLI (the agent itself)
+#   - Tmux is NOT needed inside the container — DockerRunner uses
+#     `docker logs` for output capture, not tmux.
+#
+# Build:
+#   docker build -f deploy/Dockerfile.agent -t vxd-agent:latest .
+#
+# Run (typically invoked by DockerRunner, not directly):
+#   docker run --rm \
+#     -v "$WORKTREE":/workdir \
+#     -v "$LOG_FILE":/agent.log \
+#     -e ANTHROPIC_API_KEY \
+#     -e GOOGLE_API_KEY \
+#     vxd-agent:latest \
+#     /bin/sh -c "$PREPARED_COMMAND"
+
+FROM node:22-bookworm-slim
+
+# Install git + tools needed by agents
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    ca-certificates \
+    curl \
+    jq \
+    openssh-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Claude Code CLI globally
+RUN npm install -g @anthropic-ai/claude-code
+
+# Non-root user — agents should not have root. Mount worktrees with
+# matching UID via DockerRunner ExtraFlags if needed.
+RUN useradd -m -s /bin/bash agent
+USER agent
+WORKDIR /workdir
+
+# Provide a sane shell environment
+ENV TERM=xterm-256color
+ENV LANG=C.UTF-8
+
+# Default entry point — overridden by DockerRunner with the prepared command
+ENTRYPOINT ["/bin/sh", "-c"]
+CMD ["echo 'vxd-agent container — invoke with a prepared command'"]

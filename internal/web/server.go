@@ -29,6 +29,7 @@ type Server struct {
 	reqFilter  state.ReqFilter
 	httpServer *http.Server
 	dagExport  *graph.DAGExport
+	startTime  time.Time
 }
 
 func NewServer(es state.EventStore, ps *state.SQLiteStore, port int, filter state.ReqFilter) *Server {
@@ -37,6 +38,7 @@ func NewServer(es state.EventStore, ps *state.SQLiteStore, port int, filter stat
 		projStore:  ps,
 		port:       port,
 		reqFilter:  filter,
+		startTime:  time.Now(),
 	}
 	s.hub = NewHub(s)
 	return s
@@ -61,7 +63,7 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/ws", s.hub.HandleWebSocket)
 
 	// Health check endpoint (for systemd/Docker/K8s probes)
-	mux.HandleFunc("/health", healthHandler)
+	mux.HandleFunc("/health", s.healthHandler)
 
 	addr := fmt.Sprintf("localhost:%d", s.port)
 	listener, err := net.Listen("tcp", addr)
@@ -90,16 +92,46 @@ func (s *Server) Start(ctx context.Context) error {
 	return s.httpServer.Serve(listener)
 }
 
-// healthHandler returns a JSON status response for liveness probes.
+// healthHandler returns a JSON status response for liveness probes
+// with operational telemetry (uptime, event counts, store stats).
 // Used by systemd, Docker, Kubernetes for health checks.
+//
+// Method on Server (not bare function) so handler can access store state.
+// The bare healthHandler is kept for backward compatibility with tests
+// that don't construct a full Server.
+func (s *Server) healthHandler(w http.ResponseWriter, _ *http.Request) {
+	resp := buildHealthResponse(s.eventStore, s.startTime)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// healthHandler is the legacy bare-function form. Returns minimal status.
+// New deployments use Server.healthHandler which includes telemetry.
 func healthHandler(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	resp := map[string]string{
+	resp := map[string]any{
 		"status":  "ok",
 		"version": "0.1.0",
 	}
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// buildHealthResponse assembles the rich health payload. Pure function for
+// testability — no I/O beyond the event store List call.
+func buildHealthResponse(es state.EventStore, startTime time.Time) map[string]any {
+	resp := map[string]any{
+		"status":         "ok",
+		"version":        "0.1.0",
+		"uptime_seconds": int(time.Since(startTime).Seconds()),
+	}
+	if es != nil {
+		if total, err := es.Count(state.EventFilter{}); err == nil {
+			resp["events_total"] = total
+		}
+	}
+	return resp
 }
 
 func openBrowser(url string) {

@@ -109,6 +109,32 @@ type RuntimeConfig struct {
 	Args      []string         `yaml:"args"`
 	Models    []string         `yaml:"models"`
 	Detection RuntimeDetection `yaml:"detection"`
+
+	// Runner selects the execution target: "tmux" (default), "docker", or "ssh".
+	// Phase 1 deployments use tmux. Phase 2 can use docker (containerized
+	// agents) or ssh (remote agents).
+	Runner string `yaml:"runner,omitempty"`
+
+	// Docker holds container configuration when Runner == "docker".
+	Docker DockerRunnerConfig `yaml:"docker,omitempty"`
+
+	// SSH holds remote-execution configuration when Runner == "ssh".
+	SSH SSHRunnerConfig `yaml:"ssh,omitempty"`
+}
+
+// DockerRunnerConfig configures the Docker execution target.
+type DockerRunnerConfig struct {
+	Image      string   `yaml:"image"`
+	Network    string   `yaml:"network,omitempty"`
+	ExtraFlags []string `yaml:"extra_flags,omitempty"`
+}
+
+// SSHRunnerConfig configures the SSH execution target.
+type SSHRunnerConfig struct {
+	Host       string   `yaml:"host"`
+	KeyFile    string   `yaml:"key_file,omitempty"`
+	RemoteDir  string   `yaml:"remote_dir,omitempty"`
+	ExtraFlags []string `yaml:"extra_flags,omitempty"`
 }
 
 // QAConfig controls quality assurance checks.
@@ -209,6 +235,21 @@ func (c Config) Validate() error {
 	}
 	if c.Secrets.Provider == "vault" && c.Secrets.VaultAddr == "" {
 		return fmt.Errorf("secrets.vault_addr is required when secrets.provider is \"vault\"")
+	}
+
+	for name, rc := range c.Runtimes {
+		switch rc.Runner {
+		case "", "tmux", "docker", "ssh":
+			// valid
+		default:
+			return fmt.Errorf("runtimes.%s.runner must be \"tmux\", \"docker\", or \"ssh\", got %q", name, rc.Runner)
+		}
+		if rc.Runner == "docker" && rc.Docker.Image == "" {
+			return fmt.Errorf("runtimes.%s.docker.image is required when runner is \"docker\"", name)
+		}
+		if rc.Runner == "ssh" && rc.SSH.Host == "" {
+			return fmt.Errorf("runtimes.%s.ssh.host is required when runner is \"ssh\"", name)
+		}
 	}
 
 	if c.Routing.JuniorMaxComplexity < 1 || c.Routing.JuniorMaxComplexity > 13 {

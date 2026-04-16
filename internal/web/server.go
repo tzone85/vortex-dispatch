@@ -65,6 +65,9 @@ func (s *Server) Start(ctx context.Context) error {
 	// Health check endpoint (for systemd/Docker/K8s probes)
 	mux.HandleFunc("/health", s.healthHandler)
 
+	// REST API endpoints (Phase 2/3 — read-only programmatic access)
+	s.registerAPIRoutes(mux)
+
 	addr := fmt.Sprintf("localhost:%d", s.port)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {

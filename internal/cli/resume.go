@@ -17,6 +17,7 @@ import (
 	vxdgit "github.com/tzone85/vortex-dispatch/internal/git"
 	"github.com/tzone85/vortex-dispatch/internal/graph"
 	"github.com/tzone85/vortex-dispatch/internal/llm"
+	"github.com/tzone85/vortex-dispatch/internal/notify"
 	"github.com/tzone85/vortex-dispatch/internal/runtime"
 	"github.com/tzone85/vortex-dispatch/internal/scratchboard"
 	"github.com/tzone85/vortex-dispatch/internal/state"
@@ -343,6 +344,14 @@ func runResume(cmd *cobra.Command, args []string) error {
 	monitor.SetCheckpointPath(checkpointPath)
 	if artStore != nil {
 		monitor.SetArtifactStore(artStore)
+	}
+
+	// Wire webhook notifier (Phase 2). Slack disabled if URL not configured.
+	if s.Config.Notify.SlackWebhookURL != "" && s.Config.Notify.NotifyOnSLA {
+		monitor.SetNotifier(notify.NewSlackNotifier(s.Config.Notify.SlackWebhookURL))
+		log.Printf("[resume] slack notifications enabled for SLA breaches")
+	} else {
+		monitor.SetNotifier(notify.NewNoopNotifier())
 	}
 
 	// Enable blast-radius analysis via code-review-graph (optional).

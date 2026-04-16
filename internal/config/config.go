@@ -19,6 +19,7 @@ type Config struct {
 	QA        QAConfig                 `yaml:"qa"`
 	SLA       SLAConfig                `yaml:"sla"`
 	Secrets   SecretsConfig            `yaml:"secrets"`
+	Notify    NotifyConfig             `yaml:"notify,omitempty"`
 }
 
 // SecretsConfig configures the secrets provider.
@@ -28,6 +29,13 @@ type SecretsConfig struct {
 	VaultToken string `yaml:"vault_token"` // X-Vault-Token; consider using VAULT_TOKEN env instead
 	VaultMount string `yaml:"vault_mount"` // KV v2 mount path, default "secret"
 	VaultPath  string `yaml:"vault_path"`  // path within mount, default "vxd"
+}
+
+// NotifyConfig configures outbound webhook notifications.
+type NotifyConfig struct {
+	SlackWebhookURL  string `yaml:"slack_webhook_url,omitempty"`  // empty disables Slack
+	NotifyOnSLA      bool   `yaml:"notify_on_sla,omitempty"`      // notify on STORY_SLA_BREACHED
+	NotifyOnComplete bool   `yaml:"notify_on_complete,omitempty"` // notify on REQ_COMPLETED
 }
 
 // PlanningConfig controls how the planner decomposes requirements into stories.

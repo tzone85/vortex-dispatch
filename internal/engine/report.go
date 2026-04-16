@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -58,6 +59,8 @@ type ReportStory struct {
 	Duration         time.Duration
 	EscalationTier   int
 	Attempts         []Attempt
+	SLABreached      bool          // true if STORY_SLA_BREACHED event exists
+	SLAElapsed       time.Duration // elapsed time when breach occurred (0 if not breached)
 }
 
 // TimelineEntry is a single significant event in the delivery timeline.
@@ -148,6 +151,25 @@ func (rb *ReportBuilder) buildStories(stories []state.Story) ([]ReportStory, err
 			return nil, fmt.Errorf("count retries for story %s: %w", s.ID, err)
 		}
 
+		slaBreaches, err := rb.es.List(state.EventFilter{
+			Type:    state.EventStorySLABreached,
+			StoryID: s.ID,
+			Limit:   1,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list SLA breaches for story %s: %w", s.ID, err)
+		}
+		slaBreached := len(slaBreaches) > 0
+		var slaElapsed time.Duration
+		if slaBreached {
+			var payload struct {
+				ElapsedSeconds int `json:"elapsed_seconds"`
+			}
+			if err := json.Unmarshal(slaBreaches[0].Payload, &payload); err == nil {
+				slaElapsed = time.Duration(payload.ElapsedSeconds) * time.Second
+			}
+		}
+
 		duration := rb.storyDuration(s)
 
 		attempts, _ := tracker.ListAttempts(s.ID)
@@ -165,6 +187,8 @@ func (rb *ReportBuilder) buildStories(stories []state.Story) ([]ReportStory, err
 			Duration:        duration,
 			EscalationTier:  s.EscalationTier,
 			Attempts:        attempts,
+			SLABreached:     slaBreached,
+			SLAElapsed:      slaElapsed,
 		})
 	}
 

@@ -61,16 +61,23 @@ func RenderMarkdown(data ReportData, project string, internal bool) string {
 
 	// 6. Internal: Story Detail
 	b.WriteString("## Internal: Story Detail\n\n")
-	b.WriteString("| Story | Escalations | Retries | Duration | Tier |\n")
-	b.WriteString("|-------|-------------|---------|----------|------|\n")
+	b.WriteString("| Story | Escalations | Retries | Duration | Tier | SLA |\n")
+	b.WriteString("|-------|-------------|---------|----------|------|-----|\n")
 	for _, story := range data.Stories {
-		fmt.Fprintf(&b, "| %s | %d | %d | %s | %d |\n",
+		slaCell := "OK"
+		if story.SLABreached {
+			slaCell = fmt.Sprintf("⚠ BREACH (%s)", FormatDuration(story.SLAElapsed))
+		}
+		fmt.Fprintf(&b, "| %s | %d | %d | %s | %d | %s |\n",
 			story.Title, story.EscalationCount, story.RetryCount,
-			FormatDuration(story.Duration), story.EscalationTier)
+			FormatDuration(story.Duration), story.EscalationTier, slaCell)
 	}
 	b.WriteString("\n")
 
 	for _, story := range data.Stories {
+		if story.SLABreached {
+			fmt.Fprintf(&b, "  ⚠ SLA breach (elapsed: %s)\n", FormatDuration(story.SLAElapsed))
+		}
 		if len(story.Attempts) > 1 {
 			fmt.Fprintf(&b, "### %s — Attempt History\n\n", story.Title)
 			for _, att := range story.Attempts {
@@ -176,11 +183,15 @@ func RenderHTML(data ReportData, project string, internal bool) string {
 	if internal {
 		// Internal: Story Detail
 		b.WriteString("<h2>Internal: Story Detail</h2>\n")
-		b.WriteString("<table>\n<thead><tr><th>Story</th><th>Escalations</th><th>Retries</th><th>Duration</th><th>Tier</th></tr></thead>\n<tbody>\n")
+		b.WriteString("<table>\n<thead><tr><th>Story</th><th>Escalations</th><th>Retries</th><th>Duration</th><th>Tier</th><th>SLA</th></tr></thead>\n<tbody>\n")
 		for _, story := range data.Stories {
-			fmt.Fprintf(&b, "<tr><td>%s</td><td>%d</td><td>%d</td><td>%s</td><td>%d</td></tr>\n",
+			slaCell := "OK"
+			if story.SLABreached {
+				slaCell = fmt.Sprintf(`<span class="sla-breach">&#9888; BREACH (%s)</span>`, FormatDuration(story.SLAElapsed))
+			}
+			fmt.Fprintf(&b, "<tr><td>%s</td><td>%d</td><td>%d</td><td>%s</td><td>%d</td><td>%s</td></tr>\n",
 				escapeHTML(story.Title), story.EscalationCount, story.RetryCount,
-				FormatDuration(story.Duration), story.EscalationTier)
+				FormatDuration(story.Duration), story.EscalationTier, slaCell)
 		}
 		b.WriteString("</tbody>\n</table>\n\n")
 
@@ -288,6 +299,7 @@ th { background: #f4f4f4; }
 table.meta { width: auto; }
 a { color: #0066cc; }
 ul { padding-left: 20px; }
+.sla-breach { color: #b94a00; font-weight: bold; }
 @media print { body { margin: 0; } a { color: #000; } }
 </style>
 `

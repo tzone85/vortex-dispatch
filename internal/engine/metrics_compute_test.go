@@ -293,3 +293,57 @@ func TestComputeMetrics_PerRequirementStats(t *testing.T) {
 		t.Errorf("expected 1 story count, got %d", rs.StoryCount)
 	}
 }
+
+func TestComputeMetrics_TracksSLABreaches(t *testing.T) {
+	es, ps, cleanup := newMetricsStores(t)
+	defer cleanup()
+
+	// Create 1 requirement with 3 stories, 2 of which breach SLA
+	reqEvt := state.NewEvent(state.EventReqSubmitted, "system", "", map[string]any{
+		"id": "req-001", "title": "Test", "description": "x", "repo_path": "/tmp",
+	})
+	es.Append(reqEvt)
+	ps.Project(reqEvt)
+
+	storyIDs := []string{"s-001", "s-002", "s-003"}
+	for i, sid := range storyIDs {
+		created := state.NewEvent(state.EventStoryCreated, "system", sid, map[string]any{
+			"id": sid, "req_id": "req-001", "title": "x",
+			"description": "x", "complexity": 3,
+		})
+		es.Append(created)
+		ps.Project(created)
+
+		// First two stories breach SLA
+		if i < 2 {
+			breach := state.NewEvent(state.EventStorySLABreached, "agent", sid, map[string]any{
+				"complexity": 3, "elapsed_seconds": 18000, "max_minutes": 240,
+			})
+			es.Append(breach)
+		}
+	}
+
+	m, err := ComputeMetrics(es, ps, 10, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if m.SLABreaches != 2 {
+		t.Errorf("SLABreaches = %d, want 2", m.SLABreaches)
+	}
+	if m.TotalStories != 3 {
+		t.Errorf("TotalStories = %d, want 3", m.TotalStories)
+	}
+	wantRate := 2.0 / 3.0
+	if m.SLABreachRate < wantRate-0.01 || m.SLABreachRate > wantRate+0.01 {
+		t.Errorf("SLABreachRate = %f, want ~%f", m.SLABreachRate, wantRate)
+	}
+
+	// Verify per-requirement breakdown
+	if len(m.RequirementStats) != 1 {
+		t.Fatalf("expected 1 RequirementStat, got %d", len(m.RequirementStats))
+	}
+	if m.RequirementStats[0].SLABreaches != 2 {
+		t.Errorf("RequirementStat.SLABreaches = %d, want 2", m.RequirementStats[0].SLABreaches)
+	}
+}

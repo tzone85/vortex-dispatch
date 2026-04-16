@@ -533,6 +533,48 @@ VXD builds on ideas and patterns from several open-source projects. We're gratef
 
 If you're interested in AI agent orchestration, these projects are well worth studying.
 
+## Recent Changes
+
+### Unreleased — Hardening Session (2026-04-15/16)
+
+**Security**
+- Google AI API key moved from URL query string to `x-goog-api-key` header (HIGH)
+- Planner rejects requirements with prompt injection patterns or embedded secrets (MEDIUM)
+- File permissions tightened from 0644 to 0600 on event store, proposals, opportunities, feedback (LOW)
+- Log retention enforced via `engine.CleanupLogs()` (wired into `vxd gc`)
+- Shared `internal/sanitize/` package extracted for reuse
+
+**Capacity & Performance**
+- `routing.max_concurrent_agents` config (default 5, range 1-50)
+- 5 SQLite indexes on foreign key columns
+- Memory leak fixed in Monitor SLA tracking maps
+
+**SLA Tracking**
+- New `STORY_SLA_BREACHED` event type with full projection
+- Per-Fibonacci-complexity duration limits (configurable)
+- Optional auto-escalation on breach (`sla.auto_escalate`)
+- Breach badges in `vxd report` (markdown + HTML), counts in `vxd metrics`
+
+**Observability**
+- `/health` endpoint on web dashboard for liveness probes
+
+**Disaster Recovery**
+- `vxd backup` command — tar.gz of project state directory
+
+**Secrets Management**
+- New `internal/secrets/` package with `Provider` interface
+- `EnvProvider` (default) and `VaultProvider` (HashiCorp Vault KV v2)
+- Config-driven provider switching via `secrets.provider: vault`
+- Phase 2 ready — flip from env to Vault with zero code changes
+
+**Bug Fixes**
+- `extractJSON()` now handles conversational preambles and embedded code fences
+- Google AI integration test updated for header-based auth
+
+**Documentation**
+- New 1,650-line architecture overview at `docs/superpowers/specs/2026-04-15-architecture-overview.md`
+- README sections for SLA, secrets, /health, backup workflow
+
 ## License
 
 [Apache License 2.0](LICENSE)

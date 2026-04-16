@@ -304,9 +304,20 @@ func (m *Monitor) pollOnce(ctx context.Context, wg *sync.WaitGroup, active map[s
 		// Remove from active tracking
 		m.watchdog.ClearFingerprint(sessionName)
 		delete(active, sessionName)
+		m.clearSLATracking(ag.Assignment.StoryID)
 
 		log.Printf("[monitor] %d agents remaining", len(active))
 	}
+}
+
+// clearSLATracking removes per-story SLA state. Called when a story finishes
+// (success, failure, or terminated) to prevent unbounded map growth in
+// long-running monitor sessions.
+func (m *Monitor) clearSLATracking(storyID string) {
+	m.slaMu.Lock()
+	defer m.slaMu.Unlock()
+	delete(m.slaStartTimes, storyID)
+	delete(m.slaBreachedSet, storyID)
 }
 
 // checkSLA checks if the given active agent's story has breached its SLA.

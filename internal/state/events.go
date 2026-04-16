@@ -38,6 +38,7 @@ const (
 	EventStoryMerged          EventType = "STORY_MERGED"
 	EventStoryEscalated       EventType = "STORY_ESCALATED"
 	EventStoryRewritten       EventType = "STORY_REWRITTEN"
+	EventStorySLABreached     EventType = "STORY_SLA_BREACHED"
 	EventStorySplit           EventType = "STORY_SPLIT"
 
 	// Agent lifecycle events.

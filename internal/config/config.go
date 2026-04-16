@@ -17,6 +17,7 @@ type Config struct {
 	Runtimes  map[string]RuntimeConfig `yaml:"runtimes"`
 	Billing   BillingConfig            `yaml:"billing"`
 	QA        QAConfig                 `yaml:"qa"`
+	SLA       SLAConfig                `yaml:"sla"`
 }
 
 // PlanningConfig controls how the planner decomposes requirements into stories.
@@ -111,6 +112,12 @@ type SuccessCriterion struct {
 	Value   string `yaml:"value,omitempty"`
 	Path    string `yaml:"path,omitempty"`
 	Message string `yaml:"message,omitempty"`
+}
+
+// SLAConfig defines per-complexity story duration limits in minutes.
+// Stories exceeding their limit emit STORY_SLA_BREACHED events.
+type SLAConfig struct {
+	MaxMinutesPerComplexity map[int]int `yaml:"max_minutes_per_complexity"`
 }
 
 // BillingConfig controls cost estimation and client quoting.

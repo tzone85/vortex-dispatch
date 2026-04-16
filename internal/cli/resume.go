@@ -228,10 +228,15 @@ func runResume(cmd *cobra.Command, args []string) error {
 
 	// Enable Adapter/Runner execution path for decoupled command building.
 	// Uses the first configured runtime to create the adapter.
+	// Runner is selected via config: tmux (default), docker, or ssh.
 	for rtName, rtCfg := range s.Config.Runtimes {
 		adapter := runtime.NewCLIAdapter(rtName, rtCfg.Command, rtCfg.Args, rtCfg.Models)
-		runner := runtime.NewTmuxRunner()
+		runner, runnerErr := runtime.NewRunnerFromConfig(rtCfg)
+		if runnerErr != nil {
+			return fmt.Errorf("build runner for runtime %s: %w", rtName, runnerErr)
+		}
 		executor.SetAdapterRunner(adapter, runner)
+		log.Printf("[resume] runtime %s using %T", rtName, runner)
 		break // use first configured runtime
 	}
 

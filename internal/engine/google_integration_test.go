@@ -91,8 +91,8 @@ func TestGoogleAI_FullPipeline_PlanDispatchReviewQAMerge(t *testing.T) {
 		if r.Method != http.MethodPost {
 			t.Errorf("expected POST, got %s", r.Method)
 		}
-		if r.URL.Query().Get("key") != "test-google-key" {
-			t.Errorf("expected API key in query, got %s", r.URL.Query().Get("key"))
+		if r.Header.Get("x-goog-api-key") != "test-google-key" {
+			t.Errorf("expected API key in x-goog-api-key header, got %q", r.Header.Get("x-goog-api-key"))
 		}
 
 		// Verify request body has Google AI format

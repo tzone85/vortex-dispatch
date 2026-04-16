@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/tzone85/vortex-dispatch/internal/config"
 	"github.com/tzone85/vortex-dispatch/internal/secrets"
 )
 
@@ -34,6 +35,60 @@ func TestSetSecretsProvider_Swappable(t *testing.T) {
 	got := resolveAPIKey("FAKE_KEY")
 	if got != "from-stub" {
 		t.Errorf("after swap: got %q, want %q", got, "from-stub")
+	}
+}
+
+func TestConfigureSecretsFromConfig_DefaultIsEnv(t *testing.T) {
+	original := secretsProvider
+	defer SetSecretsProvider(original)
+
+	cfg := config.DefaultConfig()
+	configureSecretsFromConfig(cfg)
+	if secretsProvider.Name() != "env" {
+		t.Errorf("default should be env, got %q", secretsProvider.Name())
+	}
+}
+
+func TestConfigureSecretsFromConfig_VaultProvider(t *testing.T) {
+	original := secretsProvider
+	defer SetSecretsProvider(original)
+
+	cfg := config.DefaultConfig()
+	cfg.Secrets.Provider = "vault"
+	cfg.Secrets.VaultAddr = "http://127.0.0.1:8200"
+	cfg.Secrets.VaultToken = "test-token"
+
+	configureSecretsFromConfig(cfg)
+	if secretsProvider.Name() != "vault" {
+		t.Errorf("expected vault provider, got %q", secretsProvider.Name())
+	}
+}
+
+func TestConfigureSecretsFromConfig_VaultMissingTokenFallsBackToEnv(t *testing.T) {
+	original := secretsProvider
+	defer SetSecretsProvider(original)
+
+	t.Setenv("VAULT_TOKEN", "")
+
+	cfg := config.DefaultConfig()
+	cfg.Secrets.Provider = "vault"
+	cfg.Secrets.VaultAddr = "http://127.0.0.1:8200"
+
+	configureSecretsFromConfig(cfg)
+	if secretsProvider.Name() != "env" {
+		t.Errorf("missing vault token should fall back to env, got %q", secretsProvider.Name())
+	}
+}
+
+func TestConfigureSecretsFromConfig_UnknownProviderFallsBackToEnv(t *testing.T) {
+	original := secretsProvider
+	defer SetSecretsProvider(original)
+
+	cfg := config.DefaultConfig()
+	cfg.Secrets.Provider = "bogus"
+	configureSecretsFromConfig(cfg)
+	if secretsProvider.Name() != "env" {
+		t.Errorf("unknown provider should fall back to env, got %q", secretsProvider.Name())
 	}
 }
 

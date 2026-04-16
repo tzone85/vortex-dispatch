@@ -33,6 +33,10 @@ type PipelineMetrics struct {
 	// Escalation breakdown
 	EscalationsPerTier map[int]int // tier → count
 
+	// SLA tracking
+	SLABreaches   int     // total stories that breached SLA
+	SLABreachRate float64 // SLABreaches / TotalStories
+
 	// Agent activity (from trace analysis)
 	TotalToolCalls   int
 	TotalFileEdits   int
@@ -53,6 +57,7 @@ type RequirementStat struct {
 	StoryCount      int
 	MergedCount     int
 	EscalationCount int
+	SLABreaches     int
 	FirstPassRate   float64
 	TotalDuration   time.Duration
 	ToolCalls       int
@@ -126,6 +131,16 @@ func ComputeMetrics(es state.EventStore, ps *state.SQLiteStore, limit int, logDi
 				}
 			}
 
+			// Count SLA breaches for this story
+			breaches, _ := es.List(state.EventFilter{
+				Type:    state.EventStorySLABreached,
+				StoryID: story.ID,
+			})
+			if len(breaches) > 0 {
+				m.SLABreaches += len(breaches)
+				reqStat.SLABreaches += len(breaches)
+			}
+
 			// Check if story passed on first attempt (no REVIEW_FAILED or QA_FAILED)
 			reviewFails, _ := es.List(state.EventFilter{
 				Type:    state.EventStoryReviewFailed,
@@ -194,6 +209,7 @@ func ComputeMetrics(es state.EventStore, ps *state.SQLiteStore, limit int, logDi
 	if m.TotalStories > 0 {
 		m.FirstPassRate = float64(m.StoriesPassed) / float64(m.TotalStories) * 100
 		m.AvgTotalTime = m.AvgTotalTime / time.Duration(m.TotalStories)
+		m.SLABreachRate = float64(m.SLABreaches) / float64(m.TotalStories)
 	}
 
 	return m, nil
@@ -234,6 +250,13 @@ func FormatMetrics(m PipelineMetrics) string {
 		}
 	}
 
+	if m.SLABreaches > 0 {
+		b.WriteString(fmt.Sprintf("\nSLA breaches: %d (%.0f%% of stories)\n",
+			m.SLABreaches, m.SLABreachRate*100))
+	} else {
+		b.WriteString("\nSLA breaches: 0\n")
+	}
+
 	if len(m.RequirementStats) > 0 {
 		b.WriteString("\nRecent Requirements:\n")
 		for _, rs := range m.RequirementStats {
@@ -242,8 +265,8 @@ func FormatMetrics(m PipelineMetrics) string {
 				title = title[:50] + "..."
 			}
 			b.WriteString(fmt.Sprintf("  [%s] %s\n", rs.Status, title))
-			b.WriteString(fmt.Sprintf("    Stories: %d | Merged: %d | First-pass: %.0f%% | Escalations: %d | Duration: %s\n",
-				rs.StoryCount, rs.MergedCount, rs.FirstPassRate, rs.EscalationCount, formatDuration(rs.TotalDuration)))
+			b.WriteString(fmt.Sprintf("    Stories: %d | Merged: %d | First-pass: %.0f%% | Escalations: %d | SLA breaches: %d | Duration: %s\n",
+				rs.StoryCount, rs.MergedCount, rs.FirstPassRate, rs.EscalationCount, rs.SLABreaches, formatDuration(rs.TotalDuration)))
 		}
 	}
 

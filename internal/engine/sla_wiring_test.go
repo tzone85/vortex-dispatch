@@ -138,3 +138,99 @@ func TestCheckSLA_NoBreachWhenWithinLimit(t *testing.T) {
 		t.Errorf("expected no breaches for in-limit story, got %d", len(breaches))
 	}
 }
+
+func TestCheckSLA_NoEscalationByDefault(t *testing.T) {
+	dir := t.TempDir()
+	es, err := state.NewFileStore(dir + "/events.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer es.Close()
+	ps, err := state.NewSQLiteStore(dir + "/test.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ps.Close()
+
+	storyID := "s-noesc"
+	created := state.NewEvent(state.EventStoryCreated, "system", storyID, map[string]any{
+		"id": storyID, "req_id": "req-001", "title": "x",
+		"description": "x", "complexity": 3,
+	})
+	es.Append(created)
+	ps.Project(created)
+
+	startedEvt := state.Event{
+		ID:        "e1",
+		Type:      state.EventStoryStarted,
+		Timestamp: time.Now().Add(-5 * time.Hour),
+		AgentID:   "a1",
+		StoryID:   storyID,
+	}
+	es.Append(startedEvt)
+
+	cfg := config.DefaultConfig()
+	// AutoEscalate is false by default
+	m := &Monitor{
+		config:         cfg,
+		eventStore:     es,
+		projStore:      ps,
+		escalation:     NewEscalationMachine(es, cfg.Routing),
+		slaStartTimes:  make(map[string]time.Time),
+		slaBreachedSet: make(map[string]bool),
+	}
+	m.checkSLA(ActiveAgent{Assignment: Assignment{StoryID: storyID, AgentID: "a1"}})
+
+	escs, _ := es.List(state.EventFilter{Type: state.EventStoryEscalated, StoryID: storyID})
+	if len(escs) != 0 {
+		t.Errorf("default should not escalate, got %d STORY_ESCALATED events", len(escs))
+	}
+}
+
+func TestCheckSLA_AutoEscalatesWhenEnabled(t *testing.T) {
+	dir := t.TempDir()
+	es, err := state.NewFileStore(dir + "/events.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer es.Close()
+	ps, err := state.NewSQLiteStore(dir + "/test.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ps.Close()
+
+	storyID := "s-esc"
+	created := state.NewEvent(state.EventStoryCreated, "system", storyID, map[string]any{
+		"id": storyID, "req_id": "req-001", "title": "x",
+		"description": "x", "complexity": 3,
+	})
+	es.Append(created)
+	ps.Project(created)
+
+	startedEvt := state.Event{
+		ID:        "e2",
+		Type:      state.EventStoryStarted,
+		Timestamp: time.Now().Add(-5 * time.Hour),
+		AgentID:   "a2",
+		StoryID:   storyID,
+	}
+	es.Append(startedEvt)
+
+	cfg := config.DefaultConfig()
+	cfg.SLA.AutoEscalate = true
+	m := &Monitor{
+		config:         cfg,
+		eventStore:     es,
+		projStore:      ps,
+		escalation:     NewEscalationMachine(es, cfg.Routing),
+		slaStartTimes:  make(map[string]time.Time),
+		slaBreachedSet: make(map[string]bool),
+	}
+	m.checkSLA(ActiveAgent{Assignment: Assignment{StoryID: storyID, AgentID: "a2"}})
+
+	escs, _ := es.List(state.EventFilter{Type: state.EventStoryEscalated, StoryID: storyID})
+	if len(escs) != 1 {
+		t.Errorf("should escalate once, got %d STORY_ESCALATED events", len(escs))
+	}
+}

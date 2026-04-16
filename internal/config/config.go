@@ -118,6 +118,7 @@ type SuccessCriterion struct {
 // Stories exceeding their limit emit STORY_SLA_BREACHED events.
 type SLAConfig struct {
 	MaxMinutesPerComplexity map[int]int `yaml:"max_minutes_per_complexity"`
+	AutoEscalate            bool        `yaml:"auto_escalate"`
 }
 
 // BillingConfig controls cost estimation and client quoting.

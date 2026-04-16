@@ -237,7 +237,7 @@ func buildPlanningClient(provider string, godmode bool) (llm.Client, error) {
 	switch provider {
 	case "anthropic", "cli", "claude-cli":
 		// Try to build API client (may fail if no key).
-		if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
+		if apiKey := resolveAPIKey("ANTHROPIC_API_KEY"); apiKey != "" {
 			apiClient = llm.NewRetryClient(llm.NewAnthropicClient(apiKey), 3)
 		}
 		// Try to build CLI client.
@@ -249,11 +249,11 @@ func buildPlanningClient(provider string, godmode bool) (llm.Client, error) {
 			cliClient = c
 		}
 	case "openai":
-		if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
+		if apiKey := resolveAPIKey("OPENAI_API_KEY"); apiKey != "" {
 			apiClient = llm.NewRetryClient(llm.NewOpenAIClient(apiKey), 3)
 		}
 	case "google":
-		if apiKey := os.Getenv("GOOGLE_AI_API_KEY"); apiKey != "" {
+		if apiKey := resolveAPIKey("GOOGLE_AI_API_KEY"); apiKey != "" {
 			google := llm.NewToolCallAdapter(llm.NewGoogleAIClient(apiKey), llm.ToolSchemaFor(agent.RoleTechLead))
 			apiClient = llm.NewRetryClient(google, 2)
 		}
@@ -284,7 +284,7 @@ func buildLLMClient(provider string, schema *llm.ToolSchema, godmode ...bool) (l
 
 	switch provider {
 	case "google":
-		apiKey := os.Getenv("GOOGLE_AI_API_KEY")
+		apiKey := resolveAPIKey("GOOGLE_AI_API_KEY")
 		if apiKey == "" {
 			return nil, fmt.Errorf("GOOGLE_AI_API_KEY environment variable is required")
 		}
@@ -298,7 +298,7 @@ func buildLLMClient(provider string, schema *llm.ToolSchema, godmode ...bool) (l
 				c = c.WithSkipPermissions()
 			}
 			fallback = c
-		} else if ak := os.Getenv("ANTHROPIC_API_KEY"); ak != "" {
+		} else if ak := resolveAPIKey("ANTHROPIC_API_KEY"); ak != "" {
 			fallback = llm.NewRetryClient(llm.NewAnthropicClient(ak), 3)
 		}
 
@@ -322,13 +322,13 @@ func buildLLMClient(provider string, schema *llm.ToolSchema, godmode ...bool) (l
 			return c, nil
 		}
 		// Fall back to direct API if CLI not available.
-		apiKey := os.Getenv("ANTHROPIC_API_KEY")
+		apiKey := resolveAPIKey("ANTHROPIC_API_KEY")
 		if apiKey == "" {
 			return nil, fmt.Errorf("claude CLI not found and ANTHROPIC_API_KEY not set")
 		}
 		return llm.NewRetryClient(llm.NewAnthropicClient(apiKey), 3), nil
 	case "openai":
-		apiKey := os.Getenv("OPENAI_API_KEY")
+		apiKey := resolveAPIKey("OPENAI_API_KEY")
 		if apiKey == "" {
 			return nil, fmt.Errorf("OPENAI_API_KEY environment variable is required")
 		}

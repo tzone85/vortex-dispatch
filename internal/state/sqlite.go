@@ -219,6 +219,9 @@ func (s *SQLiteStore) Project(evt Event) error {
 	case EventStorySplit:
 		return s.updateStoryStatus(evt.StoryID, "split")
 
+	case EventStorySLABreached:
+		return nil // observational only — no projection change needed
+
 	default:
 		// Unhandled event types are silently ignored to allow forward
 		// compatibility as new event types are added.

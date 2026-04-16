@@ -2,6 +2,8 @@
 
 This guide covers VXD's internal architecture for contributors who want to understand, debug, or extend the system.
 
+> **Full Architecture Overview:** For system diagrams, package dependency graphs, revenue pipeline design, Bayesian feedback mathematics, deployment strategy, competitive positioning, SLA framework, risk assessment, and revenue projections, see [`docs/superpowers/specs/2026-04-15-architecture-overview.md`](superpowers/specs/2026-04-15-architecture-overview.md).
+
 ## Design Principles
 
 1. **Event sourcing** — all state changes are immutable events; current state is derived

@@ -5,26 +5,50 @@ import (
 	"strings"
 )
 
-// extractJSON strips markdown code fences from LLM responses so that the
-// content can be passed to json.Unmarshal. Many models wrap JSON output in
-// ```json ... ``` even when instructed not to.
+// extractJSON strips markdown code fences and conversational preambles
+// from LLM responses so the content can be passed to json.Unmarshal.
+// Handles three common LLM output patterns:
+//  1. Pure JSON: returned as-is
+//  2. Code-fenced JSON (```json ... ```): fence stripped, optional preamble OK
+//  3. Preamble + JSON (e.g. "Here you go: [...]"): preamble stripped
 func extractJSON(raw string) string {
 	s := strings.TrimSpace(raw)
-
-	// Strip ```json ... ``` or ``` ... ```
-	if strings.HasPrefix(s, "```") {
-		// Remove opening fence (with optional language tag)
-		if idx := strings.Index(s, "\n"); idx != -1 {
-			s = s[idx+1:]
-		}
-		// Remove closing fence
-		if idx := strings.LastIndex(s, "```"); idx != -1 {
-			s = s[:idx]
-		}
-		s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
 	}
 
-	return s
+	// Pattern 2: code fence (anywhere — covers preamble + fenced cases)
+	if fenceStart := strings.Index(s, "```"); fenceStart != -1 {
+		inner := s[fenceStart+3:]
+		// Skip optional language tag (everything up to first newline)
+		if nl := strings.Index(inner, "\n"); nl != -1 {
+			inner = inner[nl+1:]
+		}
+		// Strip closing fence
+		if fenceEnd := strings.Index(inner, "```"); fenceEnd != -1 {
+			inner = inner[:fenceEnd]
+		}
+		return strings.TrimSpace(inner)
+	}
+
+	// Pattern 3: find first JSON delimiter and matching last delimiter
+	firstObj := strings.Index(s, "{")
+	firstArr := strings.Index(s, "[")
+	first := firstObj
+	openCh, closeCh := byte('{'), byte('}')
+	if firstArr != -1 && (firstObj == -1 || firstArr < firstObj) {
+		first = firstArr
+		openCh, closeCh = '[', ']'
+	}
+	if first == -1 {
+		return s // no JSON markers — return as-is
+	}
+	last := strings.LastIndexByte(s, closeCh)
+	if last <= first {
+		return s
+	}
+	_ = openCh // reserved for future depth-aware parsing
+	return strings.TrimSpace(s[first : last+1])
 }
 
 // FlexibleString unmarshals either a JSON string or an array of strings into a

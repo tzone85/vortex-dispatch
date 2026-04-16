@@ -81,6 +81,15 @@ type Monitor struct {
 	// dryRun, when true, skips side-effecting operations (merge, push) so
 	// the monitor can be exercised in tests without touching external services.
 	dryRun bool
+
+	// slaStartTimes caches story start times (from STORY_STARTED event)
+	// to avoid re-querying the event log on every poll cycle.
+	slaStartTimes map[string]time.Time
+	// slaBreachedSet tracks which stories have already emitted
+	// STORY_SLA_BREACHED so we don't spam the event log.
+	slaBreachedSet map[string]bool
+	// slaMu protects the SLA tracking maps.
+	slaMu sync.Mutex
 }
 
 // SetDryRun enables or disables dry-run mode on the monitor.
@@ -98,15 +107,17 @@ func NewMonitor(
 	ps state.ProjectionStore,
 ) *Monitor {
 	return &Monitor{
-		registry:   reg,
-		watchdog:   wd,
-		reviewer:   rev,
-		qa:         qa,
-		merger:     merger,
-		config:     cfg,
-		eventStore: es,
-		projStore:  ps,
-		escalation: NewEscalationMachine(es, cfg.Routing),
+		registry:       reg,
+		watchdog:       wd,
+		reviewer:       rev,
+		qa:             qa,
+		merger:         merger,
+		config:         cfg,
+		eventStore:     es,
+		projStore:      ps,
+		escalation:     NewEscalationMachine(es, cfg.Routing),
+		slaStartTimes:  make(map[string]time.Time),
+		slaBreachedSet: make(map[string]bool),
 	}
 }
 
@@ -249,6 +260,9 @@ func (m *Monitor) pollOnce(ctx context.Context, wg *sync.WaitGroup, active map[s
 		// Watchdog check (handles permission prompts, stuck detection)
 		m.watchdog.Check(sessionName, rt)
 
+		// SLA check (observational — emits STORY_SLA_BREACHED once if elapsed > max)
+		m.checkSLA(ag)
+
 		// Check if agent is done
 		status, err := rt.DetectStatus(sessionName)
 		if err != nil {
@@ -293,6 +307,66 @@ func (m *Monitor) pollOnce(ctx context.Context, wg *sync.WaitGroup, active map[s
 
 		log.Printf("[monitor] %d agents remaining", len(active))
 	}
+}
+
+// checkSLA checks if the given active agent's story has breached its SLA.
+// On first call for a story, looks up start time from the event log and
+// complexity from the projection store (cached in slaStartTimes).
+// Emits STORY_SLA_BREACHED at most once per story.
+func (m *Monitor) checkSLA(ag ActiveAgent) {
+	storyID := ag.Assignment.StoryID
+
+	m.slaMu.Lock()
+	defer m.slaMu.Unlock()
+
+	// Already breached and emitted — skip
+	if m.slaBreachedSet[storyID] {
+		return
+	}
+
+	// Resolve start time (cache on first lookup)
+	startTime, ok := m.slaStartTimes[storyID]
+	if !ok {
+		// Look up STORY_STARTED event for this story
+		events, err := m.eventStore.List(state.EventFilter{
+			Type:    state.EventStoryStarted,
+			StoryID: storyID,
+			Limit:   1,
+		})
+		if err != nil || len(events) == 0 {
+			return // can't check without start time
+		}
+		startTime = events[0].Timestamp
+		m.slaStartTimes[storyID] = startTime
+	}
+
+	// Look up complexity from projection
+	story, err := m.projStore.GetStory(storyID)
+	if err != nil {
+		return
+	}
+
+	if !CheckSLA(m.config.SLA, story.Complexity, startTime) {
+		return
+	}
+
+	// Breached — emit event once
+	maxDur := MaxDurationFor(m.config.SLA, story.Complexity)
+	elapsed := time.Since(startTime)
+	log.Printf("[monitor] SLA BREACH: %s elapsed=%v max=%v complexity=%d",
+		storyID, elapsed.Round(time.Second), maxDur, story.Complexity)
+
+	evt := state.NewEvent(state.EventStorySLABreached, ag.Assignment.AgentID, storyID, map[string]any{
+		"complexity":      story.Complexity,
+		"started_at":      startTime,
+		"elapsed_seconds": int(elapsed.Seconds()),
+		"max_minutes":     int(maxDur.Minutes()),
+	})
+	if err := m.eventStore.Append(evt); err != nil {
+		log.Printf("[monitor] append SLA breach event for %s: %v", storyID, err)
+		return
+	}
+	m.slaBreachedSet[storyID] = true
 }
 
 // postExecutionPipeline runs review, QA, and merge for a completed story.

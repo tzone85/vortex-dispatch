@@ -139,6 +139,28 @@ func TestCheckSLA_NoBreachWhenWithinLimit(t *testing.T) {
 	}
 }
 
+func TestClearSLATracking_RemovesEntries(t *testing.T) {
+	m := &Monitor{
+		slaStartTimes:  make(map[string]time.Time),
+		slaBreachedSet: make(map[string]bool),
+	}
+	m.slaStartTimes["s-1"] = time.Now()
+	m.slaBreachedSet["s-1"] = true
+	m.slaStartTimes["s-2"] = time.Now() // different story, must remain
+
+	m.clearSLATracking("s-1")
+
+	if _, ok := m.slaStartTimes["s-1"]; ok {
+		t.Error("slaStartTimes[s-1] should be cleared")
+	}
+	if _, ok := m.slaBreachedSet["s-1"]; ok {
+		t.Error("slaBreachedSet[s-1] should be cleared")
+	}
+	if _, ok := m.slaStartTimes["s-2"]; !ok {
+		t.Error("slaStartTimes[s-2] should remain — only target story is cleared")
+	}
+}
+
 func TestCheckSLA_NoEscalationByDefault(t *testing.T) {
 	dir := t.TempDir()
 	es, err := state.NewFileStore(dir + "/events.jsonl")

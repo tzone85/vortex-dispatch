@@ -17,6 +17,7 @@ import (
 	vxdgit "github.com/tzone85/vortex-dispatch/internal/git"
 	"github.com/tzone85/vortex-dispatch/internal/graph"
 	"github.com/tzone85/vortex-dispatch/internal/llm"
+	"github.com/tzone85/vortex-dispatch/internal/notify"
 	"github.com/tzone85/vortex-dispatch/internal/runtime"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
@@ -90,7 +91,15 @@ type Monitor struct {
 	slaBreachedSet map[string]bool
 	// slaMu protects the SLA tracking maps.
 	slaMu sync.Mutex
+
+	// notifier sends webhook notifications on SLA breaches and other
+	// significant events. Defaults to NoopNotifier if not set.
+	notifier notify.Notifier
 }
+
+// SetNotifier configures the outbound webhook notifier (Slack, Discord, etc.).
+// If not called, notifications are silently dropped via NoopNotifier.
+func (m *Monitor) SetNotifier(n notify.Notifier) { m.notifier = n }
 
 // SetDryRun enables or disables dry-run mode on the monitor.
 func (m *Monitor) SetDryRun(v bool) { m.dryRun = v }
@@ -378,6 +387,26 @@ func (m *Monitor) checkSLA(ag ActiveAgent) {
 		return
 	}
 	m.slaBreachedSet[storyID] = true
+
+	// Optional webhook notification — fire-and-forget, errors logged not surfaced
+	if m.notifier != nil {
+		go func() {
+			notifyErr := m.notifier.Notify(context.Background(), notify.Message{
+				Title:    fmt.Sprintf("SLA breach: %s", storyID),
+				Body:     fmt.Sprintf("Story exceeded its %v SLA", maxDur),
+				Severity: "warn",
+				Fields: map[string]string{
+					"story_id":   storyID,
+					"complexity": fmt.Sprintf("%d", story.Complexity),
+					"elapsed":    elapsed.Round(time.Second).String(),
+					"max":        maxDur.String(),
+				},
+			})
+			if notifyErr != nil {
+				log.Printf("[monitor] notify SLA breach for %s: %v", storyID, notifyErr)
+			}
+		}()
+	}
 
 	// Optional auto-escalation (opt-in via config)
 	if m.config.SLA.AutoEscalate {

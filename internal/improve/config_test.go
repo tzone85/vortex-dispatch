@@ -79,6 +79,11 @@ func TestLoadConfig_OpportunityDefaults(t *testing.T) {
 	t.Setenv("FIRECRAWL_API_KEY", "fc-test")
 	t.Setenv("RESEND_API_KEY", "re-test")
 	t.Setenv("GOOGLE_AI_API_KEY", "gai-test")
+	// Explicitly clear opportunity-related env vars so the test asserts
+	// against built-in defaults rather than leaked shell state.
+	t.Setenv("VXD_ACTIVE_BIDDING", "")
+	t.Setenv("VXD_MAX_PROPOSALS_PER_DAY", "")
+	t.Setenv("VXD_MIN_HOURLY_RATE", "")
 
 	cfg, err := improve.LoadConfig()
 	if err != nil {

@@ -355,6 +355,56 @@ func (m *Monitor) checkSLA(ag ActiveAgent) {
 		return
 	}
 	m.slaBreachedSet[storyID] = true
+
+	// Optional auto-escalation (opt-in via config)
+	if m.config.SLA.AutoEscalate {
+		m.escalateOnSLABreach(storyID, ag.Assignment.AgentID, elapsed)
+	}
+}
+
+// escalateOnSLABreach triggers tier escalation due to SLA breach when
+// sla.auto_escalate is enabled. Caps at tier 3 (does not pause via SLA).
+func (m *Monitor) escalateOnSLABreach(storyID, fromAgent string, elapsed time.Duration) {
+	currentTier, err := m.escalation.CurrentTier(storyID)
+	if err != nil {
+		log.Printf("[monitor] SLA escalate: get current tier for %s: %v", storyID, err)
+		return
+	}
+	nextTier := currentTier + 1
+	if nextTier >= 4 {
+		log.Printf("[monitor] SLA escalate: %s already at tier %d, not escalating to pause", storyID, currentTier)
+		return
+	}
+
+	reason := fmt.Sprintf("SLA breach (elapsed %s) — auto-escalated to tier %d",
+		elapsed.Round(time.Second), nextTier)
+	log.Printf("[monitor] auto-escalating %s from tier %d to tier %d: %s",
+		storyID, currentTier, nextTier, reason)
+
+	escEvt := state.NewEvent(state.EventStoryEscalated, fromAgent, storyID, map[string]any{
+		"from_tier": currentTier,
+		"to_tier":   nextTier,
+		"reason":    reason,
+	})
+	if err := m.eventStore.Append(escEvt); err != nil {
+		log.Printf("[monitor] append SLA escalation: %v", err)
+		return
+	}
+	if err := m.projStore.Project(escEvt); err != nil {
+		log.Printf("[monitor] project SLA escalation: %v", err)
+	}
+
+	// Reset to draft so dispatcher picks it up at the new tier
+	resetEvt := state.NewEvent(state.EventStoryReviewFailed, fromAgent, storyID, map[string]any{
+		"reason": reason,
+	})
+	if err := m.eventStore.Append(resetEvt); err != nil {
+		log.Printf("[monitor] append SLA reset: %v", err)
+		return
+	}
+	if err := m.projStore.Project(resetEvt); err != nil {
+		log.Printf("[monitor] project SLA reset: %v", err)
+	}
 }
 
 // postExecutionPipeline runs review, QA, and merge for a completed story.

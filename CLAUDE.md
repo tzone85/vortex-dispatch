@@ -39,6 +39,12 @@ Tier 3: Tech Lead re-planning (decompose into smaller stories)
 Tier 4: Pause (human intervention required)
 ```
 
+### Critical Events
+- `STORY_ESCALATED` — story moved to next tier (from_tier, to_tier, reason)
+- `STORY_REWRITTEN` — manager rewrote story description/acceptance criteria
+- `STORY_SPLIT` — tech lead decomposed into child stories
+- `STORY_SLA_BREACHED` — story exceeded per-complexity duration limit (configurable via `sla.max_minutes_per_complexity`)
+
 ### Event Sourcing
 - **Source of truth**: `events.jsonl` (append-only, fsync'd)
 - **Materialized views**: SQLite with WAL mode
@@ -93,20 +99,54 @@ billing:
 ## CLI Commands
 | Command | Purpose |
 |---------|---------|
+| `vxd init` | Initialize workspace, create `~/.vxd/`, generate default `vxd.yaml` |
 | `vxd req "requirement"` | Submit new requirement for autonomous implementation |
 | `vxd resume <req-id>` | Resume paused pipeline (has lock file + crash recovery) |
+| `vxd status` | Show requirement and story status |
+| `vxd pause <req-id>` | Pause a running requirement |
 | `vxd dashboard` | TUI dashboard (`--web` for browser version) |
-| `vxd metrics` | Success rates, timing, escalations per requirement |
+| `vxd metrics` | Success rates, timing, escalations, SLA breaches per requirement |
 | `vxd estimate "req"` | Cost estimation with `--quick`, `--json`, `--rate` |
 | `vxd report <req-id>` | Client delivery report (`--html`, `--internal`) |
 | `vxd preflight` | Run 12 pre-flight checks before dispatch |
 | `vxd approve/reject` | Human review gates for PRs |
 | `vxd approve-plan` | Approve story plan before dispatch |
+| `vxd reject-plan` | Reject story plan |
 | `vxd review` | View PR diff and approve/reject |
+| `vxd reject` | Reject a story's PR |
 | `vxd projects` | List all projects |
 | `vxd agents` | List active agents |
 | `vxd events` | View event log |
+| `vxd escalations` | List escalation events |
+| `vxd config show\|validate` | View or validate configuration |
+| `vxd archive` | Archive completed requirements |
+| `vxd memory` | Launch memory dashboard |
+| `vxd opportunity` | Manage opportunity pipeline |
 | `vxd learn [path]` | Run repo analysis (`--force`, `--pass 1\|2\|3`, `--json`) |
+| `vxd backup` | Create tar.gz archive of project state (`--output DIR`) |
+| `vxd gc` | Garbage-collect branches + expired logs |
+
+## Documentation Requirements (MANDATORY)
+
+**Every behavioral change MUST update documentation.** This is enforced by `TestDocCoverage_*` wiring tests in `engine/doc_coverage_test.go`.
+
+### What Counts as Behavioral
+- New CLI command → add to CLAUDE.md CLI Commands table + README.md
+- New config field → add to CLAUDE.md Config section + README.md Configuration table
+- New event type → add to CLAUDE.md Architecture section if user-facing
+- Changed default values → update all docs referencing the old default
+- New API endpoint → add to README.md + architecture overview
+
+### What Does NOT Need Doc Updates
+- Internal refactoring (no user-visible change)
+- Test-only changes
+- Performance improvements (unless they change behavior)
+- Bug fixes that restore documented behavior
+
+### Enforcement
+1. `TestDocCoverage_CLICommands` — verifies every `newXxxCmd()` in `internal/cli/root.go` appears in CLAUDE.md
+2. `TestDocCoverage_ConfigSections` — verifies every top-level Config struct field appears in README.md Configuration table
+3. Pre-commit awareness: if you add a new command or config field, update docs BEFORE committing
 
 ## Spec-Driven Development (SDD)
 Spec-kit is installed (`.specify/`). For new features:

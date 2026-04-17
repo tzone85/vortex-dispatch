@@ -79,9 +79,14 @@ func (a *CLIAdapter) Prepare(cfg SessionConfig) (PreparedExecution, error) {
 		}
 	}
 
-	// Build env map: pass through non-Anthropic API keys and session-specific vars.
+	// Build env map: pass through PATH (for php, composer, npm, etc.),
+	// non-Anthropic API keys, and session-specific vars.
 	env := make(map[string]string)
-	for _, key := range []string{"OPENAI_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY"} {
+	// Propagate PATH so agents can find php, composer, npm, node, etc.
+	if path := os.Getenv("PATH"); path != "" {
+		env["PATH"] = path
+	}
+	for _, key := range []string{"OPENAI_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY", "HOME"} {
 		if val := os.Getenv(key); val != "" {
 			env[key] = val
 		}

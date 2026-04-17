@@ -101,14 +101,16 @@ Respond with JSON only:
 			log.Printf("  [%d/%d] %q → relevance %d (below threshold %d, skipped)", i+1, len(findings), f.Title, tr.Relevance, a.threshold)
 			continue
 		}
-		log.Printf("  [%d/%d] %q → relevance=%d impact=%d risk=%d rank=%d", i+1, len(findings), f.Title, tr.Relevance, tr.Impact, tr.Risk, (tr.Impact*2)+tr.Relevance-tr.Risk)
-
-		rank := (tr.Impact * 2) + tr.Relevance - tr.Risk
+		relevance := clampScore(tr.Relevance)
+		impact := clampScore(tr.Impact)
+		risk := clampScore(tr.Risk)
+		rank := (impact * 2) + relevance - risk
+		log.Printf("  [%d/%d] %q → relevance=%d impact=%d risk=%d rank=%d", i+1, len(findings), f.Title, relevance, impact, risk, rank)
 		scored = append(scored, ScoredFinding{
 			Finding:   f,
-			Relevance: tr.Relevance,
-			Impact:    tr.Impact,
-			Risk:      tr.Risk,
+			Relevance: relevance,
+			Impact:    impact,
+			Risk:      risk,
 			Effort:    tr.Effort,
 			Reasoning: tr.Reasoning,
 			Rank:      rank,

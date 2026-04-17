@@ -53,10 +53,10 @@ func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (
 		args = append(args, "--model", req.Model)
 	}
 	// Allow enough turns for deep tool use (file reads, codebase
-	// analysis, dependency inspection) during planning. Complex
-	// requirements (e.g., framework upgrades) need 15-20 turns of
-	// file reads before producing a plan.
-	args = append(args, "--max-turns", "25")
+	// analysis, dependency inspection) during planning. Legacy
+	// framework upgrades (e.g., Laravel 5.5 → 12) can need 30+
+	// turns of file reads before producing a plan.
+	args = append(args, "--max-turns", "50")
 
 	cmd := exec.CommandContext(ctx, c.cliPath, args...)
 	cmd.Stdin = strings.NewReader(prompt)
@@ -75,7 +75,22 @@ func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	if err != nil {
-		// Use stderr for error classification, fall back to stdout
+		// Claude CLI exits non-zero on max-turns but may still have produced
+		// valid output. Check stdout for a parseable JSON result before failing.
+		raw := strings.TrimSpace(stdout.String())
+		if raw != "" && strings.HasPrefix(raw, "{") {
+			var envelope struct {
+				Result  string `json:"result"`
+				IsError bool   `json:"is_error"`
+			}
+			if jsonErr := json.Unmarshal([]byte(raw), &envelope); jsonErr == nil && envelope.Result != "" && !envelope.IsError {
+				return CompletionResponse{
+					Content: trimCodeFences(strings.TrimSpace(envelope.Result)),
+					Model:   req.Model,
+				}, nil
+			}
+		}
+
 		errOutput := stderr.String()
 		if errOutput == "" {
 			errOutput = stdout.String()

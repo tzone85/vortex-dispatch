@@ -191,16 +191,29 @@ type planningFallbackClient struct {
 }
 
 func (p *planningFallbackClient) Complete(ctx context.Context, req llm.CompletionRequest) (llm.CompletionResponse, error) {
-	// Try API first (handles large prompts natively).
+	// Try Claude CLI first — uses subscription (no per-token cost),
+	// runs agentic mode with file reads and tool use.
+	if p.cliClient != nil {
+		resp, err := p.cliClient.Complete(ctx, req)
+		if err == nil && resp.Content != "" {
+			return resp, nil
+		}
+		if err != nil {
+			log.Printf("[planning] CLI call failed (%v), falling back to API", err)
+		}
+	}
+
+	// Fall back to API (per-token, handles large prompts natively).
 	if p.apiClient != nil {
 		resp, err := p.apiClient.Complete(ctx, req)
 		if err == nil {
 			return resp, nil
 		}
-		log.Printf("[planning] API call failed (%v), falling back to Claude CLI", err)
+		log.Printf("[planning] API call also failed: %v", err)
 	}
 
-	// Fall back to CLI.
+	// Both failed — try CLI one more time for detailed error.
+	// (Legacy fallback path)
 	if p.cliClient != nil {
 		resp, err := p.cliClient.Complete(ctx, req)
 		if err == nil && resp.Content != "" {

@@ -38,7 +38,7 @@ func (c *ClaudeCLIClient) WithSkipPermissions() *ClaudeCLIClient {
 }
 
 // Complete builds a prompt from the request and invokes
-// `claude -p "<prompt>" --output-format json [--model <model>] --max-turns 2`.
+// `claude -p "<prompt>" --output-format json [--model <model>] --max-turns 10`.
 // It captures stdout as the completion content.
 func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {
 	prompt := buildCLIPrompt(req)
@@ -52,10 +52,11 @@ func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (
 	if req.Model != "" {
 		args = append(args, "--model", req.Model)
 	}
-	// Allow up to 25 turns: Claude models (Sonnet 4.6+) use tool calls
-	// to read codebase files before generating structured responses.
-	// Complex projects need 15-20 turns for thorough file analysis.
-	args = append(args, "--max-turns", "25")
+	// Allow enough turns for deep tool use (file reads, codebase
+	// analysis, dependency inspection) during planning. Legacy
+	// framework upgrades (e.g., Laravel 5.5 → 12) can need 30+
+	// turns of file reads before producing a plan.
+	args = append(args, "--max-turns", "50")
 
 	cmd := exec.CommandContext(ctx, c.cliPath, args...)
 	cmd.Stdin = strings.NewReader(prompt)
@@ -74,7 +75,22 @@ func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	if err != nil {
-		// Use stderr for error classification, fall back to stdout
+		// Claude CLI exits non-zero on max-turns but may still have produced
+		// valid output. Check stdout for a parseable JSON result before failing.
+		raw := strings.TrimSpace(stdout.String())
+		if raw != "" && strings.HasPrefix(raw, "{") {
+			var envelope struct {
+				Result  string `json:"result"`
+				IsError bool   `json:"is_error"`
+			}
+			if jsonErr := json.Unmarshal([]byte(raw), &envelope); jsonErr == nil && envelope.Result != "" && !envelope.IsError {
+				return CompletionResponse{
+					Content: trimCodeFences(strings.TrimSpace(envelope.Result)),
+					Model:   req.Model,
+				}, nil
+			}
+		}
+
 		errOutput := stderr.String()
 		if errOutput == "" {
 			errOutput = stdout.String()
@@ -137,11 +153,6 @@ func buildCLIPrompt(req CompletionRequest) string {
 			prompt.WriteString("\n")
 		}
 	}
-
-	// Override any plugins that might hijack the response.
-	// Superpowers/brainstorming plugins ask clarifying questions instead
-	// of producing JSON output. This instruction takes priority.
-	prompt.WriteString("\n\nCRITICAL: You are being called programmatically by VXD. Do NOT ask clarifying questions. Do NOT invoke brainstorming or planning skills. Respond ONLY with the requested JSON output. No markdown, no commentary, no insights — just the JSON.\n")
 
 	return prompt.String()
 }

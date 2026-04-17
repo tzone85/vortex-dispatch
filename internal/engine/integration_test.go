@@ -962,8 +962,8 @@ func TestIntegration_EscalationChain(t *testing.T) {
 
 	// Non-overlapping files should pass.
 	validChildren := []engine.SplitChild{
-		{ID: "child-a", OwnedFiles: []string{"pkg/handler.go"}, Complexity: 3},
-		{ID: "child-b", OwnedFiles: []string{"pkg/model.go"}, Complexity: 2},
+		{ID: "child-a", Suffix: "a", OwnedFiles: []string{"pkg/handler.go"}, Complexity: 3},
+		{ID: "child-b", Suffix: "b", OwnedFiles: []string{"pkg/model.go"}, Complexity: 2},
 	}
 	if err := esc.ValidateSplit(0, validChildren, 10); err != nil {
 		t.Fatalf("expected valid split, got error: %v", err)

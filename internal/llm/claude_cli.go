@@ -52,9 +52,11 @@ func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (
 	if req.Model != "" {
 		args = append(args, "--model", req.Model)
 	}
-	// Allow enough turns for tool use (file reads, analysis) during
-	// planning while preventing infinite interactive loops.
-	args = append(args, "--max-turns", "10")
+	// Allow enough turns for deep tool use (file reads, codebase
+	// analysis, dependency inspection) during planning. Complex
+	// requirements (e.g., framework upgrades) need 15-20 turns of
+	// file reads before producing a plan.
+	args = append(args, "--max-turns", "25")
 
 	cmd := exec.CommandContext(ctx, c.cliPath, args...)
 	cmd.Stdin = strings.NewReader(prompt)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // CLIAdapter implements Adapter for CLI-based agent runtimes.
@@ -108,6 +109,23 @@ func (a *CLIAdapter) Prepare(cfg SessionConfig) (PreparedExecution, error) {
 	if cfg.WorkDir != "" {
 		claudeMDPath := filepath.Join(cfg.WorkDir, "CLAUDE.md")
 		setupFiles[claudeMDPath] = claudeMDContent
+
+		// Ensure VXD artifacts are gitignored BEFORE the agent starts.
+		// Without this, Claude Code's own git commits include prompt files.
+		giPath := filepath.Join(cfg.WorkDir, ".gitignore")
+		existing, _ := os.ReadFile(giPath)
+		content := string(existing)
+		vxdPatterns := []string{"CLAUDE.md", ".vxd-prompts/", ".serena/", "firebase-debug.log"}
+		var toAdd []string
+		for _, pat := range vxdPatterns {
+			if !strings.Contains(content, pat) {
+				toAdd = append(toAdd, pat)
+			}
+		}
+		if len(toAdd) > 0 {
+			appendix := "\n# VXD agent artifacts (auto-added)\n" + strings.Join(toAdd, "\n") + "\n"
+			setupFiles[giPath] = content + appendix
+		}
 	}
 
 	return PreparedExecution{

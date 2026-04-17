@@ -103,6 +103,18 @@ func GenerateOpportunityID(date string, seq int) string {
 	return fmt.Sprintf("opp-%s-%03d", date, seq)
 }
 
+// clampScore restricts an int to the 0-10 range, preventing
+// LLM hallucination from inflating or deflating ranks.
+func clampScore(score int) int {
+	if score < 0 {
+		return 0
+	}
+	if score > 10 {
+		return 10
+	}
+	return score
+}
+
 // ComputeRank calculates the combined rank: (relevance * 3) + (budget * 2) + win_probability.
 func ComputeRank(opp Opportunity) int {
 	return (opp.RelevanceScore * 3) + (opp.BudgetScore * 2) + opp.WinProbability
@@ -1039,9 +1051,9 @@ Respond with JSON only:
 			Remote:         opp.Remote,
 			ScrapedAt:      opp.ScrapedAt,
 			Status:         opp.Status,
-			RelevanceScore: result.RelevanceScore,
-			BudgetScore:    result.BudgetScore,
-			WinProbability: result.WinProbability,
+			RelevanceScore: clampScore(result.RelevanceScore),
+			BudgetScore:    clampScore(result.BudgetScore),
+			WinProbability: clampScore(result.WinProbability),
 			EffortEstimate: result.EffortEstimate,
 			Notes:          result.Reasoning,
 			Revenue:        opp.Revenue,

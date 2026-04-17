@@ -155,11 +155,35 @@ const maxSplitDepth = 2
 
 // ValidateSplit checks constraints on a proposed split action:
 //   - The parent must not exceed the maximum split depth.
+//   - No two children may share the same suffix (duplicate suffixes would
+//     produce duplicate story IDs when concatenated with the parent ID).
 //   - No two children may claim the same owned file.
 //   - No child may exceed the given maximum complexity.
+//
+// It delegates to ValidateSplitWithEdges with an empty edge list.
 func (e *EscalationMachine) ValidateSplit(parentSplitDepth int, children []SplitChild, maxComplexity int) error {
+	return e.ValidateSplitWithEdges(parentSplitDepth, children, maxComplexity, nil)
+}
+
+// ValidateSplitWithEdges extends ValidateSplit with dependency-edge
+// validation. In addition to the constraints checked by ValidateSplit it
+// verifies:
+//   - Every dependency edge must contain exactly 2 elements.
+//   - Both endpoints of every edge must reference suffixes that exist among
+//     the children (no dangling edges that an LLM could hallucinate).
+func (e *EscalationMachine) ValidateSplitWithEdges(parentSplitDepth int, children []SplitChild, maxComplexity int, edges [][]string) error {
 	if parentSplitDepth >= maxSplitDepth {
 		return fmt.Errorf("max split depth (%d) reached", maxSplitDepth)
+	}
+
+	// Build suffix set first so it can be reused for both duplicate detection
+	// and edge validation.
+	suffixSet := make(map[string]bool, len(children))
+	for _, child := range children {
+		if suffixSet[child.Suffix] {
+			return fmt.Errorf("duplicate child suffix: %q", child.Suffix)
+		}
+		suffixSet[child.Suffix] = true
 	}
 
 	ownedFiles := make(map[string]bool)
@@ -174,6 +198,16 @@ func (e *EscalationMachine) ValidateSplit(parentSplitDepth int, children []Split
 			return fmt.Errorf("child complexity %d exceeds max %d", child.Complexity, maxComplexity)
 		}
 	}
+
+	for _, edge := range edges {
+		if len(edge) != 2 {
+			return fmt.Errorf("dependency edge must have exactly 2 elements, got %d", len(edge))
+		}
+		if !suffixSet[edge[0]] || !suffixSet[edge[1]] {
+			return fmt.Errorf("dependency edge references unknown suffix: %v", edge)
+		}
+	}
+
 	return nil
 }
 

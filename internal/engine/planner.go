@@ -170,15 +170,35 @@ architecture and conventions when planning stories.`, profileContext)
 	}
 	idMap := make(map[string]string, len(stories))
 	for i, s := range stories {
+		// Reject duplicate story IDs — LLM hallucination would silently drop stories.
+		if _, exists := idMap[s.ID]; exists {
+			return PlanResult{}, fmt.Errorf("LLM returned duplicate story ID: %s", s.ID)
+		}
 		newID := prefix + "-" + s.ID
 		idMap[s.ID] = newID
 		stories[i].ID = newID
+	}
+	// Validate depends_on references before remapping — a nonexistent reference
+	// creates a dangling DAG edge that makes the story permanently undispatchable.
+	for _, s := range stories {
+		for _, dep := range s.DependsOn {
+			if _, ok := idMap[dep]; !ok {
+				return PlanResult{}, fmt.Errorf("story %s has depends_on reference to nonexistent story %s", s.ID, dep)
+			}
+		}
 	}
 	for i, s := range stories {
 		for j, dep := range s.DependsOn {
 			if newDep, ok := idMap[dep]; ok {
 				stories[i].DependsOn[j] = newDep
 			}
+		}
+		// Normalize invalid wave_hint values to a safe default.
+		switch s.WaveHint {
+		case "", "sequential", "parallel":
+			// valid — keep as-is
+		default:
+			stories[i].WaveHint = "parallel"
 		}
 	}
 

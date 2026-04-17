@@ -51,9 +51,11 @@ func ConflictedFiles(worktreePath string) ([]string, error) {
 	return files, nil
 }
 
-// StageFiles stages the specified files in the worktree (git add).
+// StageFiles stages the specified files in the worktree (git add -f).
+// Uses -f to force-add files that may be gitignored (e.g., VXD's own
+// .vxd-prompts directory which appears in conflict resolution).
 func StageFiles(worktreePath string, files []string) error {
-	args := append([]string{"add"}, files...)
+	args := append([]string{"add", "-f"}, files...)
 	cmd := exec.Command("git", args...)
 	cmd.Dir = worktreePath
 	out, err := cmd.CombinedOutput()

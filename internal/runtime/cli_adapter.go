@@ -58,19 +58,25 @@ func (a *CLIAdapter) Prepare(cfg SessionConfig) (PreparedExecution, error) {
 
 	setupFiles := make(map[string]string)
 
-	// Write prompt to a file and pipe it via stdin so Claude Code runs
-	// in agentic mode (reads files, edits code, runs commands) rather
-	// than single-shot prompt mode (-p).
+	// Write prompt to a file and pass via -p flag with piped stdin.
+	// Claude Code in -p mode with subscription (no ANTHROPIC_API_KEY)
+	// runs multi-turn agentic tasks with tool use.
 	if prompt != "" && cfg.WorkDir != "" {
 		promptDir := filepath.Join(cfg.WorkDir, ".vxd-prompts")
 		promptFile := filepath.Join(promptDir, "prompt.txt")
 		setupFiles[promptFile] = prompt
-		cmdStr = fmt.Sprintf("cat %q | %s", promptFile, cmdStr)
-	}
-
-	// Tee output to a log file for post-mortem diagnosis.
-	if cfg.LogFile != "" {
-		cmdStr += fmt.Sprintf(" 2>&1 | tee %q", cfg.LogFile)
+		// Use -p with stdin pipe for agentic mode.
+		// Log output to file via shell redirection (not tee, which breaks stdin).
+		if cfg.LogFile != "" {
+			cmdStr = fmt.Sprintf("cat %q | %s -p --output-format json > %q 2>&1", promptFile, cmdStr, cfg.LogFile)
+		} else {
+			cmdStr = fmt.Sprintf("cat %q | %s -p --output-format json", promptFile, cmdStr)
+		}
+	} else {
+		// No prompt — just log output if requested.
+		if cfg.LogFile != "" {
+			cmdStr += fmt.Sprintf(" > %q 2>&1", cfg.LogFile)
+		}
 	}
 
 	// Build env map: pass through non-Anthropic API keys and session-specific vars.
@@ -84,14 +90,14 @@ func (a *CLIAdapter) Prepare(cfg SessionConfig) (PreparedExecution, error) {
 		env[key] = val
 	}
 
-	// Prepend env exports, unset CLAUDECODE to prevent nested-session errors,
-	// and unset ANTHROPIC_API_KEY so Claude CLI uses the Max subscription
-	// instead of a potentially expired/empty API key from the environment.
+	// Prepend env exports. Unset ANTHROPIC_API_KEY so Claude Code uses
+	// the user's subscription (free) instead of exhausted API credits.
+	// Unset CLAUDECODE to prevent nested-session errors.
 	var envExports string
 	for key, val := range env {
 		envExports += fmt.Sprintf("export %s=%q; ", key, val)
 	}
-	cmdStr = envExports + "unset CLAUDECODE ANTHROPIC_API_KEY; " + cmdStr
+	cmdStr = envExports + "unset ANTHROPIC_API_KEY CLAUDECODE; " + cmdStr
 
 	// Add CLAUDE.md to setup files so agents don't brainstorm/plan.
 	if cfg.WorkDir != "" {

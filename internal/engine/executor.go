@@ -3,11 +3,13 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/tzone85/vortex-dispatch/internal/agent"
+	"github.com/tzone85/vortex-dispatch/internal/sanitize"
 	"github.com/tzone85/vortex-dispatch/internal/artifact"
 	"github.com/tzone85/vortex-dispatch/internal/config"
 	vxdgit "github.com/tzone85/vortex-dispatch/internal/git"
@@ -323,11 +325,22 @@ func (e *Executor) latestReviewFeedback(storyID string) string {
 	}
 
 	// Try "summary" (from reviewer) then "reason" (from monitor).
+	var feedback string
 	if summary, ok := payload["summary"].(string); ok && summary != "" {
-		return summary
+		feedback = summary
+	} else {
+		feedback, _ = payload["reason"].(string)
 	}
-	reason, _ := payload["reason"].(string)
-	return reason
+
+	// Sanitize: strip prompt injection patterns from reviewer LLM output
+	// before it's re-injected into retry agent prompts. A hallucinating
+	// reviewer could emit "ignore previous instructions" in its summary,
+	// which would then hijack the retry agent.
+	if sanitize.DetectPromptInjection(feedback) {
+		log.Printf("[executor] stripped prompt injection from review feedback for %s", storyID)
+		return "[Review feedback redacted — contained prompt injection pattern]"
+	}
+	return feedback
 }
 
 // runtimeForRole selects the configured runtime whose CLI can serve the

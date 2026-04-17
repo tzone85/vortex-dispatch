@@ -31,7 +31,19 @@ func extractJSON(raw string) string {
 		return strings.TrimSpace(inner)
 	}
 
-	// Pattern 3: find first JSON delimiter and matching last delimiter
+	// Pattern 3: depth-aware bracket matching (handles nested objects/arrays
+	// and brackets inside JSON string values).
+	//
+	// We scan forward from the first delimiter, tracking open/close depth and
+	// skipping brackets that appear inside JSON string literals (between
+	// unescaped double-quotes). This avoids two classes of bugs with the
+	// naive LastIndexByte approach:
+	//   1. Stray closing brackets after the JSON payload get included.
+	//   2. Opening brackets in the preamble (e.g. "Score [10/10]:") shift
+	//      `first` past the real JSON start.
+	//
+	// To handle case 2 we try every candidate opening bracket position until
+	// depth-scanning succeeds in finding a balanced match.
 	firstObj := strings.Index(s, "{")
 	firstArr := strings.Index(s, "[")
 	first := firstObj
@@ -43,12 +55,63 @@ func extractJSON(raw string) string {
 	if first == -1 {
 		return s // no JSON markers — return as-is
 	}
-	last := strings.LastIndexByte(s, closeCh)
-	if last <= first {
-		return s
+
+	// Try each occurrence of openCh starting from first. We need this loop
+	// because the preamble may contain the same bracket character (e.g. "[10/10]:").
+	// A successful depth scan (end != -1) means we found a balanced JSON token.
+	for start := first; start < len(s); {
+		if s[start] != openCh {
+			next := strings.IndexByte(s[start:], openCh)
+			if next == -1 {
+				break
+			}
+			start += next
+		}
+
+		depth := 0
+		inString := false
+		end := -1
+		for i := start; i < len(s); i++ {
+			ch := s[i]
+			if ch == '\\' && inString {
+				i++ // skip escaped character
+				continue
+			}
+			if ch == '"' {
+				inString = !inString
+				continue
+			}
+			if inString {
+				continue
+			}
+			if ch == openCh {
+				depth++
+			} else if ch == closeCh {
+				depth--
+				if depth == 0 {
+					end = i
+					break
+				}
+			}
+		}
+		if end != -1 {
+			candidate := strings.TrimSpace(s[start : end+1])
+			// Accept only if it is structurally valid JSON; this skips
+			// non-JSON balanced tokens in the preamble (e.g. "[10/10]").
+			if json.Valid([]byte(candidate)) {
+				return candidate
+			}
+		}
+		// This candidate didn't balance or wasn't valid JSON — try the next
+		// openCh occurrence.
+		next := strings.IndexByte(s[start+1:], openCh)
+		if next == -1 {
+			break
+		}
+		start = start + 1 + next
 	}
-	_ = openCh // reserved for future depth-aware parsing
-	return strings.TrimSpace(s[first : last+1])
+
+	return s // unmatched brackets — return as-is
 }
 
 // FlexibleString unmarshals either a JSON string or an array of strings into a

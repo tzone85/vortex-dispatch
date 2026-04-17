@@ -24,6 +24,36 @@ type ReviewResult struct {
 	Summary  string          `json:"summary"`
 }
 
+// validSeverities is the set of accepted review comment severity levels.
+var validSeverities = map[string]bool{
+	"critical": true,
+	"major":    true,
+	"minor":    true,
+	"info":     true,
+}
+
+// maxReviewSummaryLen caps the reviewer's summary to prevent LLM bloat.
+const maxReviewSummaryLen = 2000
+
+// sanitizeReviewResult clamps hallucinated values in LLM review output.
+func sanitizeReviewResult(r *ReviewResult) {
+	// Cap summary length
+	if len(r.Summary) > maxReviewSummaryLen {
+		r.Summary = r.Summary[:maxReviewSummaryLen] + " [truncated]"
+	}
+
+	for i := range r.Comments {
+		// Clamp negative line numbers
+		if r.Comments[i].Line < 0 {
+			r.Comments[i].Line = 0
+		}
+		// Normalize unknown severity to "info"
+		if !validSeverities[r.Comments[i].Severity] {
+			r.Comments[i].Severity = "info"
+		}
+	}
+}
+
 // Reviewer performs AI-powered code review on story branch diffs using the
 // Senior model.
 type Reviewer struct {
@@ -112,6 +142,8 @@ Respond with JSON:
 	if err := json.Unmarshal([]byte(cleaned), &result); err != nil {
 		return ReviewResult{}, fmt.Errorf("parse review response: %w", err)
 	}
+
+	sanitizeReviewResult(&result)
 
 	// Emit appropriate event
 	eventType := state.EventStoryReviewPassed

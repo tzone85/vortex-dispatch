@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/tzone85/vortex-dispatch/internal/llm"
+	"github.com/tzone85/vortex-dispatch/internal/sanitize"
 )
 
 // maxFileBytes is the maximum size of a file to read for LLM analysis.
@@ -66,6 +67,22 @@ Be specific to THIS codebase. Do not give generic advice.`
 	}
 
 	summary := strings.TrimSpace(resp.Content)
+
+	// Guard against LLM-generated prompt injection patterns that could
+	// propagate to the planner via RepoProfile.Summary(). The summary
+	// is re-injected verbatim into planner prompts — any injection
+	// pattern here would hijack story decomposition.
+	if sanitize.DetectPromptInjection(summary) {
+		profile.AddSignal("llm_warning", "Deep analysis summary contained prompt injection pattern — redacted", "")
+		summary = "[Summary redacted — contained prompt injection pattern]"
+	}
+
+	// Cap summary length to prevent context bloat in downstream prompts
+	const maxSummaryLen = 2000
+	if len(summary) > maxSummaryLen {
+		summary = summary[:maxSummaryLen] + "\n[truncated]"
+	}
+
 	if summary != "" {
 		// Replace any existing LLM summary (re-runs overwrite)
 		filtered := profile.Signals[:0]

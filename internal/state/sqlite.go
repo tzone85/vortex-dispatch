@@ -405,15 +405,15 @@ func (s *SQLiteStore) ListAgents(filter AgentFilter) ([]Agent, error) {
 
 // Escalation represents a recorded escalation between agent roles.
 type Escalation struct {
-	ID         string
-	StoryID    string
-	FromAgent  string
-	Reason     string
-	Status     string
-	Resolution string
-	FromTier   int
-	ToTier     int
-	CreatedAt  string
+	ID         string `json:"id"`
+	StoryID    string `json:"story_id"`
+	FromAgent  string `json:"from_agent"`
+	Reason     string `json:"reason"`
+	Status     string `json:"status"`
+	Resolution string `json:"resolution"`
+	FromTier   int    `json:"from_tier"`
+	ToTier     int    `json:"to_tier"`
+	CreatedAt  string `json:"created_at"`
 }
 
 // ListEscalations returns all escalations ordered by creation time descending.

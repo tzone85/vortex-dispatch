@@ -38,7 +38,7 @@ func (c *ClaudeCLIClient) WithSkipPermissions() *ClaudeCLIClient {
 }
 
 // Complete builds a prompt from the request and invokes
-// `claude -p "<prompt>" --output-format text [--model <model>] --max-turns 1`.
+// `claude -p "<prompt>" --output-format json [--model <model>] --max-turns 10`.
 // It captures stdout as the completion content.
 func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {
 	prompt := buildCLIPrompt(req)
@@ -52,8 +52,9 @@ func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (
 	if req.Model != "" {
 		args = append(args, "--model", req.Model)
 	}
-	// Prevent interactive loops — single-turn completion only.
-	args = append(args, "--max-turns", "1")
+	// Allow enough turns for tool use (file reads, analysis) during
+	// planning while preventing infinite interactive loops.
+	args = append(args, "--max-turns", "10")
 
 	cmd := exec.CommandContext(ctx, c.cliPath, args...)
 	cmd.Stdin = strings.NewReader(prompt)

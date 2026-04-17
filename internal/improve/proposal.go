@@ -121,8 +121,31 @@ func (d *ProposalDrafter) DraftProposal(ctx context.Context, opp Opportunity) (s
 	if draft == "" {
 		return "", fmt.Errorf("claude CLI produced empty output (stderr: %s)", stderr.String())
 	}
+
+	// Validate draft content
+	draft = sanitizeProposal(draft)
+
 	log.Printf("  [proposal] Drafted proposal for %q (%d chars)", opp.Title, len(draft))
 	return draft, nil
+}
+
+// maxProposalLen caps generated proposals to prevent LLM bloat.
+const maxProposalLen = 3000
+
+// sanitizeProposal validates and cleans LLM-generated proposal content.
+// Caps length, flags injection, and notes if output appears truncated.
+func sanitizeProposal(draft string) string {
+	// Cap length
+	if len(draft) > maxProposalLen {
+		draft = draft[:maxProposalLen] + "\n\n[Proposal truncated at 3000 chars — review and edit before sending]"
+	}
+
+	// Flag (but don't strip) injection patterns — human review is the gate
+	if DetectPromptInjection(draft) {
+		draft = "[WARNING: This proposal may contain suspicious patterns. Review carefully before sending.]\n\n" + draft
+	}
+
+	return draft
 }
 
 // DraftProposalsForTop drafts proposals for the top N opportunities by rank.

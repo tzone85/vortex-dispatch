@@ -58,13 +58,14 @@ func (a *CLIAdapter) Prepare(cfg SessionConfig) (PreparedExecution, error) {
 
 	setupFiles := make(map[string]string)
 
-	// Write prompt to a file and reference it via shell substitution.
-	// Piping via stdin does not work reliably inside tmux detached sessions.
+	// Write prompt to a file and pipe it via stdin so Claude Code runs
+	// in agentic mode (reads files, edits code, runs commands) rather
+	// than single-shot prompt mode (-p).
 	if prompt != "" && cfg.WorkDir != "" {
 		promptDir := filepath.Join(cfg.WorkDir, ".vxd-prompts")
 		promptFile := filepath.Join(promptDir, "prompt.txt")
 		setupFiles[promptFile] = prompt
-		cmdStr = fmt.Sprintf("%s -p \"$(cat %q)\"", cmdStr, promptFile)
+		cmdStr = fmt.Sprintf("cat %q | %s", promptFile, cmdStr)
 	}
 
 	// Tee output to a log file for post-mortem diagnosis.

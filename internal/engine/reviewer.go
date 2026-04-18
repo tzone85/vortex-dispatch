@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/tzone85/vortex-dispatch/internal/llm"
 	"github.com/tzone85/vortex-dispatch/internal/state"
@@ -86,6 +87,15 @@ func (r *Reviewer) Review(ctx context.Context, storyID, title, acceptanceCriteri
 		return ReviewResult{}, fmt.Errorf("empty diff for story %s", storyID)
 	}
 
+	// Truncate excessively large diffs to prevent "Prompt is too long" errors.
+	// Lock files (composer.lock, package-lock.json, yarn.lock) dominate diff
+	// size but add no review value. Filter them out first, then truncate.
+	diff = filterLockFileDiffs(diff)
+	const maxDiffChars = 30000
+	if len(diff) > maxDiffChars {
+		diff = diff[:maxDiffChars] + "\n\n... [diff truncated at 30K chars for review — full diff available in artifact store]"
+	}
+
 	// Build optional file tree context.
 	fileTreeCtx := ""
 	if len(extra) > 0 && extra[0] != "" {
@@ -164,4 +174,37 @@ Respond with JSON:
 	}
 
 	return result, nil
+}
+
+// filterLockFileDiffs removes lock file hunks from a unified diff.
+// Lock files (composer.lock, package-lock.json, yarn.lock, go.sum) produce
+// massive diffs that dominate the review prompt without adding value.
+func filterLockFileDiffs(diff string) string {
+	lockFiles := []string{
+		"composer.lock", "package-lock.json", "yarn.lock",
+		"go.sum", "Podfile.lock", "Gemfile.lock", "pnpm-lock.yaml",
+		".phpunit.result.cache",
+	}
+
+	lines := strings.Split(diff, "\n")
+	var result []string
+	skip := false
+
+	for _, line := range lines {
+		if strings.HasPrefix(line, "diff --git") {
+			skip = false
+			for _, lf := range lockFiles {
+				if strings.Contains(line, lf) {
+					skip = true
+					result = append(result, fmt.Sprintf("# [%s changes omitted — lock file]", lf))
+					break
+				}
+			}
+		}
+		if !skip {
+			result = append(result, line)
+		}
+	}
+
+	return strings.Join(result, "\n")
 }

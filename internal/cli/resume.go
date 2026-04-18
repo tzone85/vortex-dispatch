@@ -26,10 +26,10 @@ import (
 
 func newResumeCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "resume <req-id>",
+		Use:   "resume [req-id]",
 		Short: "Resume a paused requirement pipeline",
-		Long:  "Loads existing state for a requirement, dispatches the next wave of ready stories, spawns agents in tmux sessions, and monitors progress through review, QA, and merge.",
-		Args:  cobra.ExactArgs(1),
+		Long:  "Loads existing state for a requirement, dispatches the next wave of ready stories, spawns agents in tmux sessions, and monitors progress through review, QA, and merge.\n\nIf req-id is omitted and only one active (non-archived, non-completed) requirement exists, it is selected automatically.",
+		Args:  cobra.MaximumNArgs(1),
 		RunE:  runResume,
 	}
 	cmd.Flags().Bool("godmode", false, "skip permission prompts on LLM calls (fully autonomous)")
@@ -46,13 +46,47 @@ func runResume(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	reqID := args[0]
-
 	s, err := loadStores(cmd)
 	if err != nil {
 		return err
 	}
 	defer s.Close()
+
+	out := cmd.OutOrStdout()
+
+	// Auto-select the requirement if only one active exists.
+	var reqID string
+	if len(args) > 0 {
+		reqID = args[0]
+	} else {
+		reqs, listErr := s.Proj.ListRequirementsFiltered(state.ReqFilter{ExcludeArchived: true})
+		if listErr != nil {
+			return fmt.Errorf("list requirements: %w", listErr)
+		}
+		var active []state.Requirement
+		for _, r := range reqs {
+			if r.Status != "completed" && r.Status != "archived" {
+				active = append(active, r)
+			}
+		}
+		switch len(active) {
+		case 0:
+			return fmt.Errorf("no active requirements found — run 'vxd req' first")
+		case 1:
+			reqID = active[0].ID
+			fmt.Fprintf(out, "Auto-selected requirement: %s\n", active[0].Title)
+		default:
+			fmt.Fprintf(out, "Multiple active requirements:\n")
+			for _, r := range active {
+				id := r.ID
+				if len(id) > 8 {
+					id = id[:8]
+				}
+				fmt.Fprintf(out, "  [%s] %s (%s)\n", id, r.Title, r.Status)
+			}
+			return fmt.Errorf("specify which requirement to resume: vxd resume <req-id>")
+		}
+	}
 
 	// Acquire advisory lock to prevent concurrent VXD runs.
 	stateDir := expandHome(s.Config.Workspace.StateDir)
@@ -68,8 +102,6 @@ func runResume(cmd *cobra.Command, args []string) error {
 		}
 	}
 	defer engine.ReleaseLock(lockPath)
-
-	out := cmd.OutOrStdout()
 
 	// Verify the requirement exists
 	req, err := s.Proj.GetRequirement(reqID)

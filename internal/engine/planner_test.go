@@ -288,9 +288,24 @@ func TestPlan_RejectsFileOverlap(t *testing.T) {
 	cfg := config.DefaultConfig()
 	planner := engine.NewPlanner(client, cfg, eventStore, projStore)
 
-	_, err = planner.Plan(context.Background(), "r-004", "Overlapping files", dir)
-	if err == nil {
-		t.Fatal("expected file overlap validation error")
+	// Overlapping files should be auto-sequenced instead of rejected.
+	result, err := planner.Plan(context.Background(), "r-004", "Overlapping files", dir)
+	if err != nil {
+		t.Fatalf("expected auto-sequencing, got error: %v", err)
+	}
+	// s-002 should now depend on s-001 (auto-added dependency for shared file).
+	for _, s := range result.Stories {
+		if s.ID == "s-002" {
+			found := false
+			for _, d := range s.DependsOn {
+				if d == "s-001" {
+					found = true
+				}
+			}
+			if !found {
+				t.Error("expected s-002 to depend on s-001 after auto-sequencing")
+			}
+		}
 	}
 }
 

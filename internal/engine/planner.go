@@ -134,7 +134,12 @@ IMPORTANT:
 - Keep story complexity at or below %d.
 - For simple requirements (1-2 files), prefer fewer stories (1-2) over many small ones.
 
-Respond ONLY with the JSON array, no other text.`, requirement, p.config.Planning.MaxStoryComplexity)
+CRITICAL RULES:
+- Respond ONLY with the JSON array. No prose, no explanations, no questions.
+- Do NOT ask clarification questions. Make reasonable assumptions and proceed.
+- Do NOT wrap the JSON in markdown code fences.
+- If you are unsure about something, make a decision and document it in the story description.
+- Your response must start with [ and end with ].`, requirement, p.config.Planning.MaxStoryComplexity)
 
 	// Append repo profile context if available from learning system
 	if profileContext != "" {
@@ -213,14 +218,27 @@ architecture and conventions when planning stories.`, profileContext)
 		}
 	}
 
-	// Validate no overlapping file ownership
+	// Resolve overlapping file ownership by adding dependency edges.
+	// When two stories claim the same file, the second one gets a
+	// dependency on the first so they run sequentially (not in parallel).
 	fileOwner := make(map[string]string)
-	for _, s := range stories {
-		for _, f := range s.OwnedFiles {
-			if owner, exists := fileOwner[f]; exists {
-				return PlanResult{}, fmt.Errorf("file %s claimed by %s and %s", f, owner, s.ID)
+	for i := range stories {
+		for _, f := range stories[i].OwnedFiles {
+			if owner, exists := fileOwner[f]; exists && owner != stories[i].ID {
+				// Add dependency: this story depends on the file owner.
+				hasDep := false
+				for _, d := range stories[i].DependsOn {
+					if d == owner {
+						hasDep = true
+						break
+					}
+				}
+				if !hasDep {
+					stories[i].DependsOn = append(stories[i].DependsOn, owner)
+					log.Printf("[planner] auto-sequenced %s after %s (shared file: %s)", stories[i].ID, owner, f)
+				}
 			}
-			fileOwner[f] = s.ID
+			fileOwner[f] = stories[i].ID
 		}
 	}
 

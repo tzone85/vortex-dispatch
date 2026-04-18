@@ -30,7 +30,8 @@ func IsInsufficientBalance(err error) bool {
 	return apiErr.StatusCode == 400 &&
 		(strings.Contains(msg, "credit balance") ||
 			strings.Contains(msg, "billing") ||
-			strings.Contains(msg, "insufficient_quota"))
+			strings.Contains(msg, "insufficient_quota") ||
+			strings.Contains(msg, "out of extra usage"))
 }
 
 // IsFatalAPIError returns true when the error is a non-retryable API error

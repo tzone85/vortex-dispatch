@@ -173,7 +173,7 @@ func TestNewReqCmd(t *testing.T) {
 
 func TestNewResumeCmd(t *testing.T) {
 	cmd := newResumeCmd()
-	if cmd.Use != "resume <req-id>" {
+	if cmd.Use != "resume [req-id]" {
 		t.Errorf("Use = %q", cmd.Use)
 	}
 	for _, name := range []string{"godmode", "review", "auto", "force", "dry-run"} {
@@ -829,8 +829,9 @@ func TestPlanningFallbackClient_APISucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Content != "plan from API" {
-		t.Errorf("expected API response, got %q", resp.Content)
+	// CLI is tried first (subscription, no per-token cost).
+	if resp.Content != "plan from CLI" {
+		t.Errorf("expected CLI response (CLI-first), got %q", resp.Content)
 	}
 }
 

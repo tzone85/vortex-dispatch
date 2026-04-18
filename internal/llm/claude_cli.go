@@ -83,11 +83,23 @@ func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (
 				Result  string `json:"result"`
 				IsError bool   `json:"is_error"`
 			}
-			if jsonErr := json.Unmarshal([]byte(raw), &envelope); jsonErr == nil && envelope.Result != "" && !envelope.IsError {
-				return CompletionResponse{
-					Content: trimCodeFences(strings.TrimSpace(envelope.Result)),
-					Model:   req.Model,
-				}, nil
+			if jsonErr := json.Unmarshal([]byte(raw), &envelope); jsonErr == nil && envelope.Result != "" {
+				// Check for usage exhaustion in the result text.
+				resultLower := strings.ToLower(envelope.Result)
+				if strings.Contains(resultLower, "out of extra usage") ||
+					strings.Contains(resultLower, "credit balance") {
+					return CompletionResponse{}, &APIError{
+						StatusCode: 400,
+						Message:    envelope.Result,
+						Retryable:  false,
+					}
+				}
+				if !envelope.IsError {
+					return CompletionResponse{
+						Content: trimCodeFences(strings.TrimSpace(envelope.Result)),
+						Model:   req.Model,
+					}, nil
+				}
 			}
 		}
 
@@ -163,7 +175,8 @@ func classifyCLIError(err error, output []byte) error {
 	text := strings.TrimSpace(string(output))
 	lower := strings.ToLower(text)
 
-	if strings.Contains(lower, "credit balance") || strings.Contains(lower, "billing") || strings.Contains(lower, "insufficient_quota") {
+	if strings.Contains(lower, "credit balance") || strings.Contains(lower, "billing") ||
+		strings.Contains(lower, "insufficient_quota") || strings.Contains(lower, "out of extra usage") {
 		return &APIError{
 			StatusCode: 400,
 			Message:    text,

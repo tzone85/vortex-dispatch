@@ -8,8 +8,8 @@ VXD orchestrates AI coding agents (Claude Code, Codex, Gemini CLI) to autonomous
 # CRITICAL: Always build to ~/.local/bin/ (NOT ~/go/bin/)
 go build -o ~/.local/bin/vxd ./cmd/vxd
 
-# Run tests (exclude improve/ which has flaky prompt injection test)
-go test $(go list ./... | grep -v improve) -count=1
+# Run tests
+go test ./... -count=1
 
 # NXD (public Ollama version) — at ~/Sites/misc/nexus-dispatch
 cd ~/Sites/misc/nexus-dispatch && go build -o ~/.local/bin/nxd ./cmd/nxd/

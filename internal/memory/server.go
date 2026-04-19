@@ -31,6 +31,7 @@ type Server struct {
 	port             int
 	httpServer       *http.Server
 	opportunitiesDir string
+	NoOpen           bool // skip opening browser on start
 }
 
 // NewServer creates a new memory dashboard server.
@@ -72,7 +73,9 @@ func (s *Server) Start(ctx context.Context) error {
 
 	url := fmt.Sprintf("http://%s", addr)
 	log.Printf("Memory dashboard running at %s", url)
-	openBrowser(url)
+	if !s.NoOpen {
+		openBrowser(url)
+	}
 
 	go func() {
 		<-ctx.Done()
@@ -419,5 +422,7 @@ func openBrowser(url string) {
 		log.Printf("Cannot open browser on %s -- open %s manually", runtime.GOOS, url)
 		return
 	}
-	cmd.Start() //nolint:errcheck
+	if err := cmd.Start(); err != nil {
+		log.Printf("Failed to open browser: %v — open %s manually", err, url)
+	}
 }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -222,9 +223,15 @@ func (s *SQLiteStore) Project(evt Event) error {
 	case EventStorySLABreached:
 		return nil // observational only — no projection change needed
 
+	case EventAgentSpawned:
+		return s.projectAgentSpawned(evt, payload)
+	case EventAgentTerminated:
+		return s.projectAgentTerminated(evt, payload)
+	case EventAgentCheckpoint, EventAgentResumed, EventAgentStuck:
+		return nil // informational — no projection change
+
 	default:
-		// Unhandled event types are silently ignored to allow forward
-		// compatibility as new event types are added.
+		log.Printf("[projector] WARNING: unhandled event type %q (story=%s)", evt.Type, evt.StoryID)
 		return nil
 	}
 }
@@ -668,6 +675,39 @@ func (s *SQLiteStore) projectStoryRewritten(storyID string, payload map[string]a
 	_, err := s.db.Exec(
 		`UPDATE stories SET escalation_tier = 0, status = 'draft', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		storyID,
+	)
+	return err
+}
+
+// projectAgentSpawned inserts or updates an agent row when a new agent session is spawned.
+func (s *SQLiteStore) projectAgentSpawned(evt Event, payload map[string]any) error {
+	agentID := evt.AgentID
+	if agentID == "" {
+		agentID = payloadStr(payload, "agent_id")
+	}
+	role := payloadStr(payload, "role")
+	sessionName := payloadStr(payload, "session_name")
+	runtimeName := payloadStr(payload, "runtime")
+
+	_, err := s.db.Exec(
+		`INSERT INTO agents (id, type, model, runtime, status, current_story_id, session_name, created_at)
+		 VALUES (?, ?, '', ?, 'active', ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET status='active', current_story_id=?, session_name=?, runtime=?`,
+		agentID, role, runtimeName, evt.StoryID, sessionName, evt.Timestamp,
+		evt.StoryID, sessionName, runtimeName,
+	)
+	return err
+}
+
+// projectAgentTerminated marks an agent as terminated.
+func (s *SQLiteStore) projectAgentTerminated(evt Event, payload map[string]any) error {
+	agentID := evt.AgentID
+	if agentID == "" {
+		agentID = payloadStr(payload, "agent_id")
+	}
+	_, err := s.db.Exec(
+		`UPDATE agents SET status = 'terminated' WHERE id = ?`,
+		agentID,
 	)
 	return err
 }

@@ -18,6 +18,10 @@ import (
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
 
+// Version is the application version, injected at build time or set by the
+// caller (e.g. cli package). Defaults to "dev" for local builds.
+var Version = "dev"
+
 //go:embed static/*
 var staticFiles embed.FS
 
@@ -30,6 +34,7 @@ type Server struct {
 	httpServer *http.Server
 	dagExport  *graph.DAGExport
 	startTime  time.Time
+	NoOpen     bool // skip opening browser on start
 }
 
 func NewServer(es state.EventStore, ps *state.SQLiteStore, port int, filter state.ReqFilter) *Server {
@@ -76,10 +81,11 @@ func (s *Server) Start(ctx context.Context) error {
 
 	s.httpServer = &http.Server{Handler: mux}
 
-	// Open browser
 	url := fmt.Sprintf("http://%s", addr)
 	log.Printf("Dashboard server running at %s", url)
-	openBrowser(url)
+	if !s.NoOpen {
+		openBrowser(url)
+	}
 
 	// Start hub broadcast loop
 	go s.hub.Run(ctx)
@@ -116,7 +122,7 @@ func healthHandler(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	resp := map[string]any{
 		"status":  "ok",
-		"version": "0.1.0",
+		"version": Version,
 	}
 	_ = json.NewEncoder(w).Encode(resp)
 }
@@ -126,7 +132,7 @@ func healthHandler(w http.ResponseWriter, _ *http.Request) {
 func buildHealthResponse(es state.EventStore, startTime time.Time) map[string]any {
 	resp := map[string]any{
 		"status":         "ok",
-		"version":        "0.1.0",
+		"version":        Version,
 		"uptime_seconds": int(time.Since(startTime).Seconds()),
 	}
 	if es != nil {
@@ -150,6 +156,8 @@ func openBrowser(url string) {
 		log.Printf("Cannot open browser on %s — open %s manually", runtime.GOOS, url)
 		return
 	}
-	cmd.Start() //nolint:errcheck
+	if err := cmd.Start(); err != nil {
+		log.Printf("Failed to open browser: %v — open %s manually", err, url)
+	}
 }
 

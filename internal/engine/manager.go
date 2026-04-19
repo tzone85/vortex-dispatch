@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -209,11 +210,23 @@ func (m *Manager) BuildDiagnosticContext(storyID, worktreePath, logDir string) (
 		})
 	}
 
-	// Read worktree state.
+	// Read worktree state. Git failures are non-critical for diagnostics.
 	if worktreePath != "" {
-		dc.WorktreeStatus = runGit(worktreePath, "status", "--short")
-		dc.WorktreeLog = runGit(worktreePath, "log", "--oneline", "-5")
-		dc.WorktreeFiles = runGit(worktreePath, "ls-files")
+		if result, err := runGit(worktreePath, "status", "--short"); err != nil {
+			log.Printf("[manager] git status --short failed: %v", err)
+		} else {
+			dc.WorktreeStatus = result
+		}
+		if result, err := runGit(worktreePath, "log", "--oneline", "-5"); err != nil {
+			log.Printf("[manager] git log --oneline -5 failed: %v", err)
+		} else {
+			dc.WorktreeLog = result
+		}
+		if result, err := runGit(worktreePath, "ls-files"); err != nil {
+			log.Printf("[manager] git ls-files failed: %v", err)
+		} else {
+			dc.WorktreeFiles = result
+		}
 	}
 
 	return dc, nil
@@ -261,13 +274,13 @@ func (m *Manager) buildPrompt(dc DiagnosticContext) string {
 }
 
 // runGit executes a git command in the given directory and returns trimmed
-// stdout. Errors are silently ignored — callers use the empty string as a
-// missing-data sentinel.
-func runGit(dir string, args ...string) string {
+// stdout. The error is returned so callers can distinguish "no data" from
+// "git failed".
+func runGit(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	out, _ := cmd.Output()
-	return strings.TrimSpace(string(out))
+	out, err := cmd.Output()
+	return strings.TrimSpace(string(out)), err
 }
 
 // truncate returns the last maxLen bytes of s. If s is shorter than

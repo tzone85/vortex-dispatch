@@ -73,18 +73,46 @@ func (s *Server) BuildSnapshot() (StateSnapshot, error) {
 		}
 	}
 
-	snap.Agents, _ = s.projStore.ListAgents(state.AgentFilter{})
-	snap.Escalations, _ = s.projStore.ListEscalations()
+	// Build set of visible story IDs for scoping agents, escalations, events
+	visibleStories := make(map[string]bool, len(snap.Stories))
+	for _, st := range snap.Stories {
+		visibleStories[st.ID] = true
+	}
 
-	// Last 50 events
-	events, _ := s.eventStore.List(state.EventFilter{Limit: 50})
+	// Agents: only those assigned to visible stories
+	allAgents, _ := s.projStore.ListAgents(state.AgentFilter{})
+	for _, ag := range allAgents {
+		if visibleStories[ag.CurrentStoryID] {
+			snap.Agents = append(snap.Agents, ag)
+		}
+	}
+
+	// Escalations: only those for visible stories
+	allEsc, _ := s.projStore.ListEscalations()
+	for _, esc := range allEsc {
+		if visibleStories[esc.StoryID] {
+			snap.Escalations = append(snap.Escalations, esc)
+		}
+	}
+
+	// Events: only those for visible stories (or global req-level events)
+	visibleReqs := make(map[string]bool, len(reqs))
+	for _, req := range reqs {
+		visibleReqs[req.ID] = true
+	}
+	events, _ := s.eventStore.List(state.EventFilter{Limit: 200})
 	for _, evt := range events {
-		snap.Events = append(snap.Events, EventSummary{
-			Type:      string(evt.Type),
-			Timestamp: evt.Timestamp.Format("15:04:05"),
-			AgentID:   evt.AgentID,
-			StoryID:   evt.StoryID,
-		})
+		if visibleStories[evt.StoryID] || evt.StoryID == "" {
+			snap.Events = append(snap.Events, EventSummary{
+				Type:      string(evt.Type),
+				Timestamp: evt.Timestamp.Format("15:04:05"),
+				AgentID:   evt.AgentID,
+				StoryID:   evt.StoryID,
+			})
+		}
+		if len(snap.Events) >= 50 {
+			break
+		}
 	}
 
 	// Include DAG export if available.

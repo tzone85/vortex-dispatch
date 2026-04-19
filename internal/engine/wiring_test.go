@@ -1277,3 +1277,46 @@ func TestWiring_CodeGraph_GracefulDegradation(t *testing.T) {
 		t.Error("WIRING FAILURE: DetectChanges should return empty analysis when unavailable")
 	}
 }
+
+func TestWiring_AgentSpawnedEvent_ProjectsToAgentsTable(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	store, err := state.NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer store.Close()
+
+	evt := state.NewEvent(state.EventAgentSpawned, "senior-1", "s-001", map[string]any{
+		"role":         "senior",
+		"session_name": "vxd-test-senior-1",
+		"runtime":      "claude-code",
+	})
+	if err := store.Project(evt); err != nil {
+		t.Fatalf("WIRING FAILURE: AGENT_SPAWNED not handled by projector: %v", err)
+	}
+
+	agents, err := store.ListAgents(state.AgentFilter{})
+	if err != nil {
+		t.Fatalf("list agents: %v", err)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("WIRING FAILURE: expected 1 agent after AGENT_SPAWNED, got %d", len(agents))
+	}
+	if agents[0].Status != "active" {
+		t.Errorf("WIRING FAILURE: agent status = %q, want 'active'", agents[0].Status)
+	}
+	if agents[0].CurrentStoryID != "s-001" {
+		t.Errorf("WIRING FAILURE: agent story = %q, want 's-001'", agents[0].CurrentStoryID)
+	}
+
+	// Terminate and verify
+	termEvt := state.NewEvent(state.EventAgentTerminated, "senior-1", "s-001", nil)
+	if err := store.Project(termEvt); err != nil {
+		t.Fatalf("WIRING FAILURE: AGENT_TERMINATED not handled by projector: %v", err)
+	}
+	agents, _ = store.ListAgents(state.AgentFilter{})
+	if len(agents) != 1 || agents[0].Status != "terminated" {
+		t.Errorf("WIRING FAILURE: agent should be terminated after AGENT_TERMINATED")
+	}
+}

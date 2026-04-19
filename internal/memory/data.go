@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -347,7 +348,8 @@ func readChangelog(path string) ([]changelogEntry, error) {
 		}
 		var e changelogEntry
 		if err := json.Unmarshal([]byte(line), &e); err != nil {
-			continue // skip malformed lines
+			log.Printf("[memory] malformed changelog line in %s: %v", path, err)
+			continue
 		}
 		entries = append(entries, e)
 	}

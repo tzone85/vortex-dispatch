@@ -88,7 +88,9 @@ func (s *Server) handlePause(payload json.RawMessage) WSResponse {
 	if err := s.eventStore.Append(evt); err != nil {
 		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("event error: %v", err)}
 	}
-	s.projStore.Project(evt) //nolint:errcheck
+	if err := s.projStore.Project(evt); err != nil {
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("projection error: %v", err)}
+	}
 
 	return WSResponse{Type: "command_result", Action: action, Success: true, Message: "Requirement paused"}
 }
@@ -119,7 +121,9 @@ func (s *Server) handleResume(payload json.RawMessage) WSResponse {
 	if err := s.eventStore.Append(evt); err != nil {
 		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("event error: %v", err)}
 	}
-	s.projStore.Project(evt) //nolint:errcheck
+	if err := s.projStore.Project(evt); err != nil {
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("projection error: %v", err)}
+	}
 
 	return WSResponse{Type: "command_result", Action: action, Success: true, Message: "Requirement resumed"}
 }
@@ -147,13 +151,17 @@ func (s *Server) handleRetry(payload json.RawMessage) WSResponse {
 		"source":    "dashboard",
 	})
 	s.eventStore.Append(escEvt) //nolint:errcheck
-	s.projStore.Project(escEvt) //nolint:errcheck
+	if err := s.projStore.Project(escEvt); err != nil {
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("projection error: %v", err)}
+	}
 
 	resetEvt := state.NewEvent(state.EventStoryReviewFailed, "dashboard", p.StoryID, map[string]any{
 		"source": "dashboard",
 	})
 	s.eventStore.Append(resetEvt) //nolint:errcheck
-	s.projStore.Project(resetEvt) //nolint:errcheck
+	if err := s.projStore.Project(resetEvt); err != nil {
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("projection error: %v", err)}
+	}
 
 	return WSResponse{Type: "command_result", Action: action, Success: true, Message: "Story retried at tier 0"}
 }
@@ -184,13 +192,17 @@ func (s *Server) handleReassign(payload json.RawMessage) WSResponse {
 		"source":    "dashboard",
 	})
 	s.eventStore.Append(escEvt) //nolint:errcheck
-	s.projStore.Project(escEvt) //nolint:errcheck
+	if err := s.projStore.Project(escEvt); err != nil {
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("projection error: %v", err)}
+	}
 
 	resetEvt := state.NewEvent(state.EventStoryReviewFailed, "dashboard", p.StoryID, map[string]any{
 		"source": "dashboard",
 	})
 	s.eventStore.Append(resetEvt) //nolint:errcheck
-	s.projStore.Project(resetEvt) //nolint:errcheck
+	if err := s.projStore.Project(resetEvt); err != nil {
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("projection error: %v", err)}
+	}
 
 	return WSResponse{Type: "command_result", Action: action, Success: true, Message: fmt.Sprintf("Story reassigned to tier %d", p.TargetTier)}
 }
@@ -225,7 +237,9 @@ func (s *Server) handleEscalate(payload json.RawMessage) WSResponse {
 	if err := s.eventStore.Append(escEvt); err != nil {
 		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("event error: %v", err)}
 	}
-	s.projStore.Project(escEvt) //nolint:errcheck
+	if err := s.projStore.Project(escEvt); err != nil {
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("projection error: %v", err)}
+	}
 
 	return WSResponse{Type: "command_result", Action: action, Success: true, Message: fmt.Sprintf("Story escalated to tier %d", nextTier)}
 }
@@ -269,7 +283,9 @@ func (s *Server) handleKill(payload json.RawMessage) WSResponse {
 		"source": "dashboard",
 	})
 	s.eventStore.Append(evt) //nolint:errcheck
-	s.projStore.Project(evt) //nolint:errcheck
+	if err := s.projStore.Project(evt); err != nil {
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("projection error: %v", err)}
+	}
 
 	return WSResponse{Type: "command_result", Action: action, Success: true, Message: fmt.Sprintf("Agent %s killed", p.AgentID)}
 }
@@ -314,7 +330,9 @@ func (s *Server) handleEdit(payload json.RawMessage) WSResponse {
 		"source":  "dashboard",
 	})
 	s.eventStore.Append(evt) //nolint:errcheck
-	s.projStore.Project(evt) //nolint:errcheck
+	if err := s.projStore.Project(evt); err != nil {
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("projection error: %v", err)}
+	}
 
 	return WSResponse{Type: "command_result", Action: action, Success: true, Message: "Story updated and reset to draft"}
 }

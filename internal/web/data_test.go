@@ -192,20 +192,26 @@ func TestBuildSnapshot_IncludesEvents(t *testing.T) {
 	}
 }
 
-func TestBuildSnapshot_AgentsListReturnsEmpty(t *testing.T) {
-	// EventAgentSpawned is not handled by the SQLite projection (falls into default no-op),
-	// so ListAgents always returns empty. BuildSnapshot should not fail in this case.
+func TestBuildSnapshot_IncludesProjectedAgents(t *testing.T) {
 	s := newTestServer(t)
-	seedAgent(t, s, "test-session")
+	reqID := seedRequirement(t, s)
+	storyID := seedStory(t, s, reqID)
+	agentID := seedAgent(t, s, "test-session")
+	emitAndProject(t, s, state.EventStoryAssigned, agentID, storyID, map[string]any{
+		"agent_id": agentID,
+		"wave":     1,
+	})
 
 	snap, err := s.BuildSnapshot()
 	if err != nil {
 		t.Fatalf("BuildSnapshot: %v", err)
 	}
 
-	// Agents are not projected, so the list remains empty
-	if snap.Agents == nil {
-		// nil is acceptable when no agents are projected
+	if len(snap.Agents) != 1 {
+		t.Fatalf("agents len = %d, want 1", len(snap.Agents))
+	}
+	if snap.Agents[0].ID != agentID {
+		t.Fatalf("agent id = %q, want %q", snap.Agents[0].ID, agentID)
 	}
 }
 

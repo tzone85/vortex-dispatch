@@ -56,7 +56,7 @@ internal/
   graph/              Dependency DAG with topological sort
   improve/            Self-improvement engine (research, analysis, implementation, revenue)
   llm/                LLM clients (Anthropic, OpenAI, Google AI, Claude CLI, Replay, Fallback)
-  memory/             Memory dashboard + MemPalace integration
+  memory/             Memory dashboard, findings explorer, opportunity tracker, MemPalace integration
   preflight/          Pre-flight validation (12 checks, 3 severity tiers)
   repolearn/          3-pass repo learning (static scan, git history, LLM deep analysis)
   runtime/            Adapter/Runner pattern with pluggable execution targets

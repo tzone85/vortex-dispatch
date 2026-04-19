@@ -17,12 +17,12 @@ func TestActivityLevel(t *testing.T) {
 	}{
 		{"zero activity", 0, 0, 0, 0},
 		{"low activity", 0, 1, 0, 1},
-		{"single pr", 1, 0, 0, 1}, // 1*3 = 3, <=3 is level 1
-		{"medium activity", 1, 2, 2, 2},  // 3+2+2=7, <=8 is 2
-		{"high activity", 3, 5, 3, 3},    // 9+5+3=17, >8 is 3
-		{"boundary low", 0, 3, 0, 1},     // 3 <=3 is 1
-		{"boundary med", 0, 4, 0, 2},     // 4 <=8 is 2
-		{"boundary high", 0, 9, 0, 3},    // 9 >8 is 3
+		{"single pr", 1, 0, 0, 1},       // 1*3 = 3, <=3 is level 1
+		{"medium activity", 1, 2, 2, 2}, // 3+2+2=7, <=8 is 2
+		{"high activity", 3, 5, 3, 3},   // 9+5+3=17, >8 is 3
+		{"boundary low", 0, 3, 0, 1},    // 3 <=3 is 1
+		{"boundary med", 0, 4, 0, 2},    // 4 <=8 is 2
+		{"boundary high", 0, 9, 0, 3},   // 9 >8 is 3
 	}
 
 	for _, tt := range tests {
@@ -220,6 +220,63 @@ func TestGetDayDetail_NoData(t *testing.T) {
 	}
 	if dd.RunSummary != nil {
 		t.Error("expected nil run summary")
+	}
+}
+
+func TestListFindings(t *testing.T) {
+	dir := t.TempDir()
+
+	entries := []changelogEntry{
+		{
+			RunID:          "2026-04-08T14:00:00Z",
+			FindingID:      "f-001",
+			Title:          "Go Vuln DB",
+			Category:       "security",
+			Source:         "https://vuln.go.dev/",
+			Relevance:      9,
+			Impact:         5,
+			Risk:           2,
+			Disposition:    "proposed",
+			Reasoning:      "Important for Go security",
+			TestsPassed:    true,
+			SecurityReview: "Automated check",
+			LicenseCheck:   "pass",
+		},
+		{
+			RunID:        "2026-04-09T10:00:00Z",
+			FindingID:    "f-002",
+			Title:        "OpenHands Hooks",
+			Category:     "competitors",
+			Source:       "https://github.com/All-Hands-AI/OpenHands/releases",
+			Relevance:    8,
+			Impact:       6,
+			Risk:         5,
+			Disposition:  "aborted",
+			Reasoning:    "Worth tracking for parity",
+			LicenseCheck: "pass",
+		},
+	}
+	writeChangelog(t, dir, entries)
+
+	findings, err := ListFindings(dir)
+	if err != nil {
+		t.Fatalf("ListFindings: %v", err)
+	}
+
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings, got %d", len(findings))
+	}
+	if findings[0].FindingID != "f-002" {
+		t.Errorf("expected newest finding first, got %q", findings[0].FindingID)
+	}
+	if findings[1].Rank != 17 {
+		t.Errorf("expected rank=17, got %d", findings[1].Rank)
+	}
+	if !findings[1].TestsPassed {
+		t.Error("expected tests_passed to be preserved")
+	}
+	if findings[1].SecurityReview != "Automated check" {
+		t.Errorf("security_review = %q, want Automated check", findings[1].SecurityReview)
 	}
 }
 

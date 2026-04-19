@@ -2,154 +2,271 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>VXD Memory Timeline</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VXD Memory Atlas</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <header id="header">
-    <h1>VXD Memory Timeline</h1>
-    <div id="header-right">
-      <input type="text" id="search-box" placeholder="Search MemPalace..." autocomplete="off">
-      <span id="connection-status">Connecting...</span>
-    </div>
-  </header>
-
-  <!-- Tab Navigation -->
-  <nav id="tab-nav">
-    <button class="tab-btn active" data-tab="timeline">Timeline</button>
-    <button class="tab-btn" data-tab="opportunities">Opportunities</button>
-  </nav>
-
-  <!-- Timeline Tab -->
-  <div id="tab-timeline" class="tab-content">
-
-  <!-- Timeline Slider -->
-  <section id="timeline-section">
-    <div id="timeline-controls">
-      <button id="prev-day" class="btn-action" title="Previous day">&larr;</button>
-      <input type="range" id="timeline-slider" min="0" max="0" value="0">
-      <button id="next-day" class="btn-action" title="Next day">&rarr;</button>
-    </div>
-    <div id="date-labels">
-      <span id="date-min"></span>
-      <span id="date-current"></span>
-      <span id="date-max"></span>
-    </div>
-  </section>
-
-  <!-- Middle Row: Calendar + Charts -->
-  <div id="middle-row">
-    <section id="calendar-section">
-      <h2>Activity Heatmap</h2>
-      <div id="calendar-nav">
-        <button id="cal-prev" class="btn-action">&larr;</button>
-        <span id="cal-month-label"></span>
-        <button id="cal-next" class="btn-action">&rarr;</button>
+  <div class="app-shell">
+    <header id="header">
+      <div class="brand-block">
+        <p class="eyebrow">Institutional Memory</p>
+        <h1>VXD Memory Atlas</h1>
+        <p class="subtitle">
+          Explore self-improvement findings, linked PRs, commits, and live opportunities
+          without digging through raw JSONL.
+        </p>
       </div>
-      <div id="calendar-weekdays">
-        <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+      <div id="header-right">
+        <div id="search-shell">
+          <label class="field-label" for="search-box">MemPalace Search</label>
+          <input type="text" id="search-box" placeholder="Search memory, notes, or code context..." autocomplete="off">
+        </div>
+        <span id="connection-status">Connecting...</span>
       </div>
-      <div id="calendar-grid"></div>
-      <div id="calendar-legend">
-        <span>Less</span>
-        <span class="legend-cell level-0"></span>
-        <span class="legend-cell level-1"></span>
-        <span class="legend-cell level-2"></span>
-        <span class="legend-cell level-3"></span>
-        <span>More</span>
+    </header>
+
+    <nav id="tab-nav">
+      <button class="tab-btn active" data-tab="timeline">Timeline</button>
+      <button class="tab-btn" data-tab="findings">Findings</button>
+      <button class="tab-btn" data-tab="opportunities">Opportunities</button>
+    </nav>
+
+    <section id="hero-metrics" class="hero-grid">
+      <article class="hero-card hero-card-mint">
+        <span class="hero-label">Tracked Days</span>
+        <strong id="hero-days">0</strong>
+        <p id="hero-days-note" class="hero-note">Timeline coverage</p>
+      </article>
+      <article class="hero-card hero-card-blue">
+        <span class="hero-label">Findings Logged</span>
+        <strong id="hero-findings">0</strong>
+        <p id="hero-findings-note" class="hero-note">Across every recorded run</p>
+      </article>
+      <article class="hero-card hero-card-gold">
+        <span class="hero-label">PRs Linked</span>
+        <strong id="hero-prs">0</strong>
+        <p id="hero-prs-note" class="hero-note">Implementation outcomes</p>
+      </article>
+      <article class="hero-card hero-card-slate">
+        <span class="hero-label">Latest Run</span>
+        <strong id="hero-latest">No data</strong>
+        <p id="hero-latest-note" class="hero-note">Most recent activity date</p>
+      </article>
+    </section>
+
+    <p id="page-summary" class="page-summary">
+      Browse by day, inspect scored findings, and jump directly to sources or PRs.
+    </p>
+
+    <div id="tab-timeline" class="tab-content">
+      <section id="timeline-section" class="panel">
+        <div class="section-header">
+          <div>
+            <p class="section-kicker">Timeline</p>
+            <h2>Daily activity and context</h2>
+          </div>
+          <p class="section-note">Use the slider, arrow keys, or the calendar to jump between days.</p>
+        </div>
+        <div id="timeline-controls">
+          <button id="prev-day" class="btn-action" title="Previous day">&larr;</button>
+          <input type="range" id="timeline-slider" min="0" max="0" value="0">
+          <button id="next-day" class="btn-action" title="Next day">&rarr;</button>
+        </div>
+        <div id="date-labels">
+          <span id="date-min"></span>
+          <span id="date-current"></span>
+          <span id="date-max"></span>
+        </div>
+      </section>
+
+      <div id="middle-row">
+        <section id="calendar-section" class="panel">
+          <div class="section-header">
+            <div>
+              <p class="section-kicker">Heatmap</p>
+              <h2>Activity by day</h2>
+            </div>
+          </div>
+          <div id="calendar-nav">
+            <button id="cal-prev" class="btn-action" aria-label="Previous month">&larr;</button>
+            <span id="cal-month-label"></span>
+            <button id="cal-next" class="btn-action" aria-label="Next month">&rarr;</button>
+          </div>
+          <div id="calendar-weekdays">
+            <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+          </div>
+          <div id="calendar-grid"></div>
+          <div id="calendar-legend">
+            <span>Less</span>
+            <span class="legend-cell level-0"></span>
+            <span class="legend-cell level-1"></span>
+            <span class="legend-cell level-2"></span>
+            <span class="legend-cell level-3"></span>
+            <span>More</span>
+          </div>
+        </section>
+
+        <section id="charts-section" class="panel">
+          <div class="section-header">
+            <div>
+              <p class="section-kicker">Analytics</p>
+              <h2>Trend snapshots</h2>
+            </div>
+          </div>
+          <div id="charts-container">
+            <img id="chart-bar" alt="Activity bar chart" width="300" height="180">
+            <img id="chart-doughnut" alt="Category doughnut chart" width="300" height="180">
+          </div>
+        </section>
       </div>
-    </section>
 
-    <section id="charts-section">
-      <h2>Analytics</h2>
-      <div id="charts-container">
-        <img id="chart-bar" alt="Activity bar chart" width="300" height="180">
-        <img id="chart-doughnut" alt="Category doughnut chart" width="300" height="180">
+      <div id="detail-cards">
+        <section id="run-summary-card" class="card hidden">
+          <h2 class="card-header card-header-teal">Run Summary</h2>
+          <div id="run-summary-content"></div>
+        </section>
+
+        <section id="prs-card" class="card">
+          <h2 class="card-header card-header-green">
+            PRs <span id="prs-count" class="badge">0</span>
+          </h2>
+          <div id="prs-content" class="card-body"></div>
+        </section>
+
+        <section id="findings-card" class="card">
+          <h2 class="card-header card-header-blue">
+            Findings <span id="findings-count" class="badge">0</span>
+          </h2>
+          <div id="findings-content" class="card-body"></div>
+        </section>
+
+        <section id="commits-card" class="card">
+          <h2 class="card-header card-header-gray">
+            Commits <span id="commits-count" class="badge">0</span>
+          </h2>
+          <div id="commits-content" class="card-body"></div>
+        </section>
+
+        <section id="search-card" class="card hidden">
+          <h2 class="card-header card-header-purple">
+            Search Results <span id="search-count" class="badge">0</span>
+          </h2>
+          <div id="search-content" class="card-body"></div>
+        </section>
       </div>
-    </section>
-  </div>
-
-  <!-- Day Detail Cards -->
-  <div id="detail-cards">
-    <!-- Run Summary -->
-    <section id="run-summary-card" class="card hidden">
-      <h2 class="card-header card-header-teal">Run Summary</h2>
-      <div id="run-summary-content"></div>
-    </section>
-
-    <!-- PRs -->
-    <section id="prs-card" class="card">
-      <h2 class="card-header card-header-green">
-        PRs <span id="prs-count" class="badge">0</span>
-      </h2>
-      <div id="prs-content" class="card-body"></div>
-    </section>
-
-    <!-- Findings -->
-    <section id="findings-card" class="card">
-      <h2 class="card-header card-header-blue">
-        Findings <span id="findings-count" class="badge">0</span>
-      </h2>
-      <div id="findings-content" class="card-body"></div>
-    </section>
-
-    <!-- Commits -->
-    <section id="commits-card" class="card">
-      <h2 class="card-header card-header-gray">
-        Commits <span id="commits-count" class="badge">0</span>
-      </h2>
-      <div id="commits-content" class="card-body"></div>
-    </section>
-
-    <!-- Search Results -->
-    <section id="search-card" class="card hidden">
-      <h2 class="card-header card-header-purple">
-        Search Results <span id="search-count" class="badge">0</span>
-      </h2>
-      <div id="search-content" class="card-body"></div>
-    </section>
-  </div>
-
-  </div><!-- end tab-timeline -->
-
-  <!-- Opportunities Tab -->
-  <div id="tab-opportunities" class="tab-content hidden">
-    <!-- Pipeline Stats Bar -->
-    <div id="opp-stats-bar">
-      <span>Total: <strong id="opp-total">0</strong></span>
-      <span>New: <strong id="opp-new">0</strong></span>
-      <span>Drafts: <strong id="opp-drafts">0</strong></span>
-      <span>Won: <strong id="opp-won">0</strong></span>
-      <span>Revenue: <strong id="opp-revenue">$0</strong></span>
     </div>
 
-    <!-- Filter/Sort Controls -->
-    <div id="opp-controls">
-      <select id="opp-filter">
-        <option value="all">All Statuses</option>
-        <option value="new">New</option>
-        <option value="interested">Interested</option>
-        <option value="proposal_drafted">Proposal Drafted</option>
-        <option value="sent">Sent</option>
-        <option value="won">Won</option>
-        <option value="lost">Lost</option>
-      </select>
-      <button id="opp-refresh" class="btn-action">Refresh</button>
+    <div id="tab-findings" class="tab-content hidden">
+      <section id="finding-highlights" class="hero-grid">
+        <article class="hero-card hero-card-blue">
+          <span class="hero-label">All Findings</span>
+          <strong id="finding-total">0</strong>
+          <p class="hero-note">Every audit record in the log</p>
+        </article>
+        <article class="hero-card hero-card-gold">
+          <span class="hero-label">High Relevance</span>
+          <strong id="finding-high">0</strong>
+          <p class="hero-note">Relevance score 8 or higher</p>
+        </article>
+        <article class="hero-card hero-card-mint">
+          <span class="hero-label">Proposed</span>
+          <strong id="finding-proposed">0</strong>
+          <p class="hero-note">Items worth acting on</p>
+        </article>
+        <article class="hero-card hero-card-slate">
+          <span class="hero-label">Latest Run</span>
+          <strong id="finding-latest">No data</strong>
+          <p class="hero-note">Newest finding date in view</p>
+        </article>
+      </section>
+
+      <section class="panel toolbar-panel">
+        <div class="section-header">
+          <div>
+            <p class="section-kicker">Explorer</p>
+            <h2>Filter and rank findings</h2>
+          </div>
+          <p class="section-note">Click a category badge on any card to pivot the result set instantly.</p>
+        </div>
+        <div class="toolbar-row">
+          <label class="control">
+            <span class="field-label">Search</span>
+            <input type="search" id="finding-search" placeholder="Search title, source, reasoning, or finding ID">
+          </label>
+          <label class="control">
+            <span class="field-label">Disposition</span>
+            <select id="finding-disposition">
+              <option value="all">All dispositions</option>
+            </select>
+          </label>
+          <label class="control">
+            <span class="field-label">Category</span>
+            <select id="finding-category">
+              <option value="all">All categories</option>
+            </select>
+          </label>
+          <label class="control">
+            <span class="field-label">Sort</span>
+            <select id="finding-sort">
+              <option value="latest">Latest first</option>
+              <option value="priority">Highest priority</option>
+              <option value="impact">Highest impact</option>
+              <option value="relevance">Highest relevance</option>
+              <option value="low_risk">Lowest risk</option>
+            </select>
+          </label>
+        </div>
+        <p id="findings-summary" class="panel-note">Loading findings…</p>
+      </section>
+
+      <section class="panel panel-spacious">
+        <div id="findings-library" class="findings-grid"></div>
+      </section>
     </div>
 
-    <!-- Opportunity Cards -->
-    <div id="opp-list"></div>
+    <div id="tab-opportunities" class="tab-content hidden">
+      <section class="panel">
+        <div class="section-header">
+          <div>
+            <p class="section-kicker">Revenue Pipeline</p>
+            <h2>Opportunity tracker</h2>
+          </div>
+          <p class="section-note">Review drafts, open source listings, and log wins without leaving the dashboard.</p>
+        </div>
+        <div id="opp-stats-bar">
+          <span>Total: <strong id="opp-total">0</strong></span>
+          <span>New: <strong id="opp-new">0</strong></span>
+          <span>Drafts: <strong id="opp-drafts">0</strong></span>
+          <span>Won: <strong id="opp-won">0</strong></span>
+          <span>Revenue: <strong id="opp-revenue">$0</strong></span>
+        </div>
 
-    <!-- Discovered Sources -->
-    <section id="discovered-sources-card" class="card hidden">
-      <h2 class="card-header card-header-green">Suggested Sources</h2>
-      <div id="discovered-sources-content" class="card-body"></div>
-    </section>
+        <div id="opp-controls">
+          <select id="opp-filter">
+            <option value="all">All Statuses</option>
+            <option value="new">New</option>
+            <option value="interested">Interested</option>
+            <option value="proposal_drafted">Proposal Drafted</option>
+            <option value="sent">Sent</option>
+            <option value="won">Won</option>
+            <option value="lost">Lost</option>
+          </select>
+          <button id="opp-refresh" class="btn-action">Refresh</button>
+        </div>
 
-    <!-- Revenue Summary -->
-    <div id="revenue-summary" class="hidden">
-      <h2 style="color:#f59e0b;">Revenue & Mission</h2>
-      <div id="revenue-content"></div>
+        <div id="opp-list"></div>
+      </section>
+
+      <section id="discovered-sources-card" class="card hidden">
+        <h2 class="card-header card-header-green">Suggested Sources</h2>
+        <div id="discovered-sources-content" class="card-body"></div>
+      </section>
+
+      <div id="revenue-summary" class="hidden">
+        <h2>Revenue & Mission</h2>
+        <div id="revenue-content"></div>
+      </div>
     </div>
   </div>
 

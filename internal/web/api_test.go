@@ -54,6 +54,65 @@ func setupAPIServer(t *testing.T) *Server {
 	return NewServer(es, ps, 0, state.ReqFilter{})
 }
 
+func setupScopedAPIServer(t *testing.T) *Server {
+	t.Helper()
+	dir := t.TempDir()
+	es, err := state.NewFileStore(filepath.Join(dir, "events.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { es.Close() })
+	ps, err := state.NewSQLiteStore(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ps.Close() })
+
+	appendAndProject := func(evt state.Event) {
+		t.Helper()
+		if err := es.Append(evt); err != nil {
+			t.Fatalf("append %s: %v", evt.Type, err)
+		}
+		if err := ps.Project(evt); err != nil {
+			t.Fatalf("project %s: %v", evt.Type, err)
+		}
+	}
+	appendOnly := func(evt state.Event) {
+		t.Helper()
+		if err := es.Append(evt); err != nil {
+			t.Fatalf("append %s: %v", evt.Type, err)
+		}
+	}
+
+	for _, tc := range []struct {
+		reqID    string
+		storyID  string
+		repoPath string
+	}{
+		{reqID: "req-alpha", storyID: "s-alpha", repoPath: "/repo/alpha"},
+		{reqID: "req-beta", storyID: "s-beta", repoPath: "/repo/beta"},
+	} {
+		appendAndProject(state.NewEvent(state.EventReqSubmitted, "system", "", map[string]any{
+			"id":          tc.reqID,
+			"title":       tc.reqID,
+			"description": tc.reqID,
+			"repo_path":   tc.repoPath,
+		}))
+		appendAndProject(state.NewEvent(state.EventStoryCreated, "system", tc.storyID, map[string]any{
+			"id":                  tc.storyID,
+			"req_id":              tc.reqID,
+			"title":               tc.storyID,
+			"description":         tc.storyID,
+			"acceptance_criteria": "ok",
+			"complexity":          2,
+		}))
+	}
+	appendOnly(state.NewEvent(state.EventStorySLABreached, "agent", "s-alpha", map[string]any{"source": "test"}))
+	appendOnly(state.NewEvent(state.EventStorySLABreached, "agent", "s-beta", map[string]any{"source": "test"}))
+
+	return NewServer(es, ps, 0, state.ReqFilter{RepoPath: "/repo/alpha"})
+}
+
 func TestAPI_ListRequirements(t *testing.T) {
 	srv := setupAPIServer(t)
 	w := httptest.NewRecorder()
@@ -184,5 +243,41 @@ func TestAPI_RejectsNonGET(t *testing.T) {
 
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestAPI_ScopesRequirementStoryAndMetricsEndpoints(t *testing.T) {
+	srv := setupScopedAPIServer(t)
+
+	wReq := httptest.NewRecorder()
+	srv.handleRequirementDetail(wReq, httptest.NewRequest(http.MethodGet, "/api/v1/requirements/req-beta", nil))
+	if wReq.Code != http.StatusNotFound {
+		t.Fatalf("requirement detail status = %d, want 404", wReq.Code)
+	}
+
+	wStory := httptest.NewRecorder()
+	srv.handleStoryDetail(wStory, httptest.NewRequest(http.MethodGet, "/api/v1/stories/s-beta", nil))
+	if wStory.Code != http.StatusNotFound {
+		t.Fatalf("story detail status = %d, want 404", wStory.Code)
+	}
+
+	wMetrics := httptest.NewRecorder()
+	srv.handleMetricsSummary(wMetrics, httptest.NewRequest(http.MethodGet, "/api/v1/metrics", nil))
+	if wMetrics.Code != http.StatusOK {
+		t.Fatalf("metrics status = %d, want 200", wMetrics.Code)
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(wMetrics.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode metrics: %v", err)
+	}
+	if total, ok := resp["requirements_total"].(float64); !ok || total != 1 {
+		t.Fatalf("requirements_total = %v, want 1", resp["requirements_total"])
+	}
+	if total, ok := resp["stories_total"].(float64); !ok || total != 1 {
+		t.Fatalf("stories_total = %v, want 1", resp["stories_total"])
+	}
+	if total, ok := resp["sla_breaches_total"].(float64); !ok || total != 1 {
+		t.Fatalf("sla_breaches_total = %v, want 1", resp["sla_breaches_total"])
 	}
 }

@@ -427,3 +427,53 @@ func TestHandleCommand_EventsEmitted(t *testing.T) {
 		t.Error("expected at least one new event to be emitted after pause_requirement")
 	}
 }
+
+func TestHandleCommand_RespectsWorkspaceScope(t *testing.T) {
+	s := newTestServer(t)
+	s.reqFilter = state.ReqFilter{RepoPath: "/repo/alpha"}
+
+	alphaReq := state.NewEvent(state.EventReqSubmitted, "system", "", map[string]any{
+		"id":          "req-alpha",
+		"title":       "Alpha",
+		"description": "Alpha",
+		"repo_path":   "/repo/alpha",
+	})
+	betaReq := state.NewEvent(state.EventReqSubmitted, "system", "", map[string]any{
+		"id":          "req-beta",
+		"title":       "Beta",
+		"description": "Beta",
+		"repo_path":   "/repo/beta",
+	})
+	for _, evt := range []state.Event{alphaReq, betaReq} {
+		if err := s.eventStore.Append(evt); err != nil {
+			t.Fatalf("append %s: %v", evt.Type, err)
+		}
+		if err := s.projStore.Project(evt); err != nil {
+			t.Fatalf("project %s: %v", evt.Type, err)
+		}
+	}
+
+	alphaStory := seedStoryWithID(t, s, "req-alpha", "story-alpha")
+	betaStory := seedStoryWithID(t, s, "req-beta", "story-beta")
+
+	respReq := s.HandleCommand("pause_requirement", mustMarshal(t, map[string]any{"req_id": "req-beta"}))
+	if respReq.Success {
+		t.Fatalf("expected scoped pause to reject req-beta")
+	}
+
+	respStory := s.HandleCommand("edit_story", mustMarshal(t, map[string]any{
+		"story_id": betaStory,
+		"title":    "Hidden story",
+	}))
+	if respStory.Success {
+		t.Fatalf("expected scoped edit to reject story-beta")
+	}
+
+	respVisible := s.HandleCommand("edit_story", mustMarshal(t, map[string]any{
+		"story_id": alphaStory,
+		"title":    "Visible story",
+	}))
+	if !respVisible.Success {
+		t.Fatalf("expected scoped edit to allow story-alpha: %s", respVisible.Message)
+	}
+}

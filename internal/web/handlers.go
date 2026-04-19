@@ -72,7 +72,7 @@ func (s *Server) handlePause(payload json.RawMessage) WSResponse {
 
 	req, err := s.findRequirement(p.ReqID)
 	if err != nil {
-		return WSResponse{Type: "command_result", Action: action, Success: false, Message: "store error"}
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("store error: %v", err)}
 	}
 	if req == nil {
 		return WSResponse{Type: "command_result", Action: action, Success: false, Message: "requirement not found"}
@@ -103,7 +103,7 @@ func (s *Server) handleResume(payload json.RawMessage) WSResponse {
 
 	req, err := s.findRequirement(p.ReqID)
 	if err != nil {
-		return WSResponse{Type: "command_result", Action: action, Success: false, Message: "store error"}
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("store error: %v", err)}
 	}
 	if req == nil {
 		return WSResponse{Type: "command_result", Action: action, Success: false, Message: "requirement not found"}
@@ -134,7 +134,7 @@ func (s *Server) handleRetry(payload json.RawMessage) WSResponse {
 
 	story, err := s.findStory(p.StoryID)
 	if err != nil {
-		return WSResponse{Type: "command_result", Action: action, Success: false, Message: "store error"}
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("store error: %v", err)}
 	}
 	if story == nil {
 		return WSResponse{Type: "command_result", Action: action, Success: false, Message: "story not found"}
@@ -171,7 +171,7 @@ func (s *Server) handleReassign(payload json.RawMessage) WSResponse {
 
 	story, err := s.findStory(p.StoryID)
 	if err != nil {
-		return WSResponse{Type: "command_result", Action: action, Success: false, Message: "store error"}
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("store error: %v", err)}
 	}
 	if story == nil {
 		return WSResponse{Type: "command_result", Action: action, Success: false, Message: "story not found"}
@@ -205,7 +205,7 @@ func (s *Server) handleEscalate(payload json.RawMessage) WSResponse {
 
 	story, err := s.findStory(p.StoryID)
 	if err != nil {
-		return WSResponse{Type: "command_result", Action: action, Success: false, Message: "store error"}
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("store error: %v", err)}
 	}
 	if story == nil {
 		return WSResponse{Type: "command_result", Action: action, Success: false, Message: "story not found"}
@@ -242,13 +242,13 @@ func (s *Server) handleKill(payload json.RawMessage) WSResponse {
 		return WSResponse{Type: "command_result", Action: action, Success: false, Message: "invalid agent_id format"}
 	}
 
-	agents, err := s.projStore.ListAgents(state.AgentFilter{})
+	view, err := state.LoadScopedView(nil, s.projStore, s.reqFilter, 0)
 	if err != nil {
-		return WSResponse{Type: "command_result", Action: action, Success: false, Message: "store error"}
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("store error: %v", err)}
 	}
 
 	var sessionName string
-	for _, a := range agents {
+	for _, a := range view.Agents {
 		if a.ID == p.AgentID {
 			sessionName = a.SessionName
 			break
@@ -284,7 +284,7 @@ func (s *Server) handleEdit(payload json.RawMessage) WSResponse {
 
 	story, err := s.findStory(p.StoryID)
 	if err != nil {
-		return WSResponse{Type: "command_result", Action: action, Success: false, Message: "store error"}
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("store error: %v", err)}
 	}
 	if story == nil {
 		return WSResponse{Type: "command_result", Action: action, Success: false, Message: "story not found"}
@@ -324,7 +324,7 @@ func (s *Server) handleEdit(payload json.RawMessage) WSResponse {
 // findRequirement returns a pointer to the matching Requirement, or nil if not found.
 // Returns (nil, error) on store failure.
 func (s *Server) findRequirement(reqID string) (*state.Requirement, error) {
-	reqs, err := s.projStore.ListRequirementsFiltered(state.ReqFilter{})
+	reqs, err := s.projStore.ListRequirementsFiltered(s.reqFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -339,13 +339,13 @@ func (s *Server) findRequirement(reqID string) (*state.Requirement, error) {
 // findStory returns a pointer to the matching Story, or nil if not found.
 // Returns (nil, error) on store failure.
 func (s *Server) findStory(storyID string) (*state.Story, error) {
-	stories, err := s.projStore.ListStories(state.StoryFilter{})
+	view, err := state.LoadScopedView(nil, s.projStore, s.reqFilter, 0)
 	if err != nil {
 		return nil, err
 	}
-	for i := range stories {
-		if stories[i].ID == storyID {
-			return &stories[i], nil
+	for i := range view.Stories {
+		if view.Stories[i].ID == storyID {
+			return &view.Stories[i], nil
 		}
 	}
 	return nil, nil

@@ -45,14 +45,14 @@ func (s *Server) handleRequirements(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusMethodNotAllowed, "only GET supported")
 		return
 	}
-	reqs, err := s.projStore.ListRequirementsFiltered(state.ReqFilter{})
+	view, err := state.LoadScopedView(nil, s.projStore, s.reqFilter, 0)
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"count":        len(reqs),
-		"requirements": reqs,
+		"count":        len(view.Requirements),
+		"requirements": view.Requirements,
 	})
 }
 
@@ -72,24 +72,33 @@ func (s *Server) handleRequirementDetail(w http.ResponseWriter, r *http.Request)
 	}
 	parts := strings.SplitN(rest, "/", 2)
 	reqID := parts[0]
+	req, err := s.findRequirement(reqID)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if req == nil {
+		writeAPIError(w, http.StatusNotFound, "requirement not found")
+		return
+	}
 
 	if len(parts) == 2 && parts[1] == "stories" {
-		stories, err := s.projStore.ListStories(state.StoryFilter{ReqID: reqID})
+		view, err := state.LoadScopedView(nil, s.projStore, s.reqFilter, 0)
 		if err != nil {
 			writeAPIError(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+		var stories []state.Story
+		for _, story := range view.Stories {
+			if story.ReqID == reqID {
+				stories = append(stories, story)
+			}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"requirement_id": reqID,
 			"count":          len(stories),
 			"stories":        stories,
 		})
-		return
-	}
-
-	req, err := s.projStore.GetRequirement(reqID)
-	if err != nil {
-		writeAPIError(w, http.StatusNotFound, "requirement not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, req)
@@ -103,14 +112,23 @@ func (s *Server) handleStories(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusMethodNotAllowed, "only GET supported")
 		return
 	}
-	filter := state.StoryFilter{
-		Status: r.URL.Query().Get("status"),
-		ReqID:  r.URL.Query().Get("req_id"),
-	}
-	stories, err := s.projStore.ListStories(filter)
+	view, err := state.LoadScopedView(nil, s.projStore, s.reqFilter, 0)
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	statusFilter := r.URL.Query().Get("status")
+	reqIDFilter := r.URL.Query().Get("req_id")
+
+	var stories []state.Story
+	for _, story := range view.Stories {
+		if statusFilter != "" && story.Status != statusFilter {
+			continue
+		}
+		if reqIDFilter != "" && story.ReqID != reqIDFilter {
+			continue
+		}
+		stories = append(stories, story)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"count":   len(stories),
@@ -129,8 +147,12 @@ func (s *Server) handleStoryDetail(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "story id required")
 		return
 	}
-	story, err := s.projStore.GetStory(storyID)
+	story, err := s.findStory(storyID)
 	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if story == nil {
 		writeAPIError(w, http.StatusNotFound, "story not found")
 		return
 	}
@@ -145,30 +167,31 @@ func (s *Server) handleMetricsSummary(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusMethodNotAllowed, "only GET supported")
 		return
 	}
-	reqs, err := s.projStore.ListRequirementsFiltered(state.ReqFilter{})
+	view, err := state.LoadScopedView(s.eventStore, s.projStore, s.reqFilter, 0)
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	stories, err := s.projStore.ListStories(state.StoryFilter{})
-	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	totalEvents, _ := s.eventStore.Count(state.EventFilter{})
-	slaBreaches, _ := s.eventStore.Count(state.EventFilter{Type: state.EventStorySLABreached})
-	escalations, _ := s.eventStore.Count(state.EventFilter{Type: state.EventStoryEscalated})
-
 	statusCounts := make(map[string]int)
-	for _, st := range stories {
+	slaBreaches := 0
+	escalations := 0
+	for _, evt := range view.Events {
+		switch evt.Type {
+		case state.EventStorySLABreached:
+			slaBreaches++
+		case state.EventStoryEscalated:
+			escalations++
+		}
+	}
+	for _, st := range view.Stories {
 		statusCounts[st.Status]++
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"requirements_total":  len(reqs),
-		"stories_total":       len(stories),
+		"requirements_total":  len(view.Requirements),
+		"stories_total":       len(view.Stories),
 		"stories_by_status":   statusCounts,
-		"events_total":        totalEvents,
+		"events_total":        len(view.Events),
 		"sla_breaches_total":  slaBreaches,
 		"escalations_total":   escalations,
 		"uptime_seconds":      int(time.Since(s.startTime).Seconds()),

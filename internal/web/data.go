@@ -38,20 +38,14 @@ type EventSummary struct {
 func (s *Server) BuildSnapshot() (StateSnapshot, error) {
 	snap := StateSnapshot{}
 
-	reqs, err := s.projStore.ListRequirementsFiltered(s.reqFilter)
+	view, err := state.LoadScopedView(s.eventStore, s.projStore, s.reqFilter, 50)
 	if err != nil {
 		return snap, err
 	}
-	snap.Requirements = reqs
-
-	// Collect stories for visible requirements
-	for _, req := range reqs {
-		stories, err := s.projStore.ListStories(state.StoryFilter{ReqID: req.ID})
-		if err != nil {
-			continue
-		}
-		snap.Stories = append(snap.Stories, stories...)
-	}
+	snap.Requirements = view.Requirements
+	snap.Stories = view.Stories
+	snap.Agents = view.Agents
+	snap.Escalations = view.Escalations
 
 	// Pipeline counts
 	for _, story := range snap.Stories {
@@ -73,12 +67,7 @@ func (s *Server) BuildSnapshot() (StateSnapshot, error) {
 		}
 	}
 
-	snap.Agents, _ = s.projStore.ListAgents(state.AgentFilter{})
-	snap.Escalations, _ = s.projStore.ListEscalations()
-
-	// Last 50 events
-	events, _ := s.eventStore.List(state.EventFilter{Limit: 50})
-	for _, evt := range events {
+	for _, evt := range view.Events {
 		snap.Events = append(snap.Events, EventSummary{
 			Type:      string(evt.Type),
 			Timestamp: evt.Timestamp.Format("15:04:05"),

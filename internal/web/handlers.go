@@ -81,14 +81,13 @@ func (s *Server) handlePause(payload json.RawMessage) WSResponse {
 		return WSResponse{Type: "command_result", Action: action, Success: true, Message: "already paused"}
 	}
 
-	evt := state.NewEvent(state.EventReqPaused, "dashboard", "", map[string]any{
-		"id":     p.ReqID,
-		"source": "dashboard",
-	})
-	if err := s.eventStore.Append(evt); err != nil {
-		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("event error: %v", err)}
+		evt := state.NewEvent(state.EventReqPaused, "dashboard", "", map[string]any{
+			"id":     p.ReqID,
+			"source": "dashboard",
+		})
+	if err := s.appendAndProject(evt); err != nil {
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: err.Error()}
 	}
-	s.projStore.Project(evt) //nolint:errcheck
 
 	return WSResponse{Type: "command_result", Action: action, Success: true, Message: "Requirement paused"}
 }
@@ -116,10 +115,9 @@ func (s *Server) handleResume(payload json.RawMessage) WSResponse {
 		"id":     p.ReqID,
 		"source": "dashboard",
 	})
-	if err := s.eventStore.Append(evt); err != nil {
-		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("event error: %v", err)}
+	if err := s.appendAndProject(evt); err != nil {
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: err.Error()}
 	}
-	s.projStore.Project(evt) //nolint:errcheck
 
 	return WSResponse{Type: "command_result", Action: action, Success: true, Message: "Requirement resumed"}
 }
@@ -146,14 +144,16 @@ func (s *Server) handleRetry(payload json.RawMessage) WSResponse {
 		"reason":    "manual retry from dashboard",
 		"source":    "dashboard",
 	})
-	s.eventStore.Append(escEvt) //nolint:errcheck
-	s.projStore.Project(escEvt) //nolint:errcheck
+	if err := s.appendAndProject(escEvt); err != nil {
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: err.Error()}
+	}
 
 	resetEvt := state.NewEvent(state.EventStoryReviewFailed, "dashboard", p.StoryID, map[string]any{
 		"source": "dashboard",
 	})
-	s.eventStore.Append(resetEvt) //nolint:errcheck
-	s.projStore.Project(resetEvt) //nolint:errcheck
+	if err := s.appendAndProject(resetEvt); err != nil {
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: err.Error()}
+	}
 
 	return WSResponse{Type: "command_result", Action: action, Success: true, Message: "Story retried at tier 0"}
 }
@@ -183,14 +183,16 @@ func (s *Server) handleReassign(payload json.RawMessage) WSResponse {
 		"reason":    "manual reassign from dashboard",
 		"source":    "dashboard",
 	})
-	s.eventStore.Append(escEvt) //nolint:errcheck
-	s.projStore.Project(escEvt) //nolint:errcheck
+	if err := s.appendAndProject(escEvt); err != nil {
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: err.Error()}
+	}
 
 	resetEvt := state.NewEvent(state.EventStoryReviewFailed, "dashboard", p.StoryID, map[string]any{
 		"source": "dashboard",
 	})
-	s.eventStore.Append(resetEvt) //nolint:errcheck
-	s.projStore.Project(resetEvt) //nolint:errcheck
+	if err := s.appendAndProject(resetEvt); err != nil {
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: err.Error()}
+	}
 
 	return WSResponse{Type: "command_result", Action: action, Success: true, Message: fmt.Sprintf("Story reassigned to tier %d", p.TargetTier)}
 }
@@ -222,10 +224,9 @@ func (s *Server) handleEscalate(payload json.RawMessage) WSResponse {
 		"reason":    "manual escalation from dashboard",
 		"source":    "dashboard",
 	})
-	if err := s.eventStore.Append(escEvt); err != nil {
-		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("event error: %v", err)}
+	if err := s.appendAndProject(escEvt); err != nil {
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: err.Error()}
 	}
-	s.projStore.Project(escEvt) //nolint:errcheck
 
 	return WSResponse{Type: "command_result", Action: action, Success: true, Message: fmt.Sprintf("Story escalated to tier %d", nextTier)}
 }
@@ -268,8 +269,9 @@ func (s *Server) handleKill(payload json.RawMessage) WSResponse {
 		"reason": "killed from dashboard",
 		"source": "dashboard",
 	})
-	s.eventStore.Append(evt) //nolint:errcheck
-	s.projStore.Project(evt) //nolint:errcheck
+	if err := s.appendAndProject(evt); err != nil {
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: err.Error()}
+	}
 
 	return WSResponse{Type: "command_result", Action: action, Success: true, Message: fmt.Sprintf("Agent %s killed", p.AgentID)}
 }
@@ -313,10 +315,21 @@ func (s *Server) handleEdit(payload json.RawMessage) WSResponse {
 		"changes": changes,
 		"source":  "dashboard",
 	})
-	s.eventStore.Append(evt) //nolint:errcheck
-	s.projStore.Project(evt) //nolint:errcheck
+	if err := s.appendAndProject(evt); err != nil {
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: err.Error()}
+	}
 
 	return WSResponse{Type: "command_result", Action: action, Success: true, Message: "Story updated and reset to draft"}
+}
+
+func (s *Server) appendAndProject(evt state.Event) error {
+	if err := s.eventStore.Append(evt); err != nil {
+		return fmt.Errorf("append event: %w", err)
+	}
+	if err := s.projStore.Project(evt); err != nil {
+		return fmt.Errorf("project event: %w", err)
+	}
+	return nil
 }
 
 // --- lookup helpers ---

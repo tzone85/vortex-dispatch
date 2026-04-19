@@ -3,7 +3,9 @@ package web
 
 import (
 	"encoding/json"
+	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tzone85/vortex-dispatch/internal/state"
@@ -88,6 +90,15 @@ func seedAgent(t *testing.T, s *Server, sessionName string) string {
 	}
 	return id
 }
+
+type failingEventStore struct {
+	appendErr error
+}
+
+func (f *failingEventStore) Append(state.Event) error                      { return f.appendErr }
+func (f *failingEventStore) List(state.EventFilter) ([]state.Event, error) { return nil, nil }
+func (f *failingEventStore) Count(state.EventFilter) (int, error)          { return 0, nil }
+func (f *failingEventStore) Close() error                                  { return nil }
 
 // mustMarshal marshals v to JSON or fails the test.
 func mustMarshal(t *testing.T, v any) json.RawMessage {
@@ -475,5 +486,56 @@ func TestHandleCommand_RespectsWorkspaceScope(t *testing.T) {
 	}))
 	if !respVisible.Success {
 		t.Fatalf("expected scoped edit to allow story-alpha: %s", respVisible.Message)
+	}
+}
+
+func TestAppendAndProject_ReturnsProjectionError(t *testing.T) {
+	s := newTestServer(t)
+	if err := s.projStore.Close(); err != nil {
+		t.Fatalf("close projStore: %v", err)
+	}
+
+	err := s.appendAndProject(state.NewEvent(state.EventReqPaused, "dashboard", "", map[string]any{
+		"id":     "req-test-001",
+		"source": "dashboard",
+	}))
+	if err == nil {
+		t.Fatal("expected projection error")
+	}
+	if got := err.Error(); !strings.Contains(got, "project event") {
+		t.Fatalf("error = %q, want project event prefix", got)
+	}
+}
+
+func TestHandleRetry_ReturnsAppendError(t *testing.T) {
+	s := newTestServer(t)
+	reqID := seedRequirement(t, s)
+	storyID := seedStory(t, s, reqID)
+	s.eventStore = &failingEventStore{appendErr: errors.New("append failed")}
+
+	resp := s.HandleCommand("retry_story", mustMarshal(t, map[string]any{"story_id": storyID}))
+	if resp.Success {
+		t.Fatal("expected retry_story failure when append fails")
+	}
+	if !strings.Contains(resp.Message, "append event") {
+		t.Fatalf("message = %q, want append event error", resp.Message)
+	}
+}
+
+func TestHandleEdit_ReturnsAppendError(t *testing.T) {
+	s := newTestServer(t)
+	reqID := seedRequirement(t, s)
+	storyID := seedStory(t, s, reqID)
+	s.eventStore = &failingEventStore{appendErr: errors.New("append failed")}
+
+	resp := s.HandleCommand("edit_story", mustMarshal(t, map[string]any{
+		"story_id": storyID,
+		"title":    "Updated title",
+	}))
+	if resp.Success {
+		t.Fatal("expected edit_story failure when append fails")
+	}
+	if !strings.Contains(resp.Message, "append event") {
+		t.Fatalf("message = %q, want append event error", resp.Message)
 	}
 }

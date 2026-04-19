@@ -79,10 +79,6 @@ type Monitor struct {
 	// concurrent pipelines don't corrupt the graph.
 	dagMu sync.Mutex
 
-	// dryRun, when true, skips side-effecting operations (merge, push) so
-	// the monitor can be exercised in tests without touching external services.
-	dryRun bool
-
 	// slaStartTimes caches story start times (from STORY_STARTED event)
 	// to avoid re-querying the event log on every poll cycle.
 	slaStartTimes map[string]time.Time
@@ -180,13 +176,6 @@ func (m *Monitor) SetCheckpointPath(path string) {
 // Planner's RePlan method.
 func (m *Monitor) SetPlanner(p *Planner) {
 	m.planner = p
-}
-
-// SetDryRun enables dry-run mode. In this mode, the post-execution pipeline
-// writes a simulated change to the worktree so the pipeline can exercise
-// the full review→QA→merge flow without real agent output.
-func (m *Monitor) SetDryRun(enabled bool) {
-	m.dryRun = enabled
 }
 
 // RunContext carries the state needed for auto-resume across waves.
@@ -344,19 +333,19 @@ func (m *Monitor) checkSLA(ag ActiveAgent) {
 		return
 	}
 
-	// Resolve start time (cache on first lookup)
+	// Resolve start time (cache on first lookup).
+	// Use the LATEST STORY_STARTED event so that resumed stories
+	// measure SLA from the most recent attempt, not the original dispatch.
 	startTime, ok := m.slaStartTimes[storyID]
 	if !ok {
-		// Look up STORY_STARTED event for this story
 		events, err := m.eventStore.List(state.EventFilter{
 			Type:    state.EventStoryStarted,
 			StoryID: storyID,
-			Limit:   1,
 		})
 		if err != nil || len(events) == 0 {
 			return // can't check without start time
 		}
-		startTime = events[0].Timestamp
+		startTime = events[len(events)-1].Timestamp
 		m.slaStartTimes[storyID] = startTime
 	}
 

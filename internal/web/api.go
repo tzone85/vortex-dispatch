@@ -188,13 +188,13 @@ func (s *Server) handleMetricsSummary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"requirements_total":  len(view.Requirements),
-		"stories_total":       len(view.Stories),
-		"stories_by_status":   statusCounts,
-		"events_total":        len(view.Events),
-		"sla_breaches_total":  slaBreaches,
-		"escalations_total":   escalations,
-		"uptime_seconds":      int(time.Since(s.startTime).Seconds()),
+		"requirements_total": len(view.Requirements),
+		"stories_total":      len(view.Stories),
+		"stories_by_status":  statusCounts,
+		"events_total":       len(view.Events),
+		"sla_breaches_total": slaBreaches,
+		"escalations_total":  escalations,
+		"uptime_seconds":     int(time.Since(s.startTime).Seconds()),
 	})
 }
 

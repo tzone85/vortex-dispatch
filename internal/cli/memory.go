@@ -21,6 +21,7 @@ func newMemoryCmd() *cobra.Command {
 		RunE:  runMemory,
 	}
 	cmd.Flags().Bool("web", false, "Launch web dashboard (required)")
+	cmd.Flags().Bool("no-open", false, "Do not open a browser automatically")
 	cmd.Flags().Int("port", 8078, "Web server port")
 	cmd.SilenceUsage = true
 	return cmd
@@ -33,6 +34,7 @@ func runMemory(cmd *cobra.Command, _ []string) error {
 	}
 
 	port, _ := cmd.Flags().GetInt("port")
+	noOpen, _ := cmd.Flags().GetBool("no-open")
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -48,6 +50,7 @@ func runMemory(cmd *cobra.Command, _ []string) error {
 	defer stop()
 
 	srv := memory.NewServer(auditDir, cwd, port)
+	srv.SetOpenBrowserOnStart(!noOpen)
 	if err := srv.Start(ctx); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("memory dashboard server: %w", err)
 	}

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tzone85/vortex-dispatch/internal/buildinfo"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
 
@@ -29,8 +30,8 @@ func TestHealthHandler_ReturnsOK(t *testing.T) {
 	if resp["status"] != "ok" {
 		t.Errorf("status field = %q, want %q", resp["status"], "ok")
 	}
-	if resp["version"] == "" {
-		t.Error("version field should not be empty")
+	if resp["version"] != buildinfo.Version {
+		t.Errorf("version field = %q, want %q", resp["version"], buildinfo.Version)
 	}
 }
 

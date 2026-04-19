@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/tzone85/vortex-dispatch/internal/buildinfo"
 	"github.com/tzone85/vortex-dispatch/internal/graph"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
@@ -30,6 +31,7 @@ type Server struct {
 	httpServer *http.Server
 	dagExport  *graph.DAGExport
 	startTime  time.Time
+	autoOpen   bool
 }
 
 func NewServer(es state.EventStore, ps *state.SQLiteStore, port int, filter state.ReqFilter) *Server {
@@ -39,6 +41,7 @@ func NewServer(es state.EventStore, ps *state.SQLiteStore, port int, filter stat
 		port:       port,
 		reqFilter:  filter,
 		startTime:  time.Now(),
+		autoOpen:   true,
 	}
 	s.hub = NewHub(s)
 	return s
@@ -47,6 +50,11 @@ func NewServer(es state.EventStore, ps *state.SQLiteStore, port int, filter stat
 // SetDAG sets the DAG export for inclusion in state snapshots.
 func (s *Server) SetDAG(dag *graph.DAGExport) {
 	s.dagExport = dag
+}
+
+// SetOpenBrowserOnStart controls whether Start() launches the browser automatically.
+func (s *Server) SetOpenBrowserOnStart(autoOpen bool) {
+	s.autoOpen = autoOpen
 }
 
 func (s *Server) Start(ctx context.Context) error {
@@ -79,7 +87,11 @@ func (s *Server) Start(ctx context.Context) error {
 	// Open browser
 	url := fmt.Sprintf("http://%s", addr)
 	log.Printf("Dashboard server running at %s", url)
-	openBrowser(url)
+	if s.autoOpen {
+		if err := openBrowser(url); err != nil {
+			log.Printf("open browser: %v", err)
+		}
+	}
 
 	// Start hub broadcast loop
 	go s.hub.Run(ctx)
@@ -116,7 +128,7 @@ func healthHandler(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	resp := map[string]any{
 		"status":  "ok",
-		"version": "0.1.0",
+		"version": buildinfo.Version,
 	}
 	_ = json.NewEncoder(w).Encode(resp)
 }
@@ -126,7 +138,7 @@ func healthHandler(w http.ResponseWriter, _ *http.Request) {
 func buildHealthResponse(es state.EventStore, startTime time.Time) map[string]any {
 	resp := map[string]any{
 		"status":         "ok",
-		"version":        "0.1.0",
+		"version":        buildinfo.Version,
 		"uptime_seconds": int(time.Since(startTime).Seconds()),
 	}
 	if es != nil {
@@ -137,7 +149,7 @@ func buildHealthResponse(es state.EventStore, startTime time.Time) map[string]an
 	return resp
 }
 
-func openBrowser(url string) {
+func openBrowser(url string) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
@@ -147,9 +159,10 @@ func openBrowser(url string) {
 	case "windows":
 		cmd = exec.Command("cmd", "/c", "start", url)
 	default:
-		log.Printf("Cannot open browser on %s — open %s manually", runtime.GOOS, url)
-		return
+		return fmt.Errorf("cannot open browser on %s; open %s manually", runtime.GOOS, url)
 	}
-	cmd.Start() //nolint:errcheck
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start browser for %s: %w", url, err)
+	}
+	return nil
 }
-

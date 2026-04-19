@@ -208,6 +208,7 @@ vxd req "Build a REST API for user management with CRUD endpoints"
 vxd status
 vxd dashboard           # single-pane TUI (j/k scroll stories, w open web, q quit)
 vxd dashboard --web     # browser-based dashboard at localhost:8787
+vxd dashboard --web --no-open  # keep the server in the terminal without opening a browser
 ```
 
 ## Generating the Demo GIF (optional)
@@ -510,6 +511,7 @@ python3 -m mempalace search "event sourcing"
 ```bash
 vxd --help                    # CLI works
 vxd memory --web              # Dashboard opens in browser
+vxd memory --web --no-open    # Serve the dashboard without opening a browser
 vxd-improve --dry-run         # Self-improvement engine runs
 python3 -m mempalace status   # MemPalace indexed
 launchctl list | grep vxd     # Daily schedule active

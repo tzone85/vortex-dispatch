@@ -24,8 +24,8 @@ func newTestServer(t *testing.T) *Server {
 		t.Fatalf("NewSQLiteStore: %v", err)
 	}
 	t.Cleanup(func() {
-		es.Close()  //nolint:errcheck
-		ps.Close()  //nolint:errcheck
+		es.Close() //nolint:errcheck
+		ps.Close() //nolint:errcheck
 	})
 	return NewServer(es, ps, 0, state.ReqFilter{})
 }

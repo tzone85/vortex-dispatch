@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -61,11 +62,11 @@ type CommitDetail struct {
 
 // RunSummaryDetail holds the summary for a single self-improvement run.
 type RunSummaryDetail struct {
-	SourcesScraped  int  `json:"sources_scraped"`
-	FindingsTotal   int  `json:"findings_total"`
-	FindingsRelevant int `json:"findings_relevant"`
-	PRsCreated      int  `json:"prs_created"`
-	EmailSent       bool `json:"email_sent"`
+	SourcesScraped   int  `json:"sources_scraped"`
+	FindingsTotal    int  `json:"findings_total"`
+	FindingsRelevant int  `json:"findings_relevant"`
+	PRsCreated       int  `json:"prs_created"`
+	EmailSent        bool `json:"email_sent"`
 }
 
 // DayDetail holds all data for a selected date.
@@ -309,6 +310,7 @@ func readChangelog(path string) ([]changelogEntry, error) {
 	defer f.Close()
 
 	var entries []changelogEntry
+	malformed := 0
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -317,9 +319,13 @@ func readChangelog(path string) ([]changelogEntry, error) {
 		}
 		var e changelogEntry
 		if err := json.Unmarshal([]byte(line), &e); err != nil {
+			malformed++
 			continue // skip malformed lines
 		}
 		entries = append(entries, e)
+	}
+	if malformed > 0 {
+		log.Printf("[memory] skipped %d malformed changelog lines in %s", malformed, path)
 	}
 	return entries, scanner.Err()
 }

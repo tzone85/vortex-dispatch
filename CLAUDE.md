@@ -8,8 +8,8 @@ VXD orchestrates AI coding agents (Claude Code, Codex, Gemini CLI) to autonomous
 # CRITICAL: Always build to ~/.local/bin/ (NOT ~/go/bin/)
 go build -o ~/.local/bin/vxd ./cmd/vxd
 
-# Run tests (exclude improve/ which has flaky prompt injection test)
-go test $(go list ./... | grep -v improve) -count=1
+# Run tests
+go test ./... -count=1
 
 # NXD (public Ollama version) — at ~/Sites/misc/nexus-dispatch
 cd ~/Sites/misc/nexus-dispatch && go build -o ~/.local/bin/nxd ./cmd/nxd/
@@ -48,7 +48,7 @@ Tier 4: Pause (human intervention required)
 ### Event Sourcing
 - **Source of truth**: `events.jsonl` (append-only, fsync'd)
 - **Materialized views**: SQLite with WAL mode
-- **CRITICAL**: New event types MUST be handled in `sqlite.go Project()` switch — the `default` case silently ignores them. Always add a wiring test.
+- **CRITICAL**: New event types MUST be handled in `sqlite.go Project()` switch — unknown event types now fail projection explicitly. Always add a wiring test.
 
 ### Key Packages
 | Package | Purpose |

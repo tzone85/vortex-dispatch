@@ -328,7 +328,7 @@ func TestNewDashboardCmd(t *testing.T) {
 	if cmd.Use != "dashboard" {
 		t.Errorf("Use = %q", cmd.Use)
 	}
-	for _, name := range []string{"all", "web", "port"} {
+	for _, name := range []string{"all", "web", "no-open", "port"} {
 		if cmd.Flags().Lookup(name) == nil {
 			t.Errorf("flag %q not registered", name)
 		}
@@ -416,7 +416,7 @@ func TestNewMemoryCmd(t *testing.T) {
 	if cmd.Use != "memory" {
 		t.Errorf("Use = %q", cmd.Use)
 	}
-	for _, name := range []string{"web", "port"} {
+	for _, name := range []string{"web", "no-open", "port"} {
 		if cmd.Flags().Lookup(name) == nil {
 			t.Errorf("flag %q not registered", name)
 		}

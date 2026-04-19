@@ -139,10 +139,22 @@ func (c *OpenAIClient) Complete(ctx context.Context, req CompletionRequest) (Com
 	return CompletionResponse{
 		Content:    choice.Message.Content,
 		Model:      apiResp.Model,
-		StopReason: choice.FinishReason,
+		StopReason: mapOpenAIFinishReason(choice.FinishReason),
 		Usage: Usage{
 			InputTokens:  apiResp.Usage.PromptTokens,
 			OutputTokens: apiResp.Usage.CompletionTokens,
 		},
 	}, nil
+}
+
+// mapOpenAIFinishReason converts OpenAI finish reasons to VXD stop reasons.
+func mapOpenAIFinishReason(reason string) string {
+	switch reason {
+	case "stop":
+		return "end_turn"
+	case "length":
+		return "max_tokens"
+	default:
+		return reason
+	}
 }

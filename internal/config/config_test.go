@@ -192,8 +192,8 @@ func TestDefaultConfig_IncludesModels(t *testing.T) {
 func TestDefaultConfig_IncludesRuntimes(t *testing.T) {
 	cfg := config.DefaultConfig()
 
-	if len(cfg.Runtimes) != 3 {
-		t.Fatalf("expected 3 runtimes, got %d", len(cfg.Runtimes))
+	if len(cfg.Runtimes) != 4 {
+		t.Fatalf("expected 4 runtimes, got %d", len(cfg.Runtimes))
 	}
 	rt, ok := cfg.Runtimes["claude-code"]
 	if !ok {
@@ -240,8 +240,8 @@ func TestDefaultYAML_RoundTrip(t *testing.T) {
 	if cfg.Models.TechLead.Provider != "anthropic" {
 		t.Fatalf("expected tech_lead provider 'anthropic', got %s", cfg.Models.TechLead.Provider)
 	}
-	if len(cfg.Runtimes) != 3 {
-		t.Fatalf("expected 3 runtimes, got %d", len(cfg.Runtimes))
+	if len(cfg.Runtimes) != 4 {
+		t.Fatalf("expected 4 runtimes, got %d", len(cfg.Runtimes))
 	}
 	if cfg.Merge.PRTemplate == "" {
 		t.Fatal("expected non-empty PR template after roundtrip")

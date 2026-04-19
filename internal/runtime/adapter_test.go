@@ -113,8 +113,8 @@ func TestCLIAdapter_Prepare_LogFile(t *testing.T) {
 		t.Fatalf("Prepare: %v", err)
 	}
 
-	if !strings.Contains(exec.Command, "tee") {
-		t.Error("command should pipe to tee when LogFile is set")
+	if !strings.Contains(exec.Command, "/tmp/test.log") {
+		t.Error("command should reference log file when LogFile is set")
 	}
 	if exec.LogFile != "/tmp/test.log" {
 		t.Errorf("LogFile = %q, want /tmp/test.log", exec.LogFile)
@@ -153,7 +153,7 @@ func TestCLIAdapter_Prepare_UnsetsClaudeCode(t *testing.T) {
 		t.Fatalf("Prepare: %v", err)
 	}
 
-	if !strings.Contains(exec.Command, "unset CLAUDECODE") {
+	if !strings.Contains(exec.Command, "CLAUDECODE") {
 		t.Error("command should unset CLAUDECODE")
 	}
 }

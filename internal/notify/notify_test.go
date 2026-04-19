@@ -2,6 +2,9 @@ package notify
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -100,5 +103,102 @@ func TestSeverityEmoji(t *testing.T) {
 		if got := severityEmoji(sev); got != want {
 			t.Errorf("severityEmoji(%q) = %q, want %q", sev, got, want)
 		}
+	}
+}
+
+func TestWebhookNotifier_HappyPath(t *testing.T) {
+	var gotBody []byte
+	var gotHeaders http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		gotHeaders = r.Header
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	n := NewWebhookNotifier(srv.URL, "")
+	msg := Message{
+		Title:     "Story done",
+		Body:      "s-001 completed",
+		EventType: "STORY_COMPLETED",
+		Fields:    map[string]string{"story": "s-001"},
+	}
+	if err := n.Notify(context.Background(), msg); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+
+	var received Message
+	if err := json.Unmarshal(gotBody, &received); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+	if received.Title != "Story done" {
+		t.Errorf("Title = %q, want %q", received.Title, "Story done")
+	}
+	if gotHeaders.Get("X-VXD-Event") != "STORY_COMPLETED" {
+		t.Errorf("X-VXD-Event = %q, want STORY_COMPLETED", gotHeaders.Get("X-VXD-Event"))
+	}
+	if gotHeaders.Get("Content-Type") != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", gotHeaders.Get("Content-Type"))
+	}
+	if n.Name() != "webhook" {
+		t.Errorf("Name() = %q, want webhook", n.Name())
+	}
+}
+
+func TestWebhookNotifier_NonOKReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer srv.Close()
+
+	n := NewWebhookNotifier(srv.URL, "")
+	err := n.Notify(context.Background(), Message{Title: "x"})
+	if err == nil {
+		t.Fatal("non-2xx should return error")
+	}
+	if !strings.Contains(err.Error(), "502") {
+		t.Errorf("error should mention status code, got: %v", err)
+	}
+}
+
+func TestWebhookNotifier_HMACSignature(t *testing.T) {
+	secret := "test-secret-key"
+	var gotBody []byte
+	var gotSig string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		gotSig = r.Header.Get("X-VXD-Signature")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	n := NewWebhookNotifier(srv.URL, secret)
+	if err := n.Notify(context.Background(), Message{Title: "signed", EventType: "TEST"}); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(gotBody)
+	want := hex.EncodeToString(mac.Sum(nil))
+
+	if gotSig != want {
+		t.Errorf("signature mismatch:\n  got  %s\n  want %s", gotSig, want)
+	}
+}
+
+func TestWebhookNotifier_NoSignatureWhenNoSecret(t *testing.T) {
+	var gotSig string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotSig = r.Header.Get("X-VXD-Signature")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	n := NewWebhookNotifier(srv.URL, "")
+	if err := n.Notify(context.Background(), Message{Title: "unsigned"}); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	if gotSig != "" {
+		t.Errorf("X-VXD-Signature should be empty when no secret, got %q", gotSig)
 	}
 }

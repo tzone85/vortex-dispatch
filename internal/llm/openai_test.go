@@ -3,6 +3,7 @@ package llm_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -85,8 +86,8 @@ func TestOpenAIClient_Complete(t *testing.T) {
 	if resp.Model != "gpt-4o" {
 		t.Fatalf("expected model 'gpt-4o', got %q", resp.Model)
 	}
-	if resp.StopReason != "stop" {
-		t.Fatalf("expected stop_reason 'stop', got %q", resp.StopReason)
+	if resp.StopReason != "end_turn" {
+		t.Fatalf("expected stop_reason 'end_turn', got %q", resp.StopReason)
 	}
 	if resp.Usage.InputTokens != 200 {
 		t.Fatalf("expected 200 input tokens, got %d", resp.Usage.InputTokens)
@@ -144,8 +145,9 @@ func TestOpenAIClient_NoSystemPrompt(t *testing.T) {
 	}
 }
 
-func TestOpenAIClient_ErrorStatus(t *testing.T) {
+func TestOpenAIClient_RateLimitRetryable(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "30")
 		w.WriteHeader(http.StatusTooManyRequests)
 		w.Write([]byte(`{"error": {"message": "rate limited"}}`))
 	}))
@@ -155,6 +157,45 @@ func TestOpenAIClient_ErrorStatus(t *testing.T) {
 	_, err := client.Complete(context.Background(), llm.CompletionRequest{Model: "test"})
 	if err == nil {
 		t.Fatal("expected error for 429 status")
+	}
+
+	var apiErr *llm.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *llm.APIError, got %T", err)
+	}
+	if apiErr.StatusCode != 429 {
+		t.Errorf("expected status 429, got %d", apiErr.StatusCode)
+	}
+	if !apiErr.Retryable {
+		t.Error("expected 429 to be retryable")
+	}
+	if apiErr.RetryAfter != 30 {
+		t.Errorf("expected RetryAfter 30, got %d", apiErr.RetryAfter)
+	}
+}
+
+func TestOpenAIClient_AuthErrorNotRetryable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"error": {"message": "invalid api key"}}`))
+	}))
+	defer server.Close()
+
+	client := llm.NewOpenAIClient("bad-key").WithBaseURL(server.URL)
+	_, err := client.Complete(context.Background(), llm.CompletionRequest{Model: "test"})
+	if err == nil {
+		t.Fatal("expected error for 401 status")
+	}
+
+	var apiErr *llm.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *llm.APIError, got %T", err)
+	}
+	if apiErr.StatusCode != 401 {
+		t.Errorf("expected status 401, got %d", apiErr.StatusCode)
+	}
+	if apiErr.Retryable {
+		t.Error("expected 401 to NOT be retryable")
 	}
 }
 
@@ -174,6 +215,51 @@ func TestOpenAIClient_EmptyChoices(t *testing.T) {
 	_, err := client.Complete(context.Background(), llm.CompletionRequest{Model: "test"})
 	if err == nil {
 		t.Fatal("expected error for empty choices")
+	}
+}
+
+func TestOpenAIClient_FinishReasonMapping(t *testing.T) {
+	tests := []struct {
+		name           string
+		finishReason   string
+		wantStopReason string
+	}{
+		{"stop maps to end_turn", "stop", "end_turn"},
+		{"length maps to max_tokens", "length", "max_tokens"},
+		{"unknown passes through", "content_filter", "content_filter"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				resp := map[string]any{
+					"choices": []map[string]any{
+						{
+							"message":       map[string]any{"role": "assistant", "content": "ok"},
+							"finish_reason": tt.finishReason,
+						},
+					},
+					"model": "gpt-4o",
+					"usage": map[string]any{"prompt_tokens": 10, "completion_tokens": 5},
+				}
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(resp)
+			}))
+			defer server.Close()
+
+			client := llm.NewOpenAIClient("key").WithBaseURL(server.URL)
+			resp, err := client.Complete(context.Background(), llm.CompletionRequest{
+				Model:     "gpt-4o",
+				MaxTokens: 100,
+				Messages:  []llm.Message{{Role: llm.RoleUser, Content: "hi"}},
+			})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if resp.StopReason != tt.wantStopReason {
+				t.Errorf("expected StopReason %q, got %q", tt.wantStopReason, resp.StopReason)
+			}
+		})
 	}
 }
 

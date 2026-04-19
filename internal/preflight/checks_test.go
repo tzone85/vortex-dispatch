@@ -162,6 +162,28 @@ func TestCheckBillingConfig_ReturnsResult(t *testing.T) {
 	}
 }
 
+func TestCheckOllama_ReturnsCorrectNameAndSeverity(t *testing.T) {
+	result := preflight.CheckOllama()
+	if result.Name != "ollama" {
+		t.Fatalf("expected name 'ollama', got %s", result.Name)
+	}
+	if result.Severity != preflight.SeverityInfo {
+		t.Fatal("expected SeverityInfo")
+	}
+	if result.Message == "" {
+		t.Fatal("expected non-empty message")
+	}
+}
+
+func TestCheckOllama_PassesWhenNotInstalled(t *testing.T) {
+	result := preflight.CheckOllama()
+	// Ollama is optional for VXD, so the check should always pass
+	// regardless of whether Ollama is installed or not.
+	if !result.Passed {
+		t.Fatalf("expected Passed=true (Ollama is optional), got false: %s", result.Message)
+	}
+}
+
 func TestDispatchChecks_Returns8(t *testing.T) {
 	checks := preflight.DispatchChecks()
 	if len(checks) != 8 {
@@ -169,9 +191,9 @@ func TestDispatchChecks_Returns8(t *testing.T) {
 	}
 }
 
-func TestAllChecks_Returns12(t *testing.T) {
+func TestAllChecks_Returns13(t *testing.T) {
 	checks := preflight.AllChecks()
-	if len(checks) != 12 {
-		t.Fatalf("expected 12 total checks, got %d", len(checks))
+	if len(checks) != 13 {
+		t.Fatalf("expected 13 total checks, got %d", len(checks))
 	}
 }

@@ -25,6 +25,7 @@ type AuditEntry struct {
 	TestsPassed    bool   `json:"tests_passed"`
 	FilesChanged   int    `json:"files_changed,omitempty"`
 	LinesChanged   int    `json:"lines_changed,omitempty"`
+	Error          string `json:"error,omitempty"`
 	Reasoning      string `json:"reasoning"`
 	SecurityReview string `json:"security_review,omitempty"`
 	LicenseCheck   string `json:"license_check,omitempty"`

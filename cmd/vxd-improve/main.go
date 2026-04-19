@@ -97,6 +97,25 @@ func main() {
 			break
 		}
 
+		// Skip implementation for non-actionable findings (competitor intel, news)
+		if !sf.Actionable {
+			log.Printf("  [proposed] %s (intelligence only, not actionable)", sf.Title)
+			auditLog.Append(improve.AuditEntry{
+				RunID:       runID,
+				FindingID:   fmt.Sprintf("f-%s-%03d", date, i+1),
+				Source:      sf.SourceURL,
+				Category:    sf.Category,
+				Title:       sf.Title,
+				Relevance:   sf.Relevance,
+				Impact:      sf.Impact,
+				Risk:        sf.Risk,
+				Disposition: "proposed",
+				Reasoning:   sf.Reasoning,
+			})
+			summary.PRsProposed++
+			continue
+		}
+
 		af := improve.AnalyzedFinding{
 			ScoredFinding:      sf,
 			ImplementationPlan: sf.Reasoning,
@@ -111,6 +130,9 @@ func main() {
 
 		if result.IsImplemented() {
 			prsCreated++
+		}
+		if result.Error != "" {
+			summary.Errors = append(summary.Errors, fmt.Sprintf("[%s] %s: %s", result.Disposition, sf.Title, result.Error))
 		}
 
 		auditLog.Append(improve.AuditEntry{
@@ -127,6 +149,7 @@ func main() {
 			TestsPassed:    result.TestsPassed,
 			FilesChanged:   result.FilesChanged,
 			LinesChanged:   result.LinesChanged,
+			Error:          result.Error,
 			Reasoning:      sf.Reasoning,
 			SecurityReview: af.SecurityReview,
 			LicenseCheck:   af.LicenseCheck,

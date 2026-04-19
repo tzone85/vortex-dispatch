@@ -1,8 +1,10 @@
 package preflight
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -236,6 +238,34 @@ func CheckBillingConfig() Result {
 		Message: fmt.Sprintf("Billing: $%.0f/hr %s", cfg.Billing.DefaultRate, cfg.Billing.Currency)}
 }
 
+// CheckOllama checks whether Ollama is installed and its server is running.
+// Ollama is optional for VXD (only required for NXD), so this is informational.
+func CheckOllama() Result {
+	_, err := exec.LookPath("ollama")
+	if err != nil {
+		return Result{Name: "ollama", Severity: SeverityInfo, Passed: true,
+			Message: "Ollama not installed (optional for VXD)"}
+	}
+
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get("http://localhost:11434/api/version")
+	if err != nil {
+		return Result{Name: "ollama", Severity: SeverityInfo, Passed: true,
+			Message: "Ollama installed but server not running"}
+	}
+	defer resp.Body.Close()
+
+	var versionResp struct {
+		Version string `json:"version"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&versionResp); err != nil || versionResp.Version == "" {
+		return Result{Name: "ollama", Severity: SeverityInfo, Passed: true,
+			Message: "Ollama installed, server running"}
+	}
+	return Result{Name: "ollama", Severity: SeverityInfo, Passed: true,
+		Message: fmt.Sprintf("Ollama installed, server running (v%s)", versionResp.Version)}
+}
+
 // --- Check sets ---
 
 // DispatchChecks returns the 8 checks run before every dispatch operation.
@@ -247,11 +277,11 @@ func DispatchChecks() []Check {
 	}
 }
 
-// AllChecks returns all 12 checks including informational ones shown by
+// AllChecks returns all 13 checks including informational ones shown by
 // `vxd preflight`.
 func AllChecks() []Check {
 	return append(DispatchChecks(),
-		CheckConfig, CheckProject, CheckStateDir, CheckBillingConfig,
+		CheckConfig, CheckProject, CheckStateDir, CheckBillingConfig, CheckOllama,
 	)
 }
 

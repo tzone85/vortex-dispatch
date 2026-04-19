@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -83,8 +84,11 @@ RULES:
 
 Work in the current directory.`, finding.Title, finding.SourceURL, finding.ImplementationPlan, finding.TestStrategy)
 
-	cmd := exec.CommandContext(ctx, impl.claudePath, "-p", prompt, "--output-format", "json", "--max-turns", "1")
+	cmd := exec.CommandContext(ctx, impl.claudePath, "-p", prompt, "--output-format", "json", "--max-turns", "25")
 	cmd.Dir = impl.repoPath
+	// Unset ANTHROPIC_API_KEY so Claude uses subscription (free) instead of
+	// exhausted API credits. Unset CLAUDECODE to prevent nested-session errors.
+	cmd.Env = filterEnv(os.Environ(), "ANTHROPIC_API_KEY", "CLAUDECODE")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		log.Printf("[implementer] claude failed for %q: %v\nOutput: %s", finding.Title, err, string(output))
@@ -221,6 +225,22 @@ func CheckSecrets(diff string) error {
 		return fmt.Errorf("potential secret detected in diff")
 	}
 	return nil
+}
+
+// filterEnv returns a copy of environ with the named keys removed.
+func filterEnv(environ []string, exclude ...string) []string {
+	skip := make(map[string]bool, len(exclude))
+	for _, k := range exclude {
+		skip[k] = true
+	}
+	var out []string
+	for _, e := range environ {
+		if idx := strings.IndexByte(e, '='); idx > 0 && skip[e[:idx]] {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 func slugify(s string) string {

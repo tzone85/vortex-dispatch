@@ -260,17 +260,19 @@ func runResume(cmd *cobra.Command, args []string) error {
 	executor.SetProjectDir(s.ProjectDir)
 
 	// Enable Adapter/Runner execution path for decoupled command building.
-	// Uses the first configured runtime to create the adapter.
-	// Runner is selected via config: tmux (default), docker, or ssh.
-	for rtName, rtCfg := range s.Config.Runtimes {
-		adapter := runtime.NewCLIAdapter(rtName, rtCfg.Command, rtCfg.Args, rtCfg.Models)
-		runner, runnerErr := runtime.NewRunnerFromConfig(rtCfg)
-		if runnerErr != nil {
-			return fmt.Errorf("build runner for runtime %s: %w", rtName, runnerErr)
+	// Prefer "claude-code" runtime; fall back to first available.
+	// Go map iteration is non-deterministic, so explicit preference is needed.
+	{
+		rtName, rtCfg := pickRuntime(s.Config.Runtimes)
+		if rtName != "" {
+			adapter := runtime.NewCLIAdapter(rtName, rtCfg.Command, rtCfg.Args, rtCfg.Models)
+			runner, runnerErr := runtime.NewRunnerFromConfig(rtCfg)
+			if runnerErr != nil {
+				return fmt.Errorf("build runner for runtime %s: %w", rtName, runnerErr)
+			}
+			executor.SetAdapterRunner(adapter, runner)
+			log.Printf("[resume] runtime %s using %T", rtName, runner)
 		}
-		executor.SetAdapterRunner(adapter, runner)
-		log.Printf("[resume] runtime %s using %T", rtName, runner)
-		break // use first configured runtime
 	}
 
 	var activeAgents []engine.ActiveAgent
@@ -605,4 +607,17 @@ func recoverOrphanedStories(stories []state.Story, proj *state.SQLiteStore, cfg 
 	}
 
 	return orphans
+}
+
+// pickRuntime selects the best runtime from the config map.
+// Prefers "claude-code" since Go map iteration is non-deterministic
+// and randomly picking codex/gemini causes agent spawn failures.
+func pickRuntime(runtimes map[string]config.RuntimeConfig) (string, config.RuntimeConfig) {
+	if rt, ok := runtimes["claude-code"]; ok {
+		return "claude-code", rt
+	}
+	for name, rt := range runtimes {
+		return name, rt
+	}
+	return "", config.RuntimeConfig{}
 }

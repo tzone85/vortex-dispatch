@@ -75,8 +75,8 @@ workspace:
   state_dir: ~/.vxd
   backend: sqlite
 models:
-  tech_lead: {provider: anthropic, model: claude-opus-4-20250514}
-  senior: {provider: anthropic, model: claude-sonnet-4-20250514}
+  tech_lead: {provider: anthropic, model: claude-opus-4-6-20250620}
+  senior: {provider: anthropic, model: claude-sonnet-4-6-20250620}
   junior: {provider: google, model: gemma-4-27b-it}
 routing:
   junior_max_complexity: 3
@@ -125,6 +125,9 @@ billing:
 | `vxd learn [path]` | Run repo analysis (`--force`, `--pass 1\|2\|3`, `--json`) |
 | `vxd backup` | Create tar.gz archive of project state (`--output DIR`) |
 | `vxd gc` | Garbage-collect branches + expired logs |
+| `vxd improve log` | Browse improvement changelog (`--disposition`, `--category`, `--since`, `--errors`) |
+| `vxd improve runs` | Show daily run summaries (findings, PRs, email status) |
+| `vxd improve detail <id>` | Full details of a specific finding (reasoning, errors, PR) |
 
 ## Documentation Requirements (MANDATORY)
 

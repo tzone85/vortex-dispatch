@@ -509,7 +509,7 @@ python3 -m mempalace search "event sourcing"
 
 ```bash
 vxd --help                    # CLI works
-vxd memory --web              # Dashboard opens in browser
+vxd memory --web              # Timeline + findings dashboard opens in browser
 vxd-improve --dry-run         # Self-improvement engine runs
 python3 -m mempalace status   # MemPalace indexed
 launchctl list | grep vxd     # Daily schedule active

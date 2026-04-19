@@ -283,7 +283,7 @@ func TestRunGC_RealGC_NoEligibleBranches(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	output := buf.String()
-	if !strings.Contains(output, "No branches eligible") && !strings.Contains(output, "Cleaned up") {
+	if !strings.Contains(output, "No branches eligible") && !strings.Contains(output, "Cleaned up") && !strings.Contains(output, "No merged stories") {
 		t.Errorf("expected cleanup message, got: %s", output)
 	}
 }

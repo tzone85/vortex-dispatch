@@ -184,16 +184,16 @@ func TestCheckOllama_PassesWhenNotInstalled(t *testing.T) {
 	}
 }
 
-func TestDispatchChecks_Returns8(t *testing.T) {
+func TestDispatchChecks_Returns9(t *testing.T) {
 	checks := preflight.DispatchChecks()
-	if len(checks) != 8 {
-		t.Fatalf("expected 8 dispatch checks, got %d", len(checks))
+	if len(checks) != 9 {
+		t.Fatalf("expected 9 dispatch checks, got %d", len(checks))
 	}
 }
 
-func TestAllChecks_Returns13(t *testing.T) {
+func TestAllChecks_Returns14(t *testing.T) {
 	checks := preflight.AllChecks()
-	if len(checks) != 13 {
-		t.Fatalf("expected 13 total checks, got %d", len(checks))
+	if len(checks) != 14 {
+		t.Fatalf("expected 14 total checks, got %d", len(checks))
 	}
 }

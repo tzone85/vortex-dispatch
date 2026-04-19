@@ -124,21 +124,21 @@ type ClientMessage struct {
 
 // ServerMessage represents a message sent to the browser.
 type ServerMessage struct {
-	Type              string                  `json:"type"`
-	Timeline          []TimelineEntry         `json:"timeline,omitempty"`
-	Range             *DateRange              `json:"range,omitempty"`
-	Date              string                  `json:"date,omitempty"`
-	PRs               []PRDetail              `json:"prs,omitempty"`
-	Findings          []FindingDetail         `json:"findings,omitempty"`
-	Commits           []CommitDetail          `json:"commits,omitempty"`
-	RunSummary        *RunSummaryDetail       `json:"run_summary,omitempty"`
-	Query             string                  `json:"query,omitempty"`
-	Results           []SearchResult          `json:"results,omitempty"`
-	Opportunities     []OpportunityDetail     `json:"opportunities,omitempty"`
-	OpportunityStats  *OpportunityStatsDetail `json:"opportunity_stats,omitempty"`
+	Type              string                   `json:"type"`
+	Timeline          []TimelineEntry          `json:"timeline,omitempty"`
+	Range             *DateRange               `json:"range,omitempty"`
+	Date              string                   `json:"date,omitempty"`
+	PRs               []PRDetail               `json:"prs,omitempty"`
+	Findings          []FindingDetail          `json:"findings,omitempty"`
+	Commits           []CommitDetail           `json:"commits,omitempty"`
+	RunSummary        *RunSummaryDetail        `json:"run_summary,omitempty"`
+	Query             string                   `json:"query,omitempty"`
+	Results           []SearchResult           `json:"results,omitempty"`
+	Opportunities     []OpportunityDetail      `json:"opportunities,omitempty"`
+	OpportunityStats  *OpportunityStatsDetail  `json:"opportunity_stats,omitempty"`
 	DiscoveredSources []DiscoveredSourceDetail `json:"discovered_sources,omitempty"`
-	ProposalDraft     string                  `json:"proposal_draft,omitempty"`
-	Milestone         string                  `json:"milestone,omitempty"`
+	ProposalDraft     string                   `json:"proposal_draft,omitempty"`
+	Milestone         string                   `json:"milestone,omitempty"`
 }
 
 // DateRange holds the min/max/today for the timeline slider.
@@ -173,6 +173,8 @@ func (s *Server) handleMessage(ctx context.Context, conn *websocket.Conn, msg Cl
 	switch msg.Type {
 	case "select_date":
 		s.handleSelectDate(ctx, conn, msg.Date)
+	case "list_findings":
+		s.handleListFindings(ctx, conn)
 	case "search":
 		s.handleSearch(ctx, conn, msg.Query, msg.Date)
 	case "list_opportunities":
@@ -205,6 +207,20 @@ func (s *Server) handleSelectDate(ctx context.Context, conn *websocket.Conn, dat
 		Findings:   dd.Findings,
 		Commits:    commits,
 		RunSummary: dd.RunSummary,
+	}
+	wsjson.Write(ctx, conn, resp) //nolint:errcheck
+}
+
+func (s *Server) handleListFindings(ctx context.Context, conn *websocket.Conn) {
+	findings, err := ListFindings(s.auditDir)
+	if err != nil {
+		log.Printf("[memory/ws] list findings: %v", err)
+		return
+	}
+
+	resp := ServerMessage{
+		Type:     "findings_library",
+		Findings: findings,
 	}
 	wsjson.Write(ctx, conn, resp) //nolint:errcheck
 }

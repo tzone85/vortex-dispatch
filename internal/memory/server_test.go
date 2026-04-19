@@ -21,25 +21,31 @@ func newTestServer(t *testing.T) *Server {
 	// Write changelog data
 	entries := []changelogEntry{
 		{
-			RunID:       "2026-04-08T14:00:00Z",
-			Title:       "Go Vuln DB",
-			Category:    "security",
-			Source:      "https://vuln.go.dev/",
-			Relevance:   9,
-			Impact:      5,
-			Risk:        2,
-			Disposition: "proposed",
-			Reasoning:   "Important for Go security",
+			RunID:          "2026-04-08T14:00:00Z",
+			FindingID:      "f-001",
+			Title:          "Go Vuln DB",
+			Category:       "security",
+			Source:         "https://vuln.go.dev/",
+			Relevance:      9,
+			Impact:         5,
+			Risk:           2,
+			Disposition:    "proposed",
+			Reasoning:      "Important for Go security",
+			TestsPassed:    true,
+			SecurityReview: "Automated check",
+			LicenseCheck:   "pass",
 		},
 		{
-			RunID:       "2026-04-08T14:00:00Z",
-			Title:       "PR Finding",
-			Category:    "tooling",
-			Source:      "https://example.com",
-			Relevance:   7,
-			Disposition: "merged",
-			PRURL:       "https://github.com/test/pr/42",
-			Lines:       150,
+			RunID:        "2026-04-08T14:00:00Z",
+			FindingID:    "f-002",
+			Title:        "PR Finding",
+			Category:     "tooling",
+			Source:       "https://example.com",
+			Relevance:    7,
+			Disposition:  "merged",
+			PRURL:        "https://github.com/test/pr/42",
+			Lines:        150,
+			LicenseCheck: "pass",
 		},
 	}
 
@@ -191,6 +197,53 @@ func TestWebSocket_SelectDate(t *testing.T) {
 	}
 
 	conn.Close(websocket.StatusNormalClosure, "done")
+}
+
+func TestWebSocket_ListFindings(t *testing.T) {
+	s := newTestServer(t)
+	handler := s.Handler()
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	wsURL := "ws" + ts.URL[4:] + "/ws"
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer conn.CloseNow()
+
+	var initMsg ServerMessage
+	if err := wsjson.Read(ctx, conn, &initMsg); err != nil {
+		t.Fatalf("Read init: %v", err)
+	}
+
+	if err := wsjson.Write(ctx, conn, ClientMessage{Type: "list_findings"}); err != nil {
+		t.Fatalf("Write list_findings: %v", err)
+	}
+
+	var resp ServerMessage
+	if err := wsjson.Read(ctx, conn, &resp); err != nil {
+		t.Fatalf("Read findings_library: %v", err)
+	}
+
+	if resp.Type != "findings_library" {
+		t.Fatalf("expected findings_library, got %q", resp.Type)
+	}
+	if len(resp.Findings) != 2 {
+		t.Fatalf("expected 2 findings, got %d", len(resp.Findings))
+	}
+	if resp.Findings[0].FindingID != "f-001" {
+		t.Errorf("expected highest-ranked finding first, got %q", resp.Findings[0].FindingID)
+	}
+	if !resp.Findings[0].TestsPassed {
+		t.Error("expected tests_passed to be preserved")
+	}
+	if resp.Findings[0].LicenseCheck != "pass" {
+		t.Errorf("license_check = %q, want pass", resp.Findings[0].LicenseCheck)
+	}
 }
 
 func TestWebSocket_Search(t *testing.T) {

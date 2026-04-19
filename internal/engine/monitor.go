@@ -1225,11 +1225,19 @@ func (m *Monitor) handleTechLeadEscalation(ctx context.Context, story PlannedSto
 	}
 
 	// Build SplitChild list from replacements.
+	// Derive Suffix from child ID: if the child ID starts with the parent ID,
+	// the suffix is everything after the parent prefix + "-". Otherwise use
+	// the full child ID as the suffix (guarantees uniqueness).
 	storyData, _ := m.projStore.GetStory(storyID)
 	children := make([]SplitChild, 0, len(replacements))
 	for _, r := range replacements {
+		suffix := r.ID
+		if strings.HasPrefix(r.ID, storyID+"-") {
+			suffix = r.ID[len(storyID)+1:]
+		}
 		children = append(children, SplitChild{
 			ID:                 r.ID,
+			Suffix:             suffix,
 			Title:              r.Title,
 			Description:        r.Description,
 			AcceptanceCriteria: string(r.AcceptanceCriteria),

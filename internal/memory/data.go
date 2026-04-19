@@ -32,15 +32,22 @@ type Timeline struct {
 
 // FindingDetail represents one finding from changelog.jsonl.
 type FindingDetail struct {
-	Title       string `json:"title"`
-	Relevance   int    `json:"relevance"`
-	Impact      int    `json:"impact"`
-	Risk        int    `json:"risk"`
-	Disposition string `json:"disposition"`
-	Category    string `json:"category"`
-	SourceURL   string `json:"source_url"`
-	Reasoning   string `json:"reasoning"`
-	PRURL       string `json:"pr_url,omitempty"`
+	FindingID      string `json:"finding_id,omitempty"`
+	RunID          string `json:"run_id,omitempty"`
+	Date           string `json:"date,omitempty"`
+	Title          string `json:"title"`
+	Relevance      int    `json:"relevance"`
+	Impact         int    `json:"impact"`
+	Risk           int    `json:"risk"`
+	Rank           int    `json:"rank"`
+	Disposition    string `json:"disposition"`
+	Category       string `json:"category"`
+	SourceURL      string `json:"source_url"`
+	Reasoning      string `json:"reasoning"`
+	PRURL          string `json:"pr_url,omitempty"`
+	TestsPassed    bool   `json:"tests_passed"`
+	SecurityReview string `json:"security_review,omitempty"`
+	LicenseCheck   string `json:"license_check,omitempty"`
 }
 
 // PRDetail represents a pull request linked to a finding.
@@ -61,11 +68,11 @@ type CommitDetail struct {
 
 // RunSummaryDetail holds the summary for a single self-improvement run.
 type RunSummaryDetail struct {
-	SourcesScraped  int  `json:"sources_scraped"`
-	FindingsTotal   int  `json:"findings_total"`
-	FindingsRelevant int `json:"findings_relevant"`
-	PRsCreated      int  `json:"prs_created"`
-	EmailSent       bool `json:"email_sent"`
+	SourcesScraped   int  `json:"sources_scraped"`
+	FindingsTotal    int  `json:"findings_total"`
+	FindingsRelevant int  `json:"findings_relevant"`
+	PRsCreated       int  `json:"prs_created"`
+	EmailSent        bool `json:"email_sent"`
 }
 
 // DayDetail holds all data for a selected date.
@@ -79,18 +86,21 @@ type DayDetail struct {
 
 // changelogEntry is the raw JSONL record from changelog.jsonl.
 type changelogEntry struct {
-	RunID       string `json:"run_id"`
-	FindingID   string `json:"finding_id"`
-	Source      string `json:"source"`
-	Category    string `json:"category"`
-	Title       string `json:"title"`
-	Relevance   int    `json:"relevance"`
-	Impact      int    `json:"impact"`
-	Risk        int    `json:"risk"`
-	Disposition string `json:"disposition"`
-	Reasoning   string `json:"reasoning"`
-	PRURL       string `json:"pr_url"`
-	Lines       int    `json:"lines_changed"`
+	RunID          string `json:"run_id"`
+	FindingID      string `json:"finding_id"`
+	Source         string `json:"source"`
+	Category       string `json:"category"`
+	Title          string `json:"title"`
+	Relevance      int    `json:"relevance"`
+	Impact         int    `json:"impact"`
+	Risk           int    `json:"risk"`
+	Disposition    string `json:"disposition"`
+	Reasoning      string `json:"reasoning"`
+	PRURL          string `json:"pr_url"`
+	Lines          int    `json:"lines_changed"`
+	TestsPassed    bool   `json:"tests_passed"`
+	SecurityReview string `json:"security_review"`
+	LicenseCheck   string `json:"license_check"`
 }
 
 // runSummary is the raw JSON from runs/YYYY-MM-DD.json.
@@ -203,17 +213,7 @@ func GetDayDetail(auditDir, date string) (DayDetail, error) {
 		if entryDate != date {
 			continue
 		}
-		finding := FindingDetail{
-			Title:       e.Title,
-			Relevance:   e.Relevance,
-			Impact:      e.Impact,
-			Risk:        e.Risk,
-			Disposition: e.Disposition,
-			Category:    e.Category,
-			SourceURL:   e.Source,
-			Reasoning:   e.Reasoning,
-			PRURL:       e.PRURL,
-		}
+		finding := findingDetailFromEntry(e)
 		dd.Findings = append(dd.Findings, finding)
 
 		if e.PRURL != "" {
@@ -245,6 +245,36 @@ func GetDayDetail(auditDir, date string) (DayDetail, error) {
 	}
 
 	return dd, nil
+}
+
+// ListFindings returns the full self-improvement audit log as dashboard-friendly
+// finding cards sorted newest-first, then highest rank.
+func ListFindings(auditDir string) ([]FindingDetail, error) {
+	changelogPath := filepath.Join(auditDir, "changelog.jsonl")
+	entries, err := readChangelog(changelogPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read changelog: %w", err)
+	}
+
+	findings := make([]FindingDetail, 0, len(entries))
+	for _, entry := range entries {
+		findings = append(findings, findingDetailFromEntry(entry))
+	}
+
+	sort.Slice(findings, func(i, j int) bool {
+		if findings[i].RunID == findings[j].RunID {
+			if findings[i].Rank == findings[j].Rank {
+				return findings[i].Title < findings[j].Title
+			}
+			return findings[i].Rank > findings[j].Rank
+		}
+		return findings[i].RunID > findings[j].RunID
+	})
+
+	return findings, nil
 }
 
 // GetCommitsForDate returns git commits for a specific date.
@@ -467,4 +497,29 @@ func extractDate(runID string) string {
 		return ""
 	}
 	return datePart
+}
+
+func findingDetailFromEntry(entry changelogEntry) FindingDetail {
+	return FindingDetail{
+		FindingID:      entry.FindingID,
+		RunID:          entry.RunID,
+		Date:           extractDate(entry.RunID),
+		Title:          entry.Title,
+		Relevance:      entry.Relevance,
+		Impact:         entry.Impact,
+		Risk:           entry.Risk,
+		Rank:           findingRank(entry.Relevance, entry.Impact, entry.Risk),
+		Disposition:    entry.Disposition,
+		Category:       entry.Category,
+		SourceURL:      entry.Source,
+		Reasoning:      entry.Reasoning,
+		PRURL:          entry.PRURL,
+		TestsPassed:    entry.TestsPassed,
+		SecurityReview: entry.SecurityReview,
+		LicenseCheck:   entry.LicenseCheck,
+	}
+}
+
+func findingRank(relevance, impact, risk int) int {
+	return (impact * 2) + relevance - risk
 }

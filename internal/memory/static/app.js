@@ -1,16 +1,30 @@
-// internal/memory/static/app.js
 "use strict";
 
-// -- State ----------------------------------------------------------------
 let ws = null;
-let timeline = [];
-let dateIndex = {}; // date string -> index in timeline
-let allDates = []; // sorted date strings
-let calendarMonth = null; // Date object for current calendar view
 let reconnectDelay = 1000;
+let activeTab = "timeline";
+let timeline = [];
+let dateIndex = {};
+let allDates = [];
+let calendarMonth = null;
+let findingsLibrary = [];
+let findingsLoaded = false;
+let searchTimeout = null;
 
-// -- DOM Refs -------------------------------------------------------------
 const statusEl = document.getElementById("connection-status");
+const searchShellEl = document.getElementById("search-shell");
+const searchBoxEl = document.getElementById("search-box");
+const pageSummaryEl = document.getElementById("page-summary");
+
+const heroDaysEl = document.getElementById("hero-days");
+const heroDaysNoteEl = document.getElementById("hero-days-note");
+const heroFindingsEl = document.getElementById("hero-findings");
+const heroFindingsNoteEl = document.getElementById("hero-findings-note");
+const heroPRsEl = document.getElementById("hero-prs");
+const heroPRsNoteEl = document.getElementById("hero-prs-note");
+const heroLatestEl = document.getElementById("hero-latest");
+const heroLatestNoteEl = document.getElementById("hero-latest-note");
+
 const sliderEl = document.getElementById("timeline-slider");
 const dateMinEl = document.getElementById("date-min");
 const dateMaxEl = document.getElementById("date-max");
@@ -23,24 +37,35 @@ const calPrevBtn = document.getElementById("cal-prev");
 const calNextBtn = document.getElementById("cal-next");
 const chartBarEl = document.getElementById("chart-bar");
 const chartDonutEl = document.getElementById("chart-doughnut");
-const searchBoxEl = document.getElementById("search-box");
 
-// -- Utility: clear all children ------------------------------------------
+const findingTotalEl = document.getElementById("finding-total");
+const findingHighEl = document.getElementById("finding-high");
+const findingProposedEl = document.getElementById("finding-proposed");
+const findingLatestEl = document.getElementById("finding-latest");
+const findingSearchEl = document.getElementById("finding-search");
+const findingDispositionEl = document.getElementById("finding-disposition");
+const findingCategoryEl = document.getElementById("finding-category");
+const findingSortEl = document.getElementById("finding-sort");
+const findingsSummaryEl = document.getElementById("findings-summary");
+const findingsLibraryEl = document.getElementById("findings-library");
+
 function clearChildren(el) {
   while (el.firstChild) {
     el.removeChild(el.firstChild);
   }
 }
 
-// -- WebSocket ------------------------------------------------------------
 function connect() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   ws = new WebSocket(proto + "//" + location.host + "/ws");
 
   ws.onopen = function () {
+    reconnectDelay = 1000;
     statusEl.textContent = "Connected";
     statusEl.className = "connected";
-    reconnectDelay = 1000;
+    if (activeTab === "findings" && !findingsLoaded) {
+      ensureFindingsLoaded();
+    }
   };
 
   ws.onclose = function () {
@@ -54,10 +79,10 @@ function connect() {
     ws.close();
   };
 
-  ws.onmessage = function (evt) {
-    var msg;
+  ws.onmessage = function (event) {
+    let msg;
     try {
-      msg = JSON.parse(evt.data);
+      msg = JSON.parse(event.data);
     } catch (_) {
       return;
     }
@@ -65,31 +90,12 @@ function connect() {
   };
 }
 
-function send(obj) {
+function send(message) {
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(obj));
+    ws.send(JSON.stringify(message));
   }
 }
 
-// -- Tab Switching --------------------------------------------------------
-document.querySelectorAll(".tab-btn").forEach(function (btn) {
-  btn.addEventListener("click", function () {
-    var tab = this.getAttribute("data-tab");
-    document.querySelectorAll(".tab-btn").forEach(function (b) {
-      b.classList.remove("active");
-    });
-    document.querySelectorAll(".tab-content").forEach(function (c) {
-      c.classList.add("hidden");
-    });
-    this.classList.add("active");
-    document.getElementById("tab-" + tab).classList.remove("hidden");
-    if (tab === "opportunities") {
-      send({ type: "list_opportunities", filter: "all", sort: "rank" });
-    }
-  });
-});
-
-// -- Message Handler ------------------------------------------------------
 function handleMessage(msg) {
   switch (msg.type) {
     case "init":
@@ -97,6 +103,9 @@ function handleMessage(msg) {
       break;
     case "day_detail":
       handleDayDetail(msg);
+      break;
+    case "findings_library":
+      handleFindingsLibrary(msg);
       break;
     case "search_results":
       handleSearchResults(msg);
@@ -108,23 +117,63 @@ function handleMessage(msg) {
       handleRevenueUpdate(msg);
       break;
     case "proposal_ready":
-      handleProposalReady(msg);
+      handleProposalReady();
+      break;
+    default:
       break;
   }
 }
 
-// -- Init -----------------------------------------------------------------
-function handleInit(msg) {
-  timeline = msg.timeline || [];
-  allDates = timeline.map(function (e) {
-    return e.date;
-  });
-  dateIndex = {};
-  allDates.forEach(function (d, i) {
-    dateIndex[d] = i;
+function activateTab(tab) {
+  activeTab = tab;
+
+  document.querySelectorAll(".tab-btn").forEach(function (btn) {
+    btn.classList.toggle("active", btn.getAttribute("data-tab") === tab);
   });
 
-  var range = msg.range || {};
+  document.querySelectorAll(".tab-content").forEach(function (panel) {
+    panel.classList.toggle("hidden", panel.id !== "tab-" + tab);
+  });
+
+  searchShellEl.classList.toggle("hidden", tab !== "timeline");
+  updatePageSummary(tab);
+
+  if (tab === "findings") {
+    ensureFindingsLoaded();
+  } else if (tab === "opportunities") {
+    send({ type: "list_opportunities", filter: "all", sort: "rank" });
+  }
+}
+
+function updatePageSummary(tab) {
+  const summaries = {
+    timeline:
+      "Trace day-by-day activity across findings, linked PRs, commits, and institutional memory search.",
+    findings:
+      "Filter the full research log by category, disposition, risk, or score and jump straight to source material.",
+    opportunities:
+      "Review the revenue pipeline, open listings, proposal drafts, and source suggestions from one place.",
+  };
+  pageSummaryEl.textContent = summaries[tab] || "";
+}
+
+document.querySelectorAll(".tab-btn").forEach(function (btn) {
+  btn.addEventListener("click", function () {
+    activateTab(this.getAttribute("data-tab"));
+  });
+});
+
+function handleInit(msg) {
+  timeline = msg.timeline || [];
+  allDates = timeline.map(function (entry) {
+    return entry.date;
+  });
+  dateIndex = {};
+  allDates.forEach(function (date, idx) {
+    dateIndex[date] = idx;
+  });
+
+  const range = msg.range || {};
   dateMinEl.textContent = range.min || "";
   dateMaxEl.textContent = range.max || "";
 
@@ -133,51 +182,89 @@ function handleInit(msg) {
     sliderEl.max = allDates.length - 1;
     sliderEl.value = allDates.length - 1;
     selectDateByIndex(allDates.length - 1);
+    calendarMonth = new Date(allDates[allDates.length - 1] + "T00:00:00");
   } else {
+    sliderEl.min = 0;
+    sliderEl.max = 0;
+    sliderEl.value = 0;
     dateCurrentEl.textContent = range.today || "No data";
-  }
-
-  // Set calendar to the latest date's month
-  if (allDates.length > 0) {
-    var last = allDates[allDates.length - 1];
-    calendarMonth = new Date(last + "T00:00:00");
-  } else {
     calendarMonth = new Date();
   }
+
+  updateGlobalHero();
   renderCalendar();
   updateCharts();
 }
 
-// -- Date Selection -------------------------------------------------------
-function selectDateByIndex(idx) {
-  if (idx < 0 || idx >= allDates.length) return;
-  var date = allDates[idx];
-  dateCurrentEl.textContent = date;
-  sliderEl.value = idx;
-  send({ type: "select_date", date: date });
-  renderCalendar(); // update selected highlight
+function updateGlobalHero() {
+  const trackedDays = timeline.length;
+  const totalFindings = timeline.reduce(function (sum, entry) {
+    return sum + (entry.findings || 0);
+  }, 0);
+  const totalPRs = timeline.reduce(function (sum, entry) {
+    return sum + (entry.prs || 0);
+  }, 0);
+  const busiest = timeline.reduce(function (best, entry) {
+    const score = (entry.findings || 0) + (entry.prs || 0) * 2 + (entry.commits || 0);
+    if (!best || score > best.score) {
+      return { score: score, date: entry.date };
+    }
+    return best;
+  }, null);
+  const latest = allDates.length ? allDates[allDates.length - 1] : "";
+
+  heroDaysEl.textContent = String(trackedDays);
+  heroDaysNoteEl.textContent = trackedDays
+    ? "From " + formatDateShort(allDates[0]) + " to " + formatDateShort(allDates[allDates.length - 1])
+    : "No timeline data yet";
+  heroFindingsEl.textContent = String(totalFindings);
+  heroFindingsNoteEl.textContent = totalFindings
+    ? averagePerDay(totalFindings, trackedDays) + " per tracked day"
+    : "No findings recorded yet";
+  heroPRsEl.textContent = String(totalPRs);
+  heroPRsNoteEl.textContent = busiest && busiest.date
+    ? "Busiest day: " + formatDateShort(busiest.date)
+    : "No implementation activity yet";
+  heroLatestEl.textContent = latest ? formatDateShort(latest) : "No data";
+  heroLatestNoteEl.textContent = latest ? "Latest run on file" : "Waiting for the first run";
+}
+
+function averagePerDay(total, days) {
+  if (!days) {
+    return "0";
+  }
+  const avg = total / days;
+  return avg >= 10 ? avg.toFixed(0) : avg.toFixed(1);
 }
 
 function currentDate() {
-  var idx = parseInt(sliderEl.value, 10);
+  const idx = Number(sliderEl.value);
   return allDates[idx] || "";
 }
 
+function selectDateByIndex(idx) {
+  if (idx < 0 || idx >= allDates.length) {
+    return;
+  }
+  const date = allDates[idx];
+  sliderEl.value = idx;
+  dateCurrentEl.textContent = formatDateLong(date);
+  send({ type: "select_date", date: date });
+  renderCalendar();
+}
+
 sliderEl.addEventListener("input", function () {
-  selectDateByIndex(parseInt(this.value, 10));
+  selectDateByIndex(Number(this.value));
 });
 
 prevDayBtn.addEventListener("click", function () {
-  var idx = parseInt(sliderEl.value, 10) - 1;
-  if (idx >= 0) selectDateByIndex(idx);
+  selectDateByIndex(Number(sliderEl.value) - 1);
 });
 
 nextDayBtn.addEventListener("click", function () {
-  var idx = parseInt(sliderEl.value, 10) + 1;
-  if (idx < allDates.length) selectDateByIndex(idx);
+  selectDateByIndex(Number(sliderEl.value) + 1);
 });
 
-// -- Day Detail -----------------------------------------------------------
 function handleDayDetail(msg) {
   renderRunSummary(msg.run_summary);
   renderPRs(msg.prs || []);
@@ -187,247 +274,531 @@ function handleDayDetail(msg) {
 }
 
 function renderRunSummary(summary) {
-  var card = document.getElementById("run-summary-card");
-  var content = document.getElementById("run-summary-content");
+  const card = document.getElementById("run-summary-card");
+  const content = document.getElementById("run-summary-content");
+  clearChildren(content);
+
   if (!summary) {
     card.classList.add("hidden");
     return;
   }
+
   card.classList.remove("hidden");
-  clearChildren(content);
 
-  var stats = [
-    { label: "Sources Scraped", value: summary.sources_scraped },
-    { label: "Findings Total", value: summary.findings_total },
-    { label: "Findings Relevant", value: summary.findings_relevant },
-    { label: "PRs Created", value: summary.prs_created },
-    { label: "Email Sent", value: summary.email_sent ? "Yes" : "No" },
-  ];
+  [
+    ["Sources Scraped", summary.sources_scraped],
+    ["Findings Total", summary.findings_total],
+    ["Relevant Findings", summary.findings_relevant],
+    ["PRs Created", summary.prs_created],
+    ["Email Sent", summary.email_sent ? "Yes" : "No"],
+  ].forEach(function (item) {
+    const stat = document.createElement("div");
+    stat.className = "summary-stat";
 
-  stats.forEach(function (s) {
-    var div = document.createElement("div");
-    div.className = "summary-stat";
-    var labelSpan = document.createElement("span");
-    labelSpan.className = "label";
-    labelSpan.textContent = s.label;
-    var valueSpan = document.createElement("span");
-    valueSpan.className = "value";
-    valueSpan.textContent = s.value;
-    div.appendChild(labelSpan);
-    div.appendChild(valueSpan);
-    content.appendChild(div);
+    const label = document.createElement("span");
+    label.className = "label";
+    label.textContent = item[0];
+
+    const value = document.createElement("span");
+    value.className = "value";
+    value.textContent = String(item[1]);
+
+    stat.appendChild(label);
+    stat.appendChild(value);
+    content.appendChild(stat);
   });
 }
 
 function renderPRs(prs) {
-  var content = document.getElementById("prs-content");
-  document.getElementById("prs-count").textContent = prs.length;
-  clearChildren(content);
+  const container = document.getElementById("prs-content");
+  document.getElementById("prs-count").textContent = String(prs.length);
+  clearChildren(container);
 
-  if (prs.length === 0) {
-    var empty = document.createElement("div");
-    empty.className = "empty-state";
-    empty.textContent = "No PRs for this date";
-    content.appendChild(empty);
+  if (!prs.length) {
+    container.appendChild(createEmptyState("No PRs linked to this date"));
     return;
   }
 
   prs.forEach(function (pr) {
-    var row = document.createElement("div");
-    row.className = "item-row";
+    const card = document.createElement("article");
+    card.className = "item-card";
 
-    var title = document.createElement("div");
+    const title = document.createElement("div");
     title.className = "item-title";
-    title.textContent = pr.title;
-    row.appendChild(title);
+    title.textContent = pr.title || "Untitled PR";
+    card.appendChild(title);
 
-    var meta = document.createElement("div");
+    const meta = document.createElement("div");
     meta.className = "item-meta";
-    var link = document.createElement("a");
-    link.href = pr.url;
-    link.target = "_blank";
-    link.rel = "noopener";
-    link.textContent = pr.url;
-    meta.appendChild(link);
-    if (pr.lines > 0) {
-      var linesSpan = document.createElement("span");
-      linesSpan.textContent = " | " + pr.lines + " lines";
-      meta.appendChild(linesSpan);
-    }
-    if (pr.status) {
-      var statusSpan = document.createElement("span");
-      statusSpan.textContent = " | " + pr.status;
-      meta.appendChild(statusSpan);
-    }
-    row.appendChild(meta);
+    meta.textContent =
+      [humanizeToken(pr.category), humanizeToken(pr.status), pr.lines ? pr.lines + " lines" : ""]
+        .filter(Boolean)
+        .join(" | ");
+    card.appendChild(meta);
 
-    content.appendChild(row);
+    if (pr.url) {
+      const links = document.createElement("div");
+      links.className = "finding-links";
+
+      const openLink = document.createElement("a");
+      openLink.className = "inline-link";
+      openLink.href = pr.url;
+      openLink.target = "_blank";
+      openLink.rel = "noopener noreferrer";
+      openLink.textContent = "Open pull request";
+      links.appendChild(openLink);
+
+      card.appendChild(links);
+    }
+
+    container.appendChild(card);
   });
 }
 
 function renderFindings(findings) {
-  var content = document.getElementById("findings-content");
-  document.getElementById("findings-count").textContent = findings.length;
-  clearChildren(content);
+  const container = document.getElementById("findings-content");
+  document.getElementById("findings-count").textContent = String(findings.length);
+  clearChildren(container);
 
-  if (findings.length === 0) {
-    var empty = document.createElement("div");
-    empty.className = "empty-state";
-    empty.textContent = "No findings for this date";
-    content.appendChild(empty);
+  if (!findings.length) {
+    container.appendChild(createEmptyState("No findings recorded for this date"));
     return;
   }
 
-  findings.forEach(function (f) {
-    var row = document.createElement("div");
-    row.className = "item-row";
-
-    var title = document.createElement("div");
-    title.className = "item-title";
-    title.textContent = f.title;
-    row.appendChild(title);
-
-    var meta = document.createElement("div");
-    meta.className = "item-meta";
-    var metaText =
-      f.category +
-      " | R:" +
-      f.relevance +
-      " I:" +
-      f.impact +
-      " Risk:" +
-      f.risk +
-      " | " +
-      f.disposition;
-    meta.textContent = metaText;
-    if (f.source_url) {
-      var sep = document.createTextNode(" | ");
-      meta.appendChild(sep);
-      var link = document.createElement("a");
-      link.href = f.source_url;
-      link.target = "_blank";
-      link.rel = "noopener";
-      link.textContent = "source";
-      meta.appendChild(link);
-    }
-    row.appendChild(meta);
-
-    if (f.reasoning) {
-      var reasoning = document.createElement("div");
-      reasoning.className = "item-reasoning";
-      reasoning.textContent = f.reasoning;
-      row.appendChild(reasoning);
-    }
-
-    content.appendChild(row);
+  findings.forEach(function (finding) {
+    container.appendChild(createFindingCard(finding, true));
   });
 }
 
 function renderCommits(commits) {
-  var content = document.getElementById("commits-content");
-  document.getElementById("commits-count").textContent = commits.length;
-  clearChildren(content);
+  const container = document.getElementById("commits-content");
+  document.getElementById("commits-count").textContent = String(commits.length);
+  clearChildren(container);
 
-  if (commits.length === 0) {
-    var empty = document.createElement("div");
-    empty.className = "empty-state";
-    empty.textContent = "No commits for this date";
-    content.appendChild(empty);
+  if (!commits.length) {
+    container.appendChild(createEmptyState("No commits for this date"));
     return;
   }
 
-  commits.forEach(function (c) {
-    var row = document.createElement("div");
-    row.className = "item-row";
+  commits.forEach(function (commit) {
+    const card = document.createElement("article");
+    card.className = "item-card";
 
-    var title = document.createElement("div");
+    const title = document.createElement("div");
     title.className = "item-title";
-    title.textContent = c.sha.substring(0, 8) + " " + c.message;
-    row.appendChild(title);
+    title.textContent = shortSHA(commit.sha) + " " + (commit.message || "");
+    card.appendChild(title);
 
-    var meta = document.createElement("div");
+    const meta = document.createElement("div");
     meta.className = "item-meta";
-    meta.textContent = c.timestamp;
-    row.appendChild(meta);
+    meta.textContent = commit.timestamp || "";
+    card.appendChild(meta);
 
-    content.appendChild(row);
+    container.appendChild(card);
   });
 }
 
-// -- Search ---------------------------------------------------------------
-var searchTimeout = null;
+function ensureFindingsLoaded() {
+  if (findingsLoaded) {
+    renderFindingLibrary();
+    return;
+  }
+  findingsSummaryEl.textContent = "Loading findings…";
+  send({ type: "list_findings" });
+}
+
+function handleFindingsLibrary(msg) {
+  findingsLibrary = Array.isArray(msg.findings) ? msg.findings : [];
+  findingsLoaded = true;
+  populateFindingFilters();
+  renderFindingLibrary();
+}
+
+function populateFindingFilters() {
+  const currentDisposition = findingDispositionEl.value || "all";
+  const currentCategory = findingCategoryEl.value || "all";
+
+  const dispositions = uniqueValues(
+    findingsLibrary.map(function (finding) {
+      return finding.disposition;
+    }),
+  );
+  const categories = uniqueValues(
+    findingsLibrary.map(function (finding) {
+      return finding.category;
+    }),
+  );
+
+  populateSelect(findingDispositionEl, "All dispositions", dispositions, currentDisposition);
+  populateSelect(findingCategoryEl, "All categories", categories, currentCategory);
+}
+
+function uniqueValues(values) {
+  return values
+    .filter(Boolean)
+    .filter(function (value, index, list) {
+      return list.indexOf(value) === index;
+    })
+    .sort();
+}
+
+function populateSelect(select, allLabel, values, currentValue) {
+  clearChildren(select);
+
+  const allOption = document.createElement("option");
+  allOption.value = "all";
+  allOption.textContent = allLabel;
+  select.appendChild(allOption);
+
+  values.forEach(function (value) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = humanizeToken(value);
+    select.appendChild(option);
+  });
+
+  select.value = values.indexOf(currentValue) >= 0 ? currentValue : "all";
+}
+
+function renderFindingLibrary() {
+  const filtered = getFilteredFindings();
+  updateFindingHighlights();
+
+  findingsSummaryEl.textContent = findingsLibrary.length
+    ? filtered.length +
+      " of " +
+      findingsLibrary.length +
+      " findings shown" +
+      (filtered.length !== findingsLibrary.length ? " after filters" : "")
+    : "No findings available yet";
+
+  clearChildren(findingsLibraryEl);
+
+  if (!filtered.length) {
+    findingsLibraryEl.appendChild(
+      createEmptyState("No findings match the current filters. Try widening the search or resetting a dropdown."),
+    );
+    return;
+  }
+
+  filtered.forEach(function (finding) {
+    findingsLibraryEl.appendChild(createFindingCard(finding, false));
+  });
+}
+
+function updateFindingHighlights() {
+  const total = findingsLibrary.length;
+  const highRelevance = findingsLibrary.filter(function (finding) {
+    return Number(finding.relevance || 0) >= 8;
+  }).length;
+  const proposed = findingsLibrary.filter(function (finding) {
+    return finding.disposition === "proposed";
+  }).length;
+  const latest = findingsLibrary.length ? findingsLibrary[0].date : "";
+
+  findingTotalEl.textContent = String(total);
+  findingHighEl.textContent = String(highRelevance);
+  findingProposedEl.textContent = String(proposed);
+  findingLatestEl.textContent = latest ? formatDateShort(latest) : "No data";
+}
+
+function getFilteredFindings() {
+  let items = findingsLibrary.slice();
+  const query = (findingSearchEl.value || "").trim().toLowerCase();
+  const disposition = findingDispositionEl.value;
+  const category = findingCategoryEl.value;
+  const sortBy = findingSortEl.value;
+
+  if (query) {
+    items = items.filter(function (finding) {
+      return [
+        finding.finding_id,
+        finding.title,
+        finding.category,
+        finding.source_url,
+        finding.reasoning,
+        finding.disposition,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+    });
+  }
+
+  if (disposition && disposition !== "all") {
+    items = items.filter(function (finding) {
+      return finding.disposition === disposition;
+    });
+  }
+
+  if (category && category !== "all") {
+    items = items.filter(function (finding) {
+      return finding.category === category;
+    });
+  }
+
+  return sortFindings(items, sortBy);
+}
+
+function sortFindings(items, sortBy) {
+  return items.sort(function (a, b) {
+    switch (sortBy) {
+      case "priority":
+        return compareNumbers(b.rank, a.rank) || compareStringsDesc(a.run_id, b.run_id);
+      case "impact":
+        return compareNumbers(b.impact, a.impact) || compareStringsDesc(a.run_id, b.run_id);
+      case "relevance":
+        return compareNumbers(b.relevance, a.relevance) || compareStringsDesc(a.run_id, b.run_id);
+      case "low_risk":
+        return compareNumbers(a.risk, b.risk) || compareNumbers(b.rank, a.rank);
+      case "latest":
+      default:
+        return compareStringsDesc(a.run_id, b.run_id) || compareNumbers(b.rank, a.rank);
+    }
+  });
+}
+
+function compareNumbers(a, b) {
+  return Number(a || 0) - Number(b || 0);
+}
+
+function compareStringsDesc(a, b) {
+  return String(b || "").localeCompare(String(a || ""));
+}
+
+function createFindingCard(finding, compact) {
+  const card = document.createElement("article");
+  card.className = compact ? "finding-card finding-card-compact" : "finding-card";
+
+  const top = document.createElement("div");
+  top.className = "finding-top";
+
+  const badgeRow = document.createElement("div");
+  badgeRow.className = "pill-row";
+  badgeRow.appendChild(
+    createPill(
+      humanizeToken(finding.category || "uncategorized"),
+      "pill pill-category",
+      compact
+        ? null
+        : function () {
+            findingCategoryEl.value = finding.category || "all";
+            renderFindingLibrary();
+          },
+    ),
+  );
+  badgeRow.appendChild(
+    createPill(
+      humanizeToken(finding.disposition || "unknown"),
+      "pill " + dispositionClass(finding.disposition),
+    ),
+  );
+  top.appendChild(badgeRow);
+
+  const date = document.createElement("div");
+  date.className = "finding-date";
+  date.textContent = finding.date ? formatDateShort(finding.date) : "Unknown date";
+  top.appendChild(date);
+
+  card.appendChild(top);
+
+  const title = document.createElement("h3");
+  title.className = "finding-title";
+  title.textContent = finding.title || "Untitled finding";
+  card.appendChild(title);
+
+  const scoreRow = document.createElement("div");
+  scoreRow.className = "score-row";
+  scoreRow.appendChild(createScoreChip("Relevance", finding.relevance));
+  scoreRow.appendChild(createScoreChip("Impact", finding.impact));
+  scoreRow.appendChild(createScoreChip("Risk", finding.risk));
+  scoreRow.appendChild(createScoreChip("Priority", finding.rank));
+  card.appendChild(scoreRow);
+
+  const links = document.createElement("div");
+  links.className = "finding-links";
+
+  const sourceText = document.createElement("span");
+  sourceText.className = "pill";
+  sourceText.textContent = "Source: " + sourceLabel(finding.source_url);
+  links.appendChild(sourceText);
+
+  if (isExternalURL(finding.source_url)) {
+    const sourceLink = document.createElement("a");
+    sourceLink.className = "inline-link";
+    sourceLink.href = finding.source_url;
+    sourceLink.target = "_blank";
+    sourceLink.rel = "noopener noreferrer";
+    sourceLink.textContent = "Open source";
+    links.appendChild(sourceLink);
+  }
+
+  if (isExternalURL(finding.pr_url)) {
+    const prLink = document.createElement("a");
+    prLink.className = "inline-link";
+    prLink.href = finding.pr_url;
+    prLink.target = "_blank";
+    prLink.rel = "noopener noreferrer";
+    prLink.textContent = "Open PR";
+    links.appendChild(prLink);
+  }
+
+  card.appendChild(links);
+
+  const details = document.createElement("details");
+  details.className = "detail-toggle";
+
+  const summary = document.createElement("summary");
+  summary.textContent = compact ? "Reasoning and checks" : "Reasoning, review, and audit details";
+  details.appendChild(summary);
+
+  const detailBody = document.createElement("div");
+  detailBody.className = "detail-body";
+
+  if (finding.reasoning) {
+    const reasoning = document.createElement("p");
+    reasoning.className = "finding-reasoning";
+    reasoning.textContent = finding.reasoning;
+    detailBody.appendChild(reasoning);
+  }
+
+  const auditList = document.createElement("div");
+  auditList.className = "audit-list";
+  auditList.appendChild(createAuditRow("Finding ID", finding.finding_id || "—"));
+  auditList.appendChild(createAuditRow("Checks", finding.tests_passed ? "Passed" : "Not passed"));
+  auditList.appendChild(createAuditRow("License", finding.license_check || "Unknown"));
+  auditList.appendChild(createAuditRow("Security Review", finding.security_review || "Not recorded"));
+  detailBody.appendChild(auditList);
+
+  details.appendChild(detailBody);
+  card.appendChild(details);
+
+  return card;
+}
+
+function createPill(text, className, onClick) {
+  const pill = document.createElement("span");
+  pill.className = className;
+  pill.textContent = text;
+  if (typeof onClick === "function") {
+    pill.addEventListener("click", onClick);
+  }
+  return pill;
+}
+
+function createScoreChip(label, value) {
+  const chip = document.createElement("span");
+  chip.className = "score-chip";
+
+  const text = document.createElement("span");
+  text.textContent = label;
+  chip.appendChild(text);
+
+  const strong = document.createElement("strong");
+  strong.textContent = value != null ? String(value) : "0";
+  chip.appendChild(strong);
+
+  return chip;
+}
+
+function createAuditRow(label, value) {
+  const row = document.createElement("div");
+  row.className = "audit-row";
+
+  const left = document.createElement("span");
+  left.textContent = label;
+  row.appendChild(left);
+
+  const right = document.createElement("strong");
+  right.textContent = value;
+  row.appendChild(right);
+
+  return row;
+}
+
+function dispositionClass(value) {
+  return "pill-disposition-" + String(value || "unknown").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
+findingSearchEl.addEventListener("input", renderFindingLibrary);
+findingDispositionEl.addEventListener("change", renderFindingLibrary);
+findingCategoryEl.addEventListener("change", renderFindingLibrary);
+findingSortEl.addEventListener("change", renderFindingLibrary);
+
 searchBoxEl.addEventListener("input", function () {
   clearTimeout(searchTimeout);
-  var query = this.value.trim();
+  const query = this.value.trim();
+
   if (query.length < 2) {
     document.getElementById("search-card").classList.add("hidden");
     return;
   }
+
   searchTimeout = setTimeout(function () {
     send({ type: "search", query: query, date: currentDate() });
-  }, 400);
+  }, 350);
 });
 
-searchBoxEl.addEventListener("keydown", function (e) {
-  if (e.key === "Enter") {
-    clearTimeout(searchTimeout);
-    var query = this.value.trim();
-    if (query.length >= 2) {
-      send({ type: "search", query: query, date: currentDate() });
-    }
+searchBoxEl.addEventListener("keydown", function (event) {
+  if (event.key !== "Enter") {
+    return;
+  }
+  clearTimeout(searchTimeout);
+  const query = this.value.trim();
+  if (query.length >= 2) {
+    send({ type: "search", query: query, date: currentDate() });
   }
 });
 
 function handleSearchResults(msg) {
-  var card = document.getElementById("search-card");
-  var content = document.getElementById("search-content");
-  var results = msg.results || [];
-  document.getElementById("search-count").textContent = results.length;
+  const card = document.getElementById("search-card");
+  const content = document.getElementById("search-content");
+  const results = Array.isArray(msg.results) ? msg.results : [];
 
   card.classList.remove("hidden");
+  document.getElementById("search-count").textContent = String(results.length);
   clearChildren(content);
 
-  if (results.length === 0) {
-    var empty = document.createElement("div");
-    empty.className = "empty-state";
-    empty.textContent = 'No results for "' + msg.query + '"';
-    content.appendChild(empty);
+  if (!results.length) {
+    content.appendChild(createEmptyState('No results for "' + (msg.query || "") + '"'));
     return;
   }
 
-  results.forEach(function (r) {
-    var item = document.createElement("div");
+  results.forEach(function (result) {
+    const item = document.createElement("article");
     item.className = "search-item";
 
-    var header = document.createElement("div");
-    var wing = document.createElement("span");
+    const header = document.createElement("div");
+    header.className = "search-item-header";
+
+    const wing = document.createElement("span");
     wing.className = "search-wing";
-    wing.textContent = r.wing + (r.room ? " / " + r.room : "");
+    wing.textContent = result.wing + (result.room ? " / " + result.room : "");
     header.appendChild(wing);
 
-    var sim = document.createElement("span");
-    sim.className = "search-similarity";
-    sim.textContent = (r.similarity * 100).toFixed(1) + "%";
-    header.appendChild(sim);
+    const similarity = document.createElement("span");
+    similarity.className = "search-similarity";
+    similarity.textContent = ((result.similarity || 0) * 100).toFixed(1) + "%";
+    header.appendChild(similarity);
+
     item.appendChild(header);
 
-    if (r.source_file) {
-      var src = document.createElement("div");
-      src.className = "item-meta";
-      src.textContent = "Source: " + r.source_file;
-      item.appendChild(src);
+    if (result.source_file) {
+      const meta = document.createElement("div");
+      meta.className = "item-meta";
+      meta.textContent = "Source: " + result.source_file;
+      item.appendChild(meta);
     }
 
-    var text = document.createElement("div");
+    const text = document.createElement("div");
     text.className = "search-text";
-    text.textContent = r.text;
+    text.textContent = result.text || "";
     item.appendChild(text);
 
     content.appendChild(item);
   });
 }
 
-// -- Calendar Heatmap -----------------------------------------------------
 calPrevBtn.addEventListener("click", function () {
   calendarMonth.setMonth(calendarMonth.getMonth() - 1);
   renderCalendar();
@@ -439,11 +810,11 @@ calNextBtn.addEventListener("click", function () {
 });
 
 function renderCalendar() {
-  if (!calendarMonth) return;
+  if (!calendarMonth) {
+    return;
+  }
 
-  var year = calendarMonth.getFullYear();
-  var month = calendarMonth.getMonth();
-  var monthNames = [
+  const monthNames = [
     "January",
     "February",
     "March",
@@ -457,40 +828,38 @@ function renderCalendar() {
     "November",
     "December",
   ];
+
+  const year = calendarMonth.getFullYear();
+  const month = calendarMonth.getMonth();
   calLabelEl.textContent = monthNames[month] + " " + year;
 
-  // Build activity lookup for this month
-  var activityMap = {};
-  timeline.forEach(function (e) {
-    activityMap[e.date] = e.activity_level;
+  const activityMap = {};
+  timeline.forEach(function (entry) {
+    activityMap[entry.date] = entry.activity_level || 0;
   });
 
   clearChildren(calGridEl);
 
-  // First day of month (0=Sun, 1=Mon, ... 6=Sat)
-  var firstDay = new Date(year, month, 1).getDay();
-  // Convert to Mon=0 ... Sun=6
-  var startOffset = (firstDay + 6) % 7;
-  var daysInMonth = new Date(year, month + 1, 0).getDate();
-  var selected = currentDate();
+  const firstDay = new Date(year, month, 1).getDay();
+  const startOffset = (firstDay + 6) % 7;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const selected = currentDate();
 
-  // Empty cells before first day
-  for (var i = 0; i < startOffset; i++) {
-    var empty = document.createElement("div");
+  for (let i = 0; i < startOffset; i++) {
+    const empty = document.createElement("div");
     empty.className = "cal-cell empty level-0";
     calGridEl.appendChild(empty);
   }
 
-  // Day cells
-  for (var d = 1; d <= daysInMonth; d++) {
-    var dateStr = year + "-" + pad2(month + 1) + "-" + pad2(d);
-    var level = activityMap[dateStr] || 0;
-    var cell = document.createElement("div");
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dateStr = year + "-" + pad2(month + 1) + "-" + pad2(day);
+    const level = activityMap[dateStr] || 0;
+    const cell = document.createElement("div");
     cell.className = "cal-cell level-" + level;
-    cell.title = dateStr + " (level " + level + ")";
     if (dateStr === selected) {
       cell.classList.add("selected");
     }
+    cell.title = dateStr + " (activity " + level + ")";
     cell.setAttribute("data-date", dateStr);
     cell.addEventListener("click", onCalendarCellClick);
     calGridEl.appendChild(cell);
@@ -498,289 +867,293 @@ function renderCalendar() {
 }
 
 function onCalendarCellClick() {
-  var date = this.getAttribute("data-date");
-  if (!date) return;
-  // If this date exists in timeline, jump slider to it
-  if (dateIndex.hasOwnProperty(date)) {
-    selectDateByIndex(dateIndex[date]);
-  } else {
-    // Still request day detail even if not in timeline
-    dateCurrentEl.textContent = date;
-    send({ type: "select_date", date: date });
-    renderCalendar();
+  const date = this.getAttribute("data-date");
+  if (!date) {
+    return;
   }
+
+  if (Object.prototype.hasOwnProperty.call(dateIndex, date)) {
+    selectDateByIndex(dateIndex[date]);
+    return;
+  }
+
+  dateCurrentEl.textContent = formatDateLong(date);
+  send({ type: "select_date", date: date });
+  renderCalendar();
 }
 
-// -- Charts (QuickChart.io) -----------------------------------------------
 function updateCharts() {
   updateBarChart();
   updateDoughnutChart();
 }
 
 function updateBarChart() {
-  // Show last 7 entries' activity
-  var recent = timeline.slice(-7);
-  if (recent.length === 0) {
+  const recent = timeline.slice(-7);
+  if (!recent.length) {
     chartBarEl.src = "";
     return;
   }
 
-  var labels = recent.map(function (e) {
-    return e.date.substring(5);
-  });
-  var findingsData = recent.map(function (e) {
-    return e.findings;
-  });
-  var prsData = recent.map(function (e) {
-    return e.prs;
-  });
-
-  var config = {
+  const config = {
     type: "bar",
     data: {
-      labels: labels,
+      labels: recent.map(function (entry) {
+        return entry.date.substring(5);
+      }),
       datasets: [
-        { label: "Findings", data: findingsData, backgroundColor: "#58a6ff" },
-        { label: "PRs", data: prsData, backgroundColor: "#26a641" },
+        {
+          label: "Findings",
+          data: recent.map(function (entry) {
+            return entry.findings;
+          }),
+          backgroundColor: "#6ab1ff",
+        },
+        {
+          label: "PRs",
+          data: recent.map(function (entry) {
+            return entry.prs;
+          }),
+          backgroundColor: "#51dfb8",
+        },
       ],
     },
     options: {
-      plugins: { legend: { labels: { color: "#ccc" } } },
+      plugins: {
+        legend: { labels: { color: "#c7d3e5" } },
+      },
       scales: {
-        x: { ticks: { color: "#888" }, grid: { color: "#333" } },
+        x: { ticks: { color: "#95a9c7" }, grid: { color: "#23354e" } },
         y: {
-          ticks: { color: "#888" },
-          grid: { color: "#333" },
           beginAtZero: true,
+          ticks: { color: "#95a9c7" },
+          grid: { color: "#23354e" },
         },
       },
     },
   };
 
   chartBarEl.src =
-    "https://quickchart.io/chart?w=300&h=180&bkg=%231A1A2E&c=" +
+    "https://quickchart.io/chart?w=640&h=320&bkg=%2307111f&c=" +
     encodeURIComponent(JSON.stringify(config));
 }
 
 function updateDoughnutChart() {
-  // Aggregate activity levels across timeline
-  var cats = {};
-  timeline.forEach(function (e) {
-    var key = "Level " + e.activity_level;
-    cats[key] = (cats[key] || 0) + 1;
+  const buckets = {};
+  timeline.forEach(function (entry) {
+    const key = "Level " + (entry.activity_level || 0);
+    buckets[key] = (buckets[key] || 0) + 1;
   });
 
-  var labels = Object.keys(cats);
-  var data = labels.map(function (k) {
-    return cats[k];
-  });
-
-  if (labels.length === 0) {
+  const labels = Object.keys(buckets);
+  if (!labels.length) {
     chartDonutEl.src = "";
     return;
   }
 
-  var colors = ["#16213E", "#0e4429", "#006d32", "#26a641"];
-
-  var config = {
+  const config = {
     type: "doughnut",
     data: {
       labels: labels,
       datasets: [
         {
-          data: data,
-          backgroundColor: labels.map(function (_, i) {
-            return colors[i % colors.length];
+          data: labels.map(function (label) {
+            return buckets[label];
           }),
+          backgroundColor: ["#182238", "#284c68", "#3988b8", "#51dfb8"],
         },
       ],
     },
     options: {
       plugins: {
-        legend: { labels: { color: "#ccc" } },
+        legend: { labels: { color: "#c7d3e5" } },
       },
     },
   };
 
   chartDonutEl.src =
-    "https://quickchart.io/chart?w=300&h=180&bkg=%231A1A2E&c=" +
+    "https://quickchart.io/chart?w=640&h=320&bkg=%2307111f&c=" +
     encodeURIComponent(JSON.stringify(config));
 }
 
-// -- Utility --------------------------------------------------------------
-function pad2(n) {
-  return n < 10 ? "0" + n : "" + n;
-}
-
-// -- Keyboard shortcuts ---------------------------------------------------
-document.addEventListener("keydown", function (e) {
-  // Left/Right arrows for timeline navigation (when not in search box)
-  if (document.activeElement === searchBoxEl) return;
-  if (e.key === "ArrowLeft") {
-    prevDayBtn.click();
-    e.preventDefault();
-  } else if (e.key === "ArrowRight") {
-    nextDayBtn.click();
-    e.preventDefault();
-  } else if (e.key === "/" || e.key === "s") {
-    searchBoxEl.focus();
-    e.preventDefault();
-  }
-});
-
-// -- Opportunity Tab --------------------------------------------------------
-function handleOpportunities(msg) {
-  var opps = msg.opportunities || [];
-  var stats = msg.opportunity_stats || {};
-  var sources = msg.discovered_sources || [];
-
-  // Update stats bar
-  document.getElementById("opp-total").textContent = stats.total || 0;
-  document.getElementById("opp-new").textContent = stats["new"] || 0;
-  document.getElementById("opp-drafts").textContent = stats.drafts || 0;
-  document.getElementById("opp-won").textContent = stats.won || 0;
-  document.getElementById("opp-revenue").textContent =
-    "$" + (stats.revenue || 0).toLocaleString();
-
-  // Render opportunity cards
-  var list = document.getElementById("opp-list");
-  clearChildren(list);
-
-  if (opps.length === 0) {
-    var empty = document.createElement("div");
-    empty.className = "empty-state";
-    empty.textContent =
-      "No opportunities in pipeline. Run vxd-improve to scan.";
-    list.appendChild(empty);
+document.addEventListener("keydown", function (event) {
+  if (isTypingContext()) {
     return;
   }
 
-  opps.forEach(function (opp) {
-    list.appendChild(createOpportunityCard(opp));
-  });
+  if (activeTab === "timeline") {
+    if (event.key === "ArrowLeft") {
+      prevDayBtn.click();
+      event.preventDefault();
+    } else if (event.key === "ArrowRight") {
+      nextDayBtn.click();
+      event.preventDefault();
+    } else if (event.key === "/" || event.key === "s") {
+      searchBoxEl.focus();
+      event.preventDefault();
+    }
+  }
+});
+
+function isTypingContext() {
+  const tag = document.activeElement ? document.activeElement.tagName : "";
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+}
+
+function handleOpportunities(msg) {
+  const opps = msg.opportunities || [];
+  const stats = msg.opportunity_stats || {};
+  const sources = msg.discovered_sources || [];
+
+  document.getElementById("opp-total").textContent = String(stats.total || 0);
+  document.getElementById("opp-new").textContent = String(stats["new"] || 0);
+  document.getElementById("opp-drafts").textContent = String(stats.drafts || 0);
+  document.getElementById("opp-won").textContent = String(stats.won || 0);
+  document.getElementById("opp-revenue").textContent = "$" + Number(stats.revenue || 0).toLocaleString();
+
+  const list = document.getElementById("opp-list");
+  clearChildren(list);
+
+  if (!opps.length) {
+    list.appendChild(createEmptyState("No opportunities in the pipeline yet. Run vxd-improve to refresh the feed."));
+  } else {
+    opps.forEach(function (opp) {
+      list.appendChild(createOpportunityCard(opp));
+    });
+  }
 
   renderDiscoveredSources(sources);
 
-  if (stats.revenue > 0) {
-    document.getElementById("revenue-summary").classList.remove("hidden");
+  const revenueSummaryEl = document.getElementById("revenue-summary");
+  if (Number(stats.revenue || 0) > 0) {
+    revenueSummaryEl.classList.remove("hidden");
     document.getElementById("revenue-content").textContent =
-      "Total revenue: $" + stats.revenue.toLocaleString();
+      "Total recorded revenue: $" + Number(stats.revenue || 0).toLocaleString();
+  } else {
+    revenueSummaryEl.classList.add("hidden");
   }
 }
 
 function createOpportunityCard(opp) {
-  var card = document.createElement("div");
+  const card = document.createElement("article");
   card.className = "opp-card";
 
-  var header = document.createElement("div");
+  const header = document.createElement("div");
   header.className = "opp-card-header";
-  var title = document.createElement("span");
+
+  const title = document.createElement("span");
   title.className = "opp-card-title";
   title.textContent = opp.title || "(untitled)";
   header.appendChild(title);
-  var rank = document.createElement("span");
+
+  const rank = document.createElement("span");
   rank.className = "opp-card-rank";
   rank.textContent = "Rank " + (opp.rank || 0);
   header.appendChild(rank);
+
   card.appendChild(header);
 
-  var meta = document.createElement("div");
+  const meta = document.createElement("div");
   meta.className = "opp-card-meta";
   meta.textContent = [
-    opp.source,
-    opp.company ? opp.company : "",
-    opp.budget ? opp.budget : "no budget",
-    "R:" +
-      opp.relevance_score +
-      " B:" +
-      opp.budget_score +
-      " W:" +
-      opp.win_probability,
-    opp.status,
+    humanizeToken(opp.source),
+    opp.company || "",
+    opp.budget || "No budget",
+    "R:" + (opp.relevance_score || 0),
+    "B:" + (opp.budget_score || 0),
+    "W:" + (opp.win_probability || 0),
+    humanizeToken(opp.status),
   ]
     .filter(Boolean)
     .join(" | ");
   card.appendChild(meta);
 
-  if (opp.skills && opp.skills.length > 0) {
-    var skillsDiv = document.createElement("div");
-    skillsDiv.className = "opp-card-skills";
+  if (Array.isArray(opp.skills) && opp.skills.length) {
+    const skills = document.createElement("div");
+    skills.className = "opp-card-skills";
     opp.skills.forEach(function (skill) {
-      var tag = document.createElement("span");
+      const tag = document.createElement("span");
       tag.className = "opp-skill-tag";
       tag.textContent = skill;
-      skillsDiv.appendChild(tag);
+      skills.appendChild(tag);
     });
-    card.appendChild(skillsDiv);
+    card.appendChild(skills);
   }
 
-  var actions = document.createElement("div");
+  const actions = document.createElement("div");
   actions.className = "opp-card-actions";
 
-  var viewBtn = document.createElement("button");
+  const viewBtn = document.createElement("button");
   viewBtn.className = "opp-btn";
-  viewBtn.textContent = "View";
+  viewBtn.textContent = "Open listing";
   viewBtn.addEventListener("click", function () {
-    window.open(opp.url, "_blank");
+    if (opp.url) {
+      window.open(opp.url, "_blank", "noopener");
+    }
   });
   actions.appendChild(viewBtn);
 
   if (opp.status === "new" || opp.status === "reviewed") {
-    var intBtn = document.createElement("button");
-    intBtn.className = "opp-btn";
-    intBtn.textContent = "Interested";
-    intBtn.addEventListener("click", function () {
+    const interestedBtn = document.createElement("button");
+    interestedBtn.className = "opp-btn";
+    interestedBtn.textContent = "Mark interested";
+    interestedBtn.addEventListener("click", function () {
       send({ type: "update_opportunity", id: opp.id, status: "interested" });
     });
-    actions.appendChild(intBtn);
+    actions.appendChild(interestedBtn);
   }
 
   if (opp.proposal_draft) {
-    var propBtn = document.createElement("button");
-    propBtn.className = "opp-btn opp-btn-gold";
-    propBtn.textContent = "View Proposal";
-    propBtn.addEventListener("click", function () {
-      var el = card.querySelector(".opp-proposal");
+    const viewProposalBtn = document.createElement("button");
+    viewProposalBtn.className = "opp-btn opp-btn-gold";
+    viewProposalBtn.textContent = "View proposal";
+    viewProposalBtn.addEventListener("click", function () {
+      const el = card.querySelector(".opp-proposal");
       if (el) {
         el.classList.toggle("visible");
       }
     });
-    actions.appendChild(propBtn);
+    actions.appendChild(viewProposalBtn);
 
-    var sendBtn = document.createElement("button");
-    sendBtn.className = "opp-btn opp-btn-gold";
-    sendBtn.textContent = "Copy & Open";
-    sendBtn.addEventListener("click", function () {
-      navigator.clipboard.writeText(opp.proposal_draft).then(function () {
-        sendBtn.textContent = "Copied!";
-        setTimeout(function () {
-          sendBtn.textContent = "Copy & Open";
-        }, 2000);
-      });
-      window.open(opp.url, "_blank");
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "opp-btn opp-btn-gold";
+    copyBtn.textContent = "Copy & open";
+    copyBtn.addEventListener("click", function () {
+      navigator.clipboard
+        .writeText(opp.proposal_draft)
+        .then(function () {
+          copyBtn.textContent = "Copied";
+          setTimeout(function () {
+            copyBtn.textContent = "Copy & open";
+          }, 1800);
+        })
+        .catch(function () {
+          copyBtn.textContent = "Copy failed";
+          setTimeout(function () {
+            copyBtn.textContent = "Copy & open";
+          }, 1800);
+        });
+      if (opp.url) {
+        window.open(opp.url, "_blank", "noopener");
+      }
     });
-    actions.appendChild(sendBtn);
+    actions.appendChild(copyBtn);
   }
 
-  if (
-    opp.status !== "won" &&
-    opp.status !== "lost" &&
-    opp.status !== "expired"
-  ) {
-    var wonBtn = document.createElement("button");
+  if (opp.status !== "won" && opp.status !== "lost" && opp.status !== "expired") {
+    const wonBtn = document.createElement("button");
     wonBtn.className = "opp-btn opp-btn-gold";
-    wonBtn.textContent = "Won $";
+    wonBtn.textContent = "Log win";
     wonBtn.addEventListener("click", function () {
-      var amount = prompt("Enter amount earned (USD):");
+      const amount = prompt("Enter amount earned (USD):");
       if (amount && !isNaN(parseFloat(amount))) {
         send({ type: "log_revenue", id: opp.id, amount: parseFloat(amount) });
       }
     });
     actions.appendChild(wonBtn);
 
-    var lostBtn = document.createElement("button");
+    const lostBtn = document.createElement("button");
     lostBtn.className = "opp-btn opp-btn-danger";
-    lostBtn.textContent = "Lost";
+    lostBtn.textContent = "Mark lost";
     lostBtn.addEventListener("click", function () {
       send({ type: "update_opportunity", id: opp.id, status: "lost" });
     });
@@ -790,7 +1163,7 @@ function createOpportunityCard(opp) {
   card.appendChild(actions);
 
   if (opp.proposal_draft) {
-    var proposal = document.createElement("div");
+    const proposal = document.createElement("div");
     proposal.className = "opp-proposal";
     proposal.textContent = opp.proposal_draft;
     card.appendChild(proposal);
@@ -800,71 +1173,145 @@ function createOpportunityCard(opp) {
 }
 
 function renderDiscoveredSources(sources) {
-  var pending = sources.filter(function (s) {
-    return s.status === "pending_approval";
+  const pending = sources.filter(function (source) {
+    return source.status === "pending" || source.status === "pending_approval";
   });
-  var card = document.getElementById("discovered-sources-card");
-  var content = document.getElementById("discovered-sources-content");
+  const card = document.getElementById("discovered-sources-card");
+  const content = document.getElementById("discovered-sources-content");
 
-  if (pending.length === 0) {
+  if (!pending.length) {
     card.classList.add("hidden");
+    clearChildren(content);
     return;
   }
 
   card.classList.remove("hidden");
   clearChildren(content);
 
-  pending.forEach(function (src) {
-    var div = document.createElement("div");
-    div.className = "source-card";
+  pending.forEach(function (source) {
+    const item = document.createElement("article");
+    item.className = "source-card";
 
-    var name = document.createElement("div");
-    name.className = "item-title";
-    name.textContent = src.name;
-    div.appendChild(name);
+    const title = document.createElement("div");
+    title.className = "item-title";
+    title.textContent = source.name || source.url || "Unnamed source";
+    item.appendChild(title);
 
-    var meta = document.createElement("div");
+    const meta = document.createElement("div");
     meta.className = "item-meta";
-    meta.textContent = src.reason + " | Discovered: " + src.discovered_on;
-    div.appendChild(meta);
+    meta.textContent = [source.reason, source.discovered_on ? "Discovered " + source.discovered_on : ""]
+      .filter(Boolean)
+      .join(" | ");
+    item.appendChild(meta);
 
-    var approveBtn = document.createElement("button");
+    const approveBtn = document.createElement("button");
     approveBtn.className = "opp-btn";
-    approveBtn.textContent = "Approve Source";
-    approveBtn.style.marginTop = "4px";
+    approveBtn.style.marginTop = "12px";
+    approveBtn.textContent = "Approve source";
     approveBtn.addEventListener("click", function () {
-      send({ type: "approve_source", url: src.url });
+      send({ type: "approve_source", url: source.url });
     });
-    div.appendChild(approveBtn);
+    item.appendChild(approveBtn);
 
-    content.appendChild(div);
+    content.appendChild(item);
   });
 }
 
 function handleRevenueUpdate(msg) {
   if (msg.milestone) {
-    alert(
-      "Mission Milestone Reached: " +
-        msg.milestone +
-        "!\n\nYou started this to free your village from poverty. Keep going!",
-    );
+    alert("Mission Milestone Reached: " + msg.milestone + "!");
   }
   send({ type: "list_opportunities", filter: "all", sort: "rank" });
 }
 
-function handleProposalReady(msg) {
+function handleProposalReady() {
   send({ type: "list_opportunities", filter: "all", sort: "rank" });
 }
 
-// -- Opportunity Filter Handler -------------------------------------------
 document.getElementById("opp-filter").addEventListener("change", function () {
   send({ type: "list_opportunities", filter: this.value, sort: "rank" });
 });
 
 document.getElementById("opp-refresh").addEventListener("click", function () {
-  var filter = document.getElementById("opp-filter").value;
-  send({ type: "list_opportunities", filter: filter, sort: "rank" });
+  send({ type: "list_opportunities", filter: document.getElementById("opp-filter").value, sort: "rank" });
 });
 
-// -- Boot -----------------------------------------------------------------
+function createEmptyState(text) {
+  const empty = document.createElement("div");
+  empty.className = "empty-state";
+  empty.textContent = text;
+  return empty;
+}
+
+function sourceLabel(value) {
+  if (!value) {
+    return "Unknown";
+  }
+  if (isExternalURL(value)) {
+    try {
+      return new URL(value).hostname.replace(/^www\./, "");
+    } catch (_) {
+      return value;
+    }
+  }
+  return value;
+}
+
+function isExternalURL(value) {
+  return /^https?:\/\//.test(String(value || ""));
+}
+
+function humanizeToken(value) {
+  if (!value) {
+    return "Unknown";
+  }
+  return String(value)
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, function (char) {
+      return char.toUpperCase();
+    });
+}
+
+function formatDateLong(dateStr) {
+  if (!dateStr) {
+    return "Unknown date";
+  }
+  const date = new Date(dateStr + "T00:00:00");
+  if (Number.isNaN(date.getTime())) {
+    return dateStr;
+  }
+  return date.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatDateShort(dateStr) {
+  if (!dateStr) {
+    return "Unknown";
+  }
+  const date = new Date(dateStr + "T00:00:00");
+  if (Number.isNaN(date.getTime())) {
+    return dateStr;
+  }
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function shortSHA(value) {
+  return value ? String(value).slice(0, 8) : "--------";
+}
+
+function pad2(num) {
+  return num < 10 ? "0" + num : String(num);
+}
+
+activateTab("timeline");
 connect();

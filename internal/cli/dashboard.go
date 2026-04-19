@@ -25,6 +25,7 @@ func newDashboardCmd() *cobra.Command {
 	cmd.Flags().Bool("all", false, "Show all requirements including archived and from other repos")
 	cmd.Flags().Bool("web", false, "Launch web dashboard instead of TUI")
 	cmd.Flags().Int("port", 8787, "Web server port")
+	cmd.Flags().Bool("no-open", false, "Don't open browser automatically (web mode)")
 	cmd.SilenceUsage = true
 	return cmd
 }
@@ -52,7 +53,10 @@ func runDashboard(cmd *cobra.Command, _ []string) error {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 
+		web.Version = version
+		noOpen, _ := cmd.Flags().GetBool("no-open")
 		srv := web.NewServer(s.Events, s.Proj, port, filter)
+		srv.NoOpen = noOpen
 		if err := srv.Start(ctx); err != nil && err != http.ErrServerClosed {
 			return fmt.Errorf("web server: %w", err)
 		}

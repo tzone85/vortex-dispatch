@@ -80,6 +80,7 @@ vhs docs/demo.tape
 - **Multi-project isolation** -- per-project state under `~/.vxd/projects/<name>/`
 - **Tiered cleanup** -- worktree pruning, branch garbage collection with configurable retention
 - **Self-improvement engine** -- daily autonomous pipeline: research, analysis, implementation, PR, email report; weekly competitor repo clone+diff for pattern extraction
+- **Memory dashboard** -- browser-based timeline, findings explorer, and opportunities view with direct source/PR links
 - **Reputation scoring** -- per-agent performance tracking across assignments
 
 ## CLI Commands
@@ -110,7 +111,7 @@ vhs docs/demo.tape
 | `vxd approve <story-id>` | Approve a story's PR for merge (`--all <req-id>` for batch) |
 | `vxd reject <story-id>` | Reject a story's PR (returns to in_progress) |
 | `vxd pause <req-id>` | Pause a running requirement |
-| `vxd memory` | Launch the memory dashboard |
+| `vxd memory` | Launch the memory dashboard (timeline, findings explorer, opportunities) |
 | `vxd backup [--output DIR]` | Create tar.gz archive of project state (events.jsonl, store.db, config) |
 
 ### Submitting Requirements

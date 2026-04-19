@@ -45,7 +45,7 @@ func (s *Server) handleRequirements(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusMethodNotAllowed, "only GET supported")
 		return
 	}
-	reqs, err := s.projStore.ListRequirementsFiltered(state.ReqFilter{})
+	reqs, err := s.projStore.ListRequirementsFiltered(s.reqFilter)
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -145,7 +145,7 @@ func (s *Server) handleMetricsSummary(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusMethodNotAllowed, "only GET supported")
 		return
 	}
-	reqs, err := s.projStore.ListRequirementsFiltered(state.ReqFilter{})
+	reqs, err := s.projStore.ListRequirementsFiltered(s.reqFilter)
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, err.Error())
 		return

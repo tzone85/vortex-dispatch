@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -113,6 +114,7 @@ func (a *AuditLog) readFiltered(keep func(AuditEntry) bool) ([]AuditEntry, error
 	for scanner.Scan() {
 		var entry AuditEntry
 		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
+			log.Printf("[improve] malformed audit log line in %s: %v", a.path, err)
 			continue
 		}
 		if keep(entry) {

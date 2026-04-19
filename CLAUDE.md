@@ -196,9 +196,10 @@ Spec-kit is installed (`.specify/`). For new features:
 - **User fix:** `unset ANTHROPIC_API_KEY` before running VXD
 
 ### Claude CLI Max-Turns
-- `ClaudeCLIClient` uses `--max-turns 25` for planning/review calls
-- Sonnet 4.6+ uses tool calls to read files before responding — needs 10-20 turns for complex projects
-- If planning fails with "error_max_turns", increase this in `internal/llm/claude_cli.go`
+- `ClaudeCLIClient` uses `--max-turns 50` for planning/review calls (`internal/llm/claude_cli.go`)
+- `Implementer` uses `--max-turns 25` for self-improvement implementations (`internal/improve/implementer.go`)
+- Sonnet 4.6+ uses tool calls to read files before responding — complex projects need 15-30 turns
+- If planning fails with "error_max_turns", increase in the relevant file above
 
 ### Plugin Interference
 - Claude CLI loads superpowers/brainstorming plugins that hijack structured JSON responses
@@ -212,14 +213,41 @@ Spec-kit is installed (`.specify/`). For new features:
 - Gracefully degrades — if binary not installed, all functions return empty results
 - Graph stored in `.code-review-graph/graph.db` (SQLite)
 
-## Pending Work (as of 2026-04-14)
-1. ~~All items from 2026-04-12~~ — DONE
-2. ~~Code-review-graph integration~~ — DONE (VXD + NXD)
-3. ~~Test coverage boost~~ — VXD 84.4%, NXD 70.1%
-4. ~~Pipeline bug fixes~~ — 9 bugs found and fixed via real pipeline testing
-5. ~~Web dashboard JSON fix~~ — model structs now have JSON tags
-6. Port Docker/SSH runners to NXD (remaining sync)
-7. Fix GitHub Actions billing to unblock CI
-8. Re-planner guardrails — prevent hallucinated sub-stories during tier-3 splits
-9. Post-merge rebase check — auto-detect and resolve conflicts on open PRs
-10. NXD native runtime unstaged changes — auto-commit before rebase
+### Self-Improvement Pipeline (vxd-improve)
+- `implementer.go` uses `--max-turns 25` for Claude CLI (was 1 — root cause of ALL aborted findings)
+- `filterEnv()` strips `ANTHROPIC_API_KEY` and `CLAUDECODE` from agent env
+- Triage includes `actionable` flag — non-actionable findings (competitor news, blog posts) skip implementation and log as "proposed"
+- `AuditEntry` has `Error` field for diagnostic persistence; errors also tracked in `RunSummary.Errors`
+- `SaveRunSummary` is called TWICE: once at Phase 5 (pre-email) and once at end (with `email_sent` flag)
+- Stale `*_boost_test.go` / `*_coverage_test.go` files are auto-generated and may reference deleted functions — delete them if they break the build
+
+### gitDiff Branch Support
+- `gitDiff()` in `monitor.go` tries merge-base candidates: `origin/main`, `origin/master`, `main`, `master`
+- Repos using `master` (e.g., sample-api) previously fell back to root commit, producing massive diffs that obscured real changes
+- **If review keeps rejecting valid work**: check which branch the target repo uses and verify merge-base resolution
+
+### SLA Timer on Resume
+- `checkSLA()` uses the LATEST `STORY_STARTED` event, not the first
+- Without this, resumed stories get immediately terminated (elapsed time includes paused period)
+- SLA start times are cached in `slaStartTimes` map — cleared when story finishes
+
+### Multi-Project State Directories
+- Default state: `~/.vxd/projects/<name>/`
+- Projects can override via `vxd.yaml` `workspace.state_dir` (e.g., `~/.vxd-sample-api/`)
+- To find which state dir a running dashboard uses: `lsof -p <PID> | grep events.jsonl`
+- The `vxd projects` command shows what VXD knows, but custom state dirs may not appear there
+
+### Debugging Checklist (Pipeline Issues)
+1. **Stories stuck in draft after escalation** → Check if SLA breach is killing them on resume. Reset `escalation_tier` in SQLite if needed.
+2. **Review keeps rejecting valid work** → Check `gitDiff()` merge-base. Does the repo use `master` or `main`? Check diff output manually: `cd <worktree> && git diff origin/<branch>...HEAD --stat`
+3. **Self-improvement findings all aborted** → Check `--max-turns`, env vars, and whether findings are actionable
+4. **Email never sends (email_sent: false)** → Verify `RESEND_API_KEY` is set. Check if summary is re-saved after email phase.
+5. **Agent produces work but diff shows empty** → Agent may not have committed. `autoCommit()` runs in post-execution, but check worktree: `cd <worktree> && git status`
+
+## Pending Work (as of 2026-04-19)
+1. ~~Port Docker/SSH runners to NXD~~ — DONE (runner_factory.go + config structs)
+2. Fix GitHub Actions billing — account payment issue, CI slimmed to ubuntu-only (~70% cost reduction)
+3. Re-planner guardrails — prevent hallucinated sub-stories during tier-3 splits
+4. Post-merge rebase check — auto-detect and resolve conflicts on open PRs
+5. Client-api pipeline — stories resuming with fixed gitDiff + SLA timer
+6. NXD native runtime unstaged changes — auto-commit before rebase

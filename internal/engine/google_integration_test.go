@@ -42,7 +42,7 @@ func googleAIResponse(text string) map[string]any {
 func anthropicResponse(text string) map[string]any {
 	return map[string]any{
 		"content":     []map[string]any{{"type": "text", "text": text}},
-		"model":       "claude-sonnet-4-6-20250620",
+		"model":       "claude-sonnet-4-20250514",
 		"stop_reason": "end_turn",
 		"usage":       map[string]any{"input_tokens": 200, "output_tokens": 100},
 	}

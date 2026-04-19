@@ -35,7 +35,7 @@ func TestClaudeCLIClient_MissingBinary(t *testing.T) {
 	defer cancel()
 
 	_, err := client.Complete(ctx, llm.CompletionRequest{
-		Model:   "claude-sonnet-4-6-20250620",
+		Model:   "claude-sonnet-4-20250514",
 		System:  "You are a test assistant.",
 		Messages: []llm.Message{{Role: llm.RoleUser, Content: "Hello"}},
 	})

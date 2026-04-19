@@ -327,6 +327,12 @@ func main() {
 		}
 	}
 
+	// Re-save summary with final email status and any errors accumulated during email phase.
+	summary.CompletedAt = time.Now()
+	if err := improve.SaveRunSummary(runsDir, date, summary); err != nil {
+		log.Printf("Final save run summary error: %v", err)
+	}
+
 	log.Printf("=== Complete: %d findings, %d PRs, %d opportunities, email=%v ===",
 		summary.FindingsTotal, summary.PRsCreated, len(filteredOpps), summary.EmailSent)
 }

@@ -19,7 +19,7 @@ func TestToolCallAdapter_PassthroughForNonGemmaModel(t *testing.T) {
 	adapter := llm.NewToolCallAdapter(inner, llm.ToolSchemaFor(agent.RoleTechLead))
 
 	resp, err := adapter.Complete(context.Background(), llm.CompletionRequest{
-		Model:  "claude-sonnet-4-6-20250620",
+		Model:  "claude-sonnet-4-20250514",
 		System: "You are a tech lead",
 		Messages: []llm.Message{
 			{Role: llm.RoleUser, Content: "Plan this"},

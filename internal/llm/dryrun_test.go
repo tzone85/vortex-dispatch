@@ -144,14 +144,14 @@ func TestDryRunClient_ContextCancellation(t *testing.T) {
 func TestDryRunClient_ModelPassthrough(t *testing.T) {
 	client := NewDryRunClient(0)
 	resp, err := client.Complete(context.Background(), CompletionRequest{
-		Model:  "claude-sonnet-4-6-20250620",
+		Model:  "claude-sonnet-4-20250514",
 		System: "test",
 	})
 	if err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
-	if resp.Model != "claude-sonnet-4-6-20250620" {
-		t.Errorf("Model = %q, want %q", resp.Model, "claude-sonnet-4-6-20250620")
+	if resp.Model != "claude-sonnet-4-20250514" {
+		t.Errorf("Model = %q, want %q", resp.Model, "claude-sonnet-4-20250514")
 	}
 }
 

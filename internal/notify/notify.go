@@ -6,6 +6,9 @@ package notify
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -20,10 +23,11 @@ type Notifier interface {
 
 // Message is the payload for a notification.
 type Message struct {
-	Title    string            // Short subject line (e.g., "SLA breach: s-001")
-	Body     string            // Multi-line body
-	Severity string            // "info", "warn", "error"
-	Fields   map[string]string // Key-value pairs for structured display
+	Title     string            // Short subject line (e.g., "SLA breach: s-001")
+	Body      string            // Multi-line body
+	Severity  string            // "info", "warn", "error"
+	EventType string            // Event type (e.g., "STORY_COMPLETED")
+	Fields    map[string]string // Key-value pairs for structured display
 }
 
 // NoopNotifier discards all notifications. Used as a default when
@@ -108,3 +112,56 @@ func severityEmoji(sev string) string {
 		return ""
 	}
 }
+
+// WebhookNotifier posts JSON to a generic webhook URL with optional
+// HMAC-SHA256 signature verification.
+type WebhookNotifier struct {
+	url    string
+	secret string
+	client *http.Client
+}
+
+// NewWebhookNotifier creates a generic webhook notifier. If secret is
+// non-empty, an HMAC-SHA256 signature is included in X-VXD-Signature.
+func NewWebhookNotifier(url, secret string) *WebhookNotifier {
+	return &WebhookNotifier{
+		url:    url,
+		secret: secret,
+		client: &http.Client{Timeout: 5 * time.Second},
+	}
+}
+
+// Notify posts the Message as JSON to the configured webhook URL.
+func (n *WebhookNotifier) Notify(ctx context.Context, msg Message) error {
+	body, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("marshal webhook payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, n.url, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build webhook request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-VXD-Event", msg.EventType)
+
+	if n.secret != "" {
+		mac := hmac.New(sha256.New, []byte(n.secret))
+		mac.Write(body)
+		req.Header.Set("X-VXD-Signature", hex.EncodeToString(mac.Sum(nil)))
+	}
+
+	resp, err := n.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("webhook: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("webhook returned %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// Name returns the notifier name.
+func (n *WebhookNotifier) Name() string { return "webhook" }

@@ -38,7 +38,7 @@ func TestRuntimeForRole_AnthropicProvider(t *testing.T) {
 	e := &Executor{
 		config: config.Config{
 			Models: config.ModelsConfig{
-				Senior: config.ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-20250514"},
+				Senior: config.ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-6-20250620"},
 			},
 			Runtimes: map[string]config.RuntimeConfig{
 				"claude-code": {Command: "claude"},

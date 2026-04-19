@@ -315,6 +315,79 @@ func TestBuildSnapshot_EscalationsReturned(t *testing.T) {
 	}
 }
 
+func TestBuildSnapshot_ScopesStoriesEscalationsAndEvents(t *testing.T) {
+	s := newTestServer(t)
+	s.reqFilter = state.ReqFilter{RepoPath: "/repo/alpha"}
+
+	alphaReq := state.NewEvent(state.EventReqSubmitted, "system", "", map[string]any{
+		"id":          "req-alpha",
+		"title":       "Alpha",
+		"description": "Alpha",
+		"repo_path":   "/repo/alpha",
+	})
+	betaReq := state.NewEvent(state.EventReqSubmitted, "system", "", map[string]any{
+		"id":          "req-beta",
+		"title":       "Beta",
+		"description": "Beta",
+		"repo_path":   "/repo/beta",
+	})
+	for _, evt := range []state.Event{alphaReq, betaReq} {
+		if err := s.eventStore.Append(evt); err != nil {
+			t.Fatalf("append %s: %v", evt.Type, err)
+		}
+		if err := s.projStore.Project(evt); err != nil {
+			t.Fatalf("project %s: %v", evt.Type, err)
+		}
+	}
+
+	alphaStory := seedStoryWithID(t, s, "req-alpha", "story-alpha")
+	betaStory := seedStoryWithID(t, s, "req-beta", "story-beta")
+
+	emitAndProject(t, s, state.EventStoryEscalated, "dashboard", betaStory, map[string]any{
+		"from_tier": 0,
+		"to_tier":   1,
+		"reason":    "beta escalation",
+	})
+	emitAndProject(t, s, state.EventStoryEscalated, "dashboard", alphaStory, map[string]any{
+		"from_tier": 0,
+		"to_tier":   2,
+		"reason":    "alpha escalation",
+	})
+
+	if err := s.eventStore.Append(state.NewEvent(state.EventStoryReviewFailed, "reviewer", alphaStory, map[string]any{"source": "test"})); err != nil {
+		t.Fatalf("append alpha review failed: %v", err)
+	}
+	if err := s.eventStore.Append(state.NewEvent(state.EventStoryReviewFailed, "reviewer", betaStory, map[string]any{"source": "test"})); err != nil {
+		t.Fatalf("append beta review failed: %v", err)
+	}
+	if err := s.eventStore.Append(state.NewEvent(state.EventStoryCompleted, "reviewer", alphaStory, map[string]any{"source": "test"})); err != nil {
+		t.Fatalf("append alpha completed: %v", err)
+	}
+
+	snap, err := s.BuildSnapshot()
+	if err != nil {
+		t.Fatalf("BuildSnapshot: %v", err)
+	}
+
+	if len(snap.Requirements) != 1 || snap.Requirements[0].ID != "req-alpha" {
+		t.Fatalf("requirements = %+v, want only req-alpha", snap.Requirements)
+	}
+	if len(snap.Stories) != 1 || snap.Stories[0].ID != "story-alpha" {
+		t.Fatalf("stories = %+v, want only story-alpha", snap.Stories)
+	}
+	if len(snap.Escalations) != 1 || snap.Escalations[0].StoryID != "story-alpha" {
+		t.Fatalf("escalations = %+v, want only story-alpha", snap.Escalations)
+	}
+	if len(snap.Events) == 0 {
+		t.Fatal("expected visible events for req-alpha")
+	}
+	for _, evt := range snap.Events {
+		if evt.StoryID == "story-beta" {
+			t.Fatalf("events = %+v, should not include beta story events", snap.Events)
+		}
+	}
+}
+
 func TestSetDAG_NilClearsDAG(t *testing.T) {
 	s := newTestServer(t)
 	s.SetDAG(&graph.DAGExport{})

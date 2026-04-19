@@ -243,58 +243,16 @@ func (m Model) fetchData() tea.Cmd {
 	return func() tea.Msg {
 		var d dataMsg
 
-		reqs, err := ps.ListRequirementsFiltered(filter)
+		view, err := state.LoadScopedView(es, ps, filter, maxActivityEvents)
 		if err != nil {
-			d.err = fmt.Errorf("list requirements: %w", err)
+			d.err = fmt.Errorf("load scoped view: %w", err)
 			return d
 		}
-		d.requirements = reqs
-
-		// Build a set of requirement IDs to scope stories
-		reqIDs := make(map[string]bool, len(reqs))
-		for _, r := range reqs {
-			reqIDs[r.ID] = true
-		}
-
-		allStories, err := ps.ListStories(state.StoryFilter{})
-		if err != nil {
-			d.err = fmt.Errorf("list stories: %w", err)
-			return d
-		}
-
-		// Filter stories to only those belonging to visible requirements
-		if len(reqIDs) > 0 {
-			var filtered []state.Story
-			for _, s := range allStories {
-				if reqIDs[s.ReqID] {
-					filtered = append(filtered, s)
-				}
-			}
-			d.stories = filtered
-		} else {
-			d.stories = allStories
-		}
-
-		agents, err := ps.ListAgents(state.AgentFilter{})
-		if err != nil {
-			d.err = fmt.Errorf("list agents: %w", err)
-			return d
-		}
-		d.agents = agents
-
-		events, err := es.List(state.EventFilter{Limit: maxActivityEvents})
-		if err != nil {
-			d.err = fmt.Errorf("list events: %w", err)
-			return d
-		}
-		d.events = events
-
-		escalations, err := ps.ListEscalations()
-		if err != nil {
-			d.err = fmt.Errorf("list escalations: %w", err)
-			return d
-		}
-		d.escalations = escalations
+		d.requirements = view.Requirements
+		d.stories = view.Stories
+		d.agents = view.Agents
+		d.events = view.Events
+		d.escalations = view.Escalations
 
 		return d
 	}
@@ -337,4 +295,3 @@ func truncateStr(s string, maxLen int) string {
 	}
 	return s[:maxLen-3] + "..."
 }
-

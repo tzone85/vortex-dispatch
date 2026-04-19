@@ -1416,7 +1416,8 @@ func captureFileTree(worktreePath string) string {
 // falls back to the repo root commit so repos without a remote still work.
 func gitDiff(worktreePath string) (string, error) {
 	// Try merge-base candidates in order of preference.
-	candidates := []string{"origin/main", "main"}
+	// Include both main and master to support repos using either convention.
+	candidates := []string{"origin/main", "origin/master", "main", "master"}
 	var mbOut []byte
 	var mbErr error
 	for _, ref := range candidates {

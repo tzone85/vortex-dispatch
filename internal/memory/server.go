@@ -31,6 +31,7 @@ type Server struct {
 	port             int
 	httpServer       *http.Server
 	opportunitiesDir string
+	autoOpen         bool
 }
 
 // NewServer creates a new memory dashboard server.
@@ -40,7 +41,13 @@ func NewServer(auditDir, repoDir string, port int) *Server {
 		repoDir:          repoDir,
 		port:             port,
 		opportunitiesDir: filepath.Join(repoDir, "docs", "opportunities"),
+		autoOpen:         true,
 	}
+}
+
+// SetOpenBrowserOnStart controls whether Start() launches the browser automatically.
+func (s *Server) SetOpenBrowserOnStart(autoOpen bool) {
+	s.autoOpen = autoOpen
 }
 
 // Handler returns the HTTP handler for the memory dashboard.
@@ -72,7 +79,11 @@ func (s *Server) Start(ctx context.Context) error {
 
 	url := fmt.Sprintf("http://%s", addr)
 	log.Printf("Memory dashboard running at %s", url)
-	openBrowser(url)
+	if s.autoOpen {
+		if err := openBrowser(url); err != nil {
+			log.Printf("open browser: %v", err)
+		}
+	}
 
 	go func() {
 		<-ctx.Done()
@@ -124,21 +135,21 @@ type ClientMessage struct {
 
 // ServerMessage represents a message sent to the browser.
 type ServerMessage struct {
-	Type              string                  `json:"type"`
-	Timeline          []TimelineEntry         `json:"timeline,omitempty"`
-	Range             *DateRange              `json:"range,omitempty"`
-	Date              string                  `json:"date,omitempty"`
-	PRs               []PRDetail              `json:"prs,omitempty"`
-	Findings          []FindingDetail         `json:"findings,omitempty"`
-	Commits           []CommitDetail          `json:"commits,omitempty"`
-	RunSummary        *RunSummaryDetail       `json:"run_summary,omitempty"`
-	Query             string                  `json:"query,omitempty"`
-	Results           []SearchResult          `json:"results,omitempty"`
-	Opportunities     []OpportunityDetail     `json:"opportunities,omitempty"`
-	OpportunityStats  *OpportunityStatsDetail `json:"opportunity_stats,omitempty"`
+	Type              string                   `json:"type"`
+	Timeline          []TimelineEntry          `json:"timeline,omitempty"`
+	Range             *DateRange               `json:"range,omitempty"`
+	Date              string                   `json:"date,omitempty"`
+	PRs               []PRDetail               `json:"prs,omitempty"`
+	Findings          []FindingDetail          `json:"findings,omitempty"`
+	Commits           []CommitDetail           `json:"commits,omitempty"`
+	RunSummary        *RunSummaryDetail        `json:"run_summary,omitempty"`
+	Query             string                   `json:"query,omitempty"`
+	Results           []SearchResult           `json:"results,omitempty"`
+	Opportunities     []OpportunityDetail      `json:"opportunities,omitempty"`
+	OpportunityStats  *OpportunityStatsDetail  `json:"opportunity_stats,omitempty"`
 	DiscoveredSources []DiscoveredSourceDetail `json:"discovered_sources,omitempty"`
-	ProposalDraft     string                  `json:"proposal_draft,omitempty"`
-	Milestone         string                  `json:"milestone,omitempty"`
+	ProposalDraft     string                   `json:"proposal_draft,omitempty"`
+	Milestone         string                   `json:"milestone,omitempty"`
 }
 
 // DateRange holds the min/max/today for the timeline slider.
@@ -390,7 +401,7 @@ func (s *Server) handleApproveSource(ctx context.Context, conn *websocket.Conn, 
 	s.handleListOpportunities(ctx, conn, "", "rank")
 }
 
-func openBrowser(url string) {
+func openBrowser(url string) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
@@ -400,8 +411,10 @@ func openBrowser(url string) {
 	case "windows":
 		cmd = exec.Command("cmd", "/c", "start", url)
 	default:
-		log.Printf("Cannot open browser on %s -- open %s manually", runtime.GOOS, url)
-		return
+		return fmt.Errorf("cannot open browser on %s; open %s manually", runtime.GOOS, url)
 	}
-	cmd.Start() //nolint:errcheck
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start browser for %s: %w", url, err)
+	}
+	return nil
 }

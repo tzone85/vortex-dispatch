@@ -81,10 +81,10 @@ func (s *Server) handlePause(payload json.RawMessage) WSResponse {
 		return WSResponse{Type: "command_result", Action: action, Success: true, Message: "already paused"}
 	}
 
-		evt := state.NewEvent(state.EventReqPaused, "dashboard", "", map[string]any{
-			"id":     p.ReqID,
-			"source": "dashboard",
-		})
+	evt := state.NewEvent(state.EventReqPaused, "dashboard", "", map[string]any{
+		"id":     p.ReqID,
+		"source": "dashboard",
+	})
 	if err := s.appendAndProject(evt); err != nil {
 		return WSResponse{Type: "command_result", Action: action, Success: false, Message: err.Error()}
 	}

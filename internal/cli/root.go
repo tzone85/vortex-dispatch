@@ -2,14 +2,15 @@ package cli
 
 import (
 	"github.com/spf13/cobra"
+	"github.com/tzone85/vortex-dispatch/internal/buildinfo"
 )
 
-var version = "0.1.0"
+var version = buildinfo.Version
 
 var rootCmd = &cobra.Command{
-	Use:   "vxd",
-	Short: "Vortex Dispatch -- AI agent orchestrator",
-	Long:  "VXD orchestrates autonomous AI agents through the full software development lifecycle.\nHand off a requirement, walk away, come back to merged PRs.",
+	Use:     "vxd",
+	Short:   "Vortex Dispatch -- AI agent orchestrator",
+	Long:    "VXD orchestrates autonomous AI agents through the full software development lifecycle.\nHand off a requirement, walk away, come back to merged PRs.",
 	Version: version,
 }
 

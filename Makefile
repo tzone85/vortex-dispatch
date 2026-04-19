@@ -2,7 +2,7 @@
 
 BINARY=vxd
 VERSION?=0.1.0
-LDFLAGS=-ldflags "-X main.version=$(VERSION)"
+LDFLAGS=-ldflags "-X github.com/tzone85/vortex-dispatch/internal/buildinfo.Version=$(VERSION)"
 INSTALL_DIR?=$(shell go env GOPATH)/bin
 
 build:

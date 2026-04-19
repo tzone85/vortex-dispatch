@@ -58,9 +58,9 @@ type SplitChildConfig struct {
 
 // validManagerActions enumerates the actions the Manager can return.
 var validManagerActions = map[string]bool{
-	"retry":               true,
-	"rewrite":             true,
-	"split":               true,
+	"retry":                true,
+	"rewrite":              true,
+	"split":                true,
 	"escalate_to_techlead": true,
 }
 
@@ -261,13 +261,20 @@ func (m *Manager) buildPrompt(dc DiagnosticContext) string {
 }
 
 // runGit executes a git command in the given directory and returns trimmed
-// stdout. Errors are silently ignored — callers use the empty string as a
-// missing-data sentinel.
+// stdout. When git fails, the returned string includes the command and
+// error output so the diagnostic prompt can explain what went wrong.
 func runGit(dir string, args ...string) string {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	out, _ := cmd.Output()
-	return strings.TrimSpace(string(out))
+	out, err := cmd.CombinedOutput()
+	text := strings.TrimSpace(string(out))
+	if err == nil {
+		return text
+	}
+	if text == "" {
+		return fmt.Sprintf("[git %s failed: %v]", strings.Join(args, " "), err)
+	}
+	return fmt.Sprintf("[git %s failed: %v]\n%s", strings.Join(args, " "), err, text)
 }
 
 // truncate returns the last maxLen bytes of s. If s is shorter than

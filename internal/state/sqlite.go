@@ -169,6 +169,8 @@ func (s *SQLiteStore) Project(evt Event) error {
 		return s.updateReqStatus(payload, "planned")
 	case EventReqCompleted:
 		return s.updateReqStatus(payload, "completed")
+	case EventReqEstimated:
+		return nil // observational only — estimate data is read from the event log
 
 	case EventStoryCreated:
 		return s.projectStoryCreated(payload)
@@ -257,10 +259,21 @@ func (s *SQLiteStore) Project(evt Event) error {
 	case EventAgentTerminated:
 		return s.projectAgentTerminated(evt)
 
+	case EventSupervisorCheck,
+		EventSupervisorReprioritize,
+		EventSupervisorDriftDetected,
+		EventWorktreePruned,
+		EventBranchDeleted,
+		EventGCCompleted,
+		EventReviewModeSet,
+		EventPlanApproved,
+		EventPlanRejected,
+		EventStoryApproved,
+		EventRecoveryCompleted:
+		return nil // observational only — these events do not mutate projections today
+
 	default:
-		// Unhandled event types are silently ignored to allow forward
-		// compatibility as new event types are added.
-		return nil
+		return fmt.Errorf("unhandled event type in projection: %s", evt.Type)
 	}
 }
 

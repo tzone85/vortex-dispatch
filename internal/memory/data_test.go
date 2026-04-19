@@ -1,9 +1,12 @@
 package memory
 
 import (
+	"bytes"
 	"encoding/json"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -17,12 +20,12 @@ func TestActivityLevel(t *testing.T) {
 	}{
 		{"zero activity", 0, 0, 0, 0},
 		{"low activity", 0, 1, 0, 1},
-		{"single pr", 1, 0, 0, 1}, // 1*3 = 3, <=3 is level 1
-		{"medium activity", 1, 2, 2, 2},  // 3+2+2=7, <=8 is 2
-		{"high activity", 3, 5, 3, 3},    // 9+5+3=17, >8 is 3
-		{"boundary low", 0, 3, 0, 1},     // 3 <=3 is 1
-		{"boundary med", 0, 4, 0, 2},     // 4 <=8 is 2
-		{"boundary high", 0, 9, 0, 3},    // 9 >8 is 3
+		{"single pr", 1, 0, 0, 1},       // 1*3 = 3, <=3 is level 1
+		{"medium activity", 1, 2, 2, 2}, // 3+2+2=7, <=8 is 2
+		{"high activity", 3, 5, 3, 3},   // 9+5+3=17, >8 is 3
+		{"boundary low", 0, 3, 0, 1},    // 3 <=3 is 1
+		{"boundary med", 0, 4, 0, 2},    // 4 <=8 is 2
+		{"boundary high", 0, 9, 0, 3},   // 9 >8 is 3
 	}
 
 	for _, tt := range tests {
@@ -242,6 +245,31 @@ this is not json
 	// Should skip the malformed line
 	if len(entries) != 2 {
 		t.Errorf("expected 2 entries (skip malformed), got %d", len(entries))
+	}
+}
+
+func TestReadChangelog_LogsMalformedLineCount(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "changelog.jsonl")
+
+	content := `{"run_id":"2026-04-08T14:00:00Z","title":"Good Entry","category":"test"}
+not-json
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	orig := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(orig)
+
+	if _, err := readChangelog(path); err != nil {
+		t.Fatalf("readChangelog: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), "skipped 1 malformed changelog lines") {
+		t.Fatalf("log output = %q, want malformed line warning", buf.String())
 	}
 }
 

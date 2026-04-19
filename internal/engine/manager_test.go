@@ -2,6 +2,8 @@ package engine
 
 import (
 	"context"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -40,6 +42,31 @@ func TestParseManagerAction_Retry(t *testing.T) {
 	}
 	if len(action.RetryConfig.EnvFixes) != 1 {
 		t.Errorf("expected 1 env_fix, got %d", len(action.RetryConfig.EnvFixes))
+	}
+}
+
+func TestRunGit_ReturnsOutput(t *testing.T) {
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "init", dir).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	filePath := filepath.Join(dir, "tracked.txt")
+	if err := os.WriteFile(filePath, []byte("hello"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	got := runGit(dir, "status", "--short")
+	if !strings.Contains(got, "?? tracked.txt") {
+		t.Fatalf("runGit output = %q, want untracked file", got)
+	}
+}
+
+func TestRunGit_ReturnsDiagnosticOnError(t *testing.T) {
+	dir := t.TempDir()
+
+	got := runGit(dir, "status", "--short")
+	if !strings.Contains(got, "git status --short failed") {
+		t.Fatalf("runGit error output = %q, want command context", got)
 	}
 }
 

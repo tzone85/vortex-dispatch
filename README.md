@@ -97,7 +97,7 @@ vhs docs/demo.tape
 | `vxd config validate` | Load and validate the configuration file |
 | `vxd events [--type T] [--story S] [--limit N]` | List events from the event store, newest first |
 | `vxd dashboard` | Launch the live TUI dashboard |
-| `vxd dashboard --web [--port 8787]` | Launch the web dashboard (browser-based, default port 8787) |
+| `vxd dashboard --web [--port 8787] [--no-open]` | Launch the web dashboard (browser-based, default port 8787) |
 | `vxd preflight` | Run pre-flight environment checks (12 checks, 3 severity tiers) |
 | `vxd estimate <requirement>` | Estimate cost (`--quick`, `--json`, `--rate`, `--save`) |
 | `vxd report <req-id>` | Generate client delivery report (`--html`, `--internal`, `--output`) |
@@ -229,7 +229,7 @@ Switching providers requires no code changes — only the config file.
 
 ### Health Endpoint
 
-When running `vxd dashboard --web`, a `/health` endpoint returns JSON `{status: "ok", version: "0.1.0"}` for systemd, Docker, or Kubernetes liveness probes.
+When running `vxd dashboard --web`, a `/health` endpoint returns JSON including `{status: "ok", version: "<build-version>"}` for systemd, Docker, or Kubernetes liveness probes.
 
 ### Backups
 

@@ -175,25 +175,40 @@ func (s *SQLiteStore) Project(evt Event) error {
 	case EventStoryEstimated:
 		return s.updateStoryStatus(evt.StoryID, "estimated")
 	case EventStoryAssigned:
-		return s.projectStoryAssigned(evt.StoryID, payload)
+		if err := s.projectStoryAssigned(evt.StoryID, payload); err != nil {
+			return err
+		}
+		return s.projectAgentAssigned(evt.StoryID, payload)
 	case EventStoryStarted:
-		return s.updateStoryStatus(evt.StoryID, "in_progress")
+		if err := s.updateStoryStatus(evt.StoryID, "in_progress"); err != nil {
+			return err
+		}
+		return s.setAgentStatusForStory(evt.StoryID, "active", false)
 	case EventStoryProgress:
 		return nil // progress events are informational only
 	case EventStoryCompleted:
-		return s.updateStoryStatus(evt.StoryID, "review")
+		if err := s.updateStoryStatus(evt.StoryID, "review"); err != nil {
+			return err
+		}
+		return s.setAgentStatusForStory(evt.StoryID, "idle", true)
 	case EventStoryReviewRequested:
 		return s.updateStoryStatus(evt.StoryID, "review")
 	case EventStoryReviewPassed:
 		return s.updateStoryStatus(evt.StoryID, "qa")
 	case EventStoryReviewFailed:
-		return s.updateStoryStatus(evt.StoryID, "draft")
+		if err := s.updateStoryStatus(evt.StoryID, "draft"); err != nil {
+			return err
+		}
+		return s.setAgentStatusForStory(evt.StoryID, "idle", true)
 	case EventStoryQAStarted:
 		return s.updateStoryStatus(evt.StoryID, "qa")
 	case EventStoryQAPassed:
 		return s.updateStoryStatus(evt.StoryID, "pr_submitted")
 	case EventStoryQAFailed:
-		return s.updateStoryStatus(evt.StoryID, "draft")
+		if err := s.updateStoryStatus(evt.StoryID, "draft"); err != nil {
+			return err
+		}
+		return s.setAgentStatusForStory(evt.StoryID, "idle", true)
 	case EventStoryPRCreated:
 		return s.projectStoryPRCreated(evt.StoryID, payload)
 	case EventStoryMerged:
@@ -203,24 +218,44 @@ func (s *SQLiteStore) Project(evt Event) error {
 		); err != nil {
 			return err
 		}
-		return nil
+		return s.setAgentStatusForStory(evt.StoryID, "idle", true)
 
 	case EventStoryAwaitingApproval:
 		return s.updateStoryStatus(evt.StoryID, "awaiting_approval")
 	case EventStoryRejected:
-		return s.updateStoryStatus(evt.StoryID, "draft")
+		if err := s.updateStoryStatus(evt.StoryID, "draft"); err != nil {
+			return err
+		}
+		return s.setAgentStatusForStory(evt.StoryID, "idle", true)
 	case EventStoryReset:
-		return s.updateStoryStatus(evt.StoryID, "draft")
+		if err := s.updateStoryStatus(evt.StoryID, "draft"); err != nil {
+			return err
+		}
+		return s.setAgentStatusForStory(evt.StoryID, "idle", true)
 
 	case EventStoryEscalated:
 		return s.projectStoryEscalated(evt, payload)
 	case EventStoryRewritten:
 		return s.projectStoryRewritten(evt.StoryID, payload)
 	case EventStorySplit:
-		return s.updateStoryStatus(evt.StoryID, "split")
+		if err := s.updateStoryStatus(evt.StoryID, "split"); err != nil {
+			return err
+		}
+		return s.setAgentStatusForStory(evt.StoryID, "idle", true)
 
 	case EventStorySLABreached:
 		return nil // observational only — no projection change needed
+
+	case EventAgentSpawned:
+		return s.projectAgentSpawned(evt, payload)
+	case EventAgentCheckpoint:
+		return s.projectAgentHeartbeat(evt)
+	case EventAgentResumed:
+		return s.projectAgentResumed(evt, payload)
+	case EventAgentStuck:
+		return s.projectAgentStuck(evt, payload)
+	case EventAgentTerminated:
+		return s.projectAgentTerminated(evt)
 
 	default:
 		// Unhandled event types are silently ignored to allow forward
@@ -568,6 +603,123 @@ func (s *SQLiteStore) projectStoryAssigned(storyID string, payload map[string]an
 	return err
 }
 
+func (s *SQLiteStore) projectAgentSpawned(evt Event, payload map[string]any) error {
+	agentType := payloadStr(payload, "type")
+	if agentType == "" {
+		agentType = payloadStr(payload, "role")
+	}
+	if agentType == "" {
+		agentType = payloadStr(payload, "agent_type")
+	}
+
+	currentStoryID := evt.StoryID
+	if currentStoryID == "" {
+		currentStoryID = payloadStr(payload, "story_id")
+	}
+
+	_, err := s.db.Exec(
+		`INSERT INTO agents (id, type, model, runtime, status, current_story_id, session_name, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, 'active', ?, ?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(id) DO UPDATE SET
+		   type = excluded.type,
+		   model = excluded.model,
+		   runtime = excluded.runtime,
+		   status = 'active',
+		   current_story_id = excluded.current_story_id,
+		   session_name = excluded.session_name,
+		   updated_at = CURRENT_TIMESTAMP`,
+		evt.AgentID,
+		agentType,
+		payloadStr(payload, "model"),
+		payloadStr(payload, "runtime"),
+		currentStoryID,
+		payloadStr(payload, "session_name"),
+		evt.Timestamp,
+	)
+	return err
+}
+
+func (s *SQLiteStore) projectAgentAssigned(storyID string, payload map[string]any) error {
+	agentID := payloadStr(payload, "agent_id")
+	if agentID == "" {
+		return nil
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO agents (id, type, model, runtime, status, current_story_id, session_name, created_at, updated_at)
+		 VALUES (?, '', '', '', 'active', ?, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		 ON CONFLICT(id) DO UPDATE SET
+		   status = 'active',
+		   current_story_id = excluded.current_story_id,
+		   updated_at = CURRENT_TIMESTAMP`,
+		agentID,
+		storyID,
+	)
+	return err
+}
+
+func (s *SQLiteStore) projectAgentHeartbeat(evt Event) error {
+	if evt.AgentID == "" {
+		return nil
+	}
+	_, err := s.db.Exec(
+		`UPDATE agents SET status = 'active', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		evt.AgentID,
+	)
+	return err
+}
+
+func (s *SQLiteStore) projectAgentResumed(evt Event, payload map[string]any) error {
+	if evt.AgentID != "" {
+		_, err := s.db.Exec(
+			`UPDATE agents SET status = 'active', current_story_id = COALESCE(NULLIF(?, ''), current_story_id), updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+			evt.StoryID,
+			evt.AgentID,
+		)
+		return err
+	}
+
+	sessionName := payloadStr(payload, "session_name")
+	if sessionName == "" {
+		return nil
+	}
+	_, err := s.db.Exec(
+		`UPDATE agents SET status = 'active', updated_at = CURRENT_TIMESTAMP WHERE session_name = ?`,
+		sessionName,
+	)
+	return err
+}
+
+func (s *SQLiteStore) projectAgentStuck(evt Event, payload map[string]any) error {
+	if evt.AgentID != "" {
+		_, err := s.db.Exec(
+			`UPDATE agents SET status = 'stuck', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+			evt.AgentID,
+		)
+		return err
+	}
+
+	sessionName := payloadStr(payload, "session_name")
+	if sessionName == "" {
+		return nil
+	}
+	_, err := s.db.Exec(
+		`UPDATE agents SET status = 'stuck', updated_at = CURRENT_TIMESTAMP WHERE session_name = ?`,
+		sessionName,
+	)
+	return err
+}
+
+func (s *SQLiteStore) projectAgentTerminated(evt Event) error {
+	if evt.AgentID == "" {
+		return nil
+	}
+	_, err := s.db.Exec(
+		`UPDATE agents SET status = 'terminated', current_story_id = '', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		evt.AgentID,
+	)
+	return err
+}
+
 func (s *SQLiteStore) projectStoryPRCreated(storyID string, payload map[string]any) error {
 	prNumber := payloadInt(payload, "pr_number")
 	prURL := payloadStr(payload, "pr_url")
@@ -582,6 +734,29 @@ func (s *SQLiteStore) updateStoryStatus(storyID, status string) error {
 	_, err := s.db.Exec(
 		`UPDATE stories SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		status, storyID,
+	)
+	return err
+}
+
+func (s *SQLiteStore) setAgentStatusForStory(storyID, status string, clearStory bool) error {
+	var agentID string
+	err := s.db.QueryRow(`SELECT agent_id FROM stories WHERE id = ?`, storyID).Scan(&agentID)
+	if err == sql.ErrNoRows || agentID == "" {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	currentStoryID := storyID
+	if clearStory {
+		currentStoryID = ""
+	}
+	_, err = s.db.Exec(
+		`UPDATE agents SET status = ?, current_story_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		status,
+		currentStoryID,
+		agentID,
 	)
 	return err
 }

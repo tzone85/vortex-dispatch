@@ -2465,9 +2465,11 @@ func TestRunAgents_WithAgents(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	output := buf.String()
-	// Agents may not be inserted via events — output depends on projection
-	if !strings.Contains(output, "Agents (") && !strings.Contains(output, "No agents found") {
-		t.Errorf("expected agents output, got: %s", output)
+	if !strings.Contains(output, "Agents (1)") {
+		t.Errorf("expected projected agent count, got: %s", output)
+	}
+	if !strings.Contains(output, "agent-001") {
+		t.Errorf("expected projected agent id, got: %s", output)
 	}
 }
 

@@ -19,13 +19,13 @@ func DefaultConfig() Config {
 			LogRetentionDays: 30,
 		},
 		Models: ModelsConfig{
-			TechLead:     ModelConfig{Provider: "anthropic", Model: "claude-opus-4-20250514", MaxTokens: 16000},
-			Senior:       ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-20250514", MaxTokens: 8000},
+			TechLead:     ModelConfig{Provider: "anthropic", Model: "claude-opus-4-6-20250620", MaxTokens: 16000},
+			Senior:       ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-6-20250620", MaxTokens: 8000},
 			Intermediate: ModelConfig{Provider: "google", Model: "gemma-4-27b-it", MaxTokens: 4000},
 			Junior:       ModelConfig{Provider: "google", Model: "gemma-4-27b-it", MaxTokens: 4000},
-			QA:           ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-20250514", MaxTokens: 8000},
+			QA:           ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-6-20250620", MaxTokens: 8000},
 			Supervisor:   ModelConfig{Provider: "google", Model: "gemma-4-27b-it", MaxTokens: 4000},
-			Manager:      ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-20250514", MaxTokens: 8000},
+			Manager:      ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-6-20250620", MaxTokens: 8000},
 		},
 		Routing: RoutingConfig{
 			JuniorMaxComplexity:           3,
@@ -74,7 +74,7 @@ func DefaultConfig() Config {
 			"claude-code": {
 				Command: "claude",
 				Args:    []string{"--dangerously-skip-permissions"},
-				Models:  []string{"opus-4", "sonnet-4", "haiku-4"},
+				Models:  []string{"opus-4-6", "sonnet-4-6", "haiku-4-5"},
 				Detection: RuntimeDetection{
 					IdlePattern:       `^\$\s*$`,
 					PermissionPattern: `\[Y/n\]`,
@@ -97,6 +97,15 @@ func DefaultConfig() Config {
 				Detection: RuntimeDetection{
 					IdlePattern:       "gemini>",
 					PermissionPattern: "Allow|Deny",
+				},
+			},
+			"swe-agent": {
+				Command: "swe-agent",
+				Args:    []string{"run", "--agent.model.name"},
+				Models:  []string{"gpt-4o", "claude-sonnet-4-6-20250620"},
+				Detection: RuntimeDetection{
+					IdlePattern:       "SWE-agent>",
+					PermissionPattern: "confirm|cancel",
 				},
 			},
 		},

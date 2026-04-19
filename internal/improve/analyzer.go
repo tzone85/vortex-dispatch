@@ -14,12 +14,13 @@ import (
 // ScoredFinding is a Finding with triage scores from Gemma 4.
 type ScoredFinding struct {
 	Finding
-	Relevance int    `json:"relevance"`
-	Impact    int    `json:"impact"`
-	Risk      int    `json:"risk"`
-	Effort    string `json:"effort"`
-	Reasoning string `json:"reasoning"`
-	Rank      int    `json:"rank"`
+	Relevance  int    `json:"relevance"`
+	Impact     int    `json:"impact"`
+	Risk       int    `json:"risk"`
+	Effort     string `json:"effort"`
+	Reasoning  string `json:"reasoning"`
+	Rank       int    `json:"rank"`
+	Actionable bool   `json:"actionable"`
 }
 
 // AnalyzedFinding is a ScoredFinding with deep analysis from Claude.
@@ -49,12 +50,13 @@ func NewAnalyzer(triageClient llm.Client, claudePath string, threshold int) *Ana
 }
 
 type triageResponse struct {
-	Relevance int    `json:"relevance"`
-	Impact    int    `json:"impact"`
-	Risk      int    `json:"risk"`
-	Effort    string `json:"effort"`
-	Category  string `json:"category"`
-	Reasoning string `json:"reasoning"`
+	Relevance  int    `json:"relevance"`
+	Impact     int    `json:"impact"`
+	Risk       int    `json:"risk"`
+	Effort     string `json:"effort"`
+	Category   string `json:"category"`
+	Reasoning  string `json:"reasoning"`
+	Actionable bool   `json:"actionable"`
 }
 
 // Triage scores findings via Gemma 4 and filters below the relevance threshold.
@@ -71,7 +73,9 @@ Category: %s
 Content: %s
 
 Respond with JSON only:
-{"relevance": 0-10, "impact": 0-10, "risk": 0-10, "effort": "S|M|L", "category": "security|performance|feature|dependency|docs|architecture", "reasoning": "why"}`, f.Title, f.SourceURL, f.Category, f.Content)
+{"relevance": 0-10, "impact": 0-10, "risk": 0-10, "effort": "S|M|L", "category": "security|performance|feature|dependency|docs|architecture", "actionable": true/false, "reasoning": "why"}
+
+Set "actionable" to true ONLY if this finding requires a concrete code change (new feature, bug fix, dependency update, config change). Set false for competitor intelligence, general news, ecosystem updates with no specific code action.`, f.Title, f.SourceURL, f.Category, f.Content)
 
 		resp, err := a.triageClient.Complete(ctx, llm.CompletionRequest{
 			Model:     "gemma-4-26b-a4b-it",
@@ -107,13 +111,14 @@ Respond with JSON only:
 		rank := (impact * 2) + relevance - risk
 		log.Printf("  [%d/%d] %q → relevance=%d impact=%d risk=%d rank=%d", i+1, len(findings), f.Title, relevance, impact, risk, rank)
 		scored = append(scored, ScoredFinding{
-			Finding:   f,
-			Relevance: relevance,
-			Impact:    impact,
-			Risk:      risk,
-			Effort:    tr.Effort,
-			Reasoning: tr.Reasoning,
-			Rank:      rank,
+			Finding:    f,
+			Relevance:  relevance,
+			Impact:     impact,
+			Risk:       risk,
+			Effort:     tr.Effort,
+			Reasoning:  tr.Reasoning,
+			Rank:       rank,
+			Actionable: tr.Actionable,
 		})
 	}
 

@@ -1034,7 +1034,38 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 		return nil
 	}
 	if len(assignments) == 0 {
-		log.Printf("[auto-resume] no stories ready for next wave (dependencies not met)")
+		// Stall detection: check if we're stuck (stories exist but none are dispatchable)
+		pendingCount := 0
+		for _, s := range stories {
+			if s.Status != "merged" && s.Status != "split" && s.Status != "pr_submitted" {
+				pendingCount++
+			}
+		}
+		if pendingCount > 0 {
+			log.Printf("[STALL] requirement %s has %d unfinished stories but none are dispatchable — all escalation tiers exhausted or dependencies unmet", rc.ReqID, pendingCount)
+			log.Printf("[STALL] run 'vxd status --req %s' to inspect, then 'vxd resume %s --godmode' to retry", rc.ReqID, rc.ReqID)
+
+			// Emit a stall event so external monitors (Hermes cron) can detect it
+			stallEvt := state.NewEvent("PIPELINE_STALLED", "monitor", "", map[string]any{
+				"req_id":        rc.ReqID,
+				"pending_count": pendingCount,
+				"total_stories": len(stories),
+				"reason":        "no dispatchable stories — escalation tiers exhausted",
+			})
+			m.eventStore.Append(stallEvt)
+
+			// Notify via webhook if configured
+			if m.notifier != nil {
+				go m.notifier.Notify(ctx, notify.Message{
+					Title:     fmt.Sprintf("VXD STALLED: %s", rc.ReqID),
+					Body:      fmt.Sprintf("%d stories stuck, all escalation tiers exhausted.\nRun: vxd resume %s --godmode", pendingCount, rc.ReqID),
+					Severity:  "error",
+					EventType: "PIPELINE_STALLED",
+				})
+			}
+		} else {
+			log.Printf("[auto-resume] no stories ready for next wave (dependencies not met)")
+		}
 		return nil
 	}
 

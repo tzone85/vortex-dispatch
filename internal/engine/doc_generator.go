@@ -19,13 +19,7 @@ const vxdFooter = `
 
 ## Development Team
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/tzone85/vortex-dispatch/main/docs/vxd-logo.png" alt="VXD Logo" width="120" />
-</p>
-
-<p align="center">
-  Built by the <strong>VXD Team</strong> — autonomous AI-powered software delivery
-</p>
+Built by the **VXD Team** — autonomous AI-powered software delivery
 `
 
 // generateDocumentation creates or updates the README.md in the target repo

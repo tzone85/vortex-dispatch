@@ -65,6 +65,11 @@ type Monitor struct {
 	dispatcher *Dispatcher
 	executor   *Executor
 
+	// docClient and docModel are used by the documentation generator
+	// to create/update README.md after all stories are merged.
+	docClient llm.Client
+	docModel  string
+
 	// dryRun causes the post-execution pipeline to simulate a successful
 	// agent diff instead of checking the real worktree. This prevents
 	// infinite retry loops when --dry-run agents produce no real changes.
@@ -135,6 +140,14 @@ func (m *Monitor) SetArtifactStore(store *artifact.Store) {
 // rebase. Without this, rebase conflicts cause the story to be reset to draft.
 func (m *Monitor) SetConflictResolver(cr *ConflictResolver) {
 	m.conflictResolver = cr
+}
+
+// SetDocGenerator enables automatic README generation/update when all
+// stories are merged. Uses the provided LLM client and model to generate
+// documentation based on the implemented features.
+func (m *Monitor) SetDocGenerator(client llm.Client, model string) {
+	m.docClient = client
+	m.docModel = model
 }
 
 // SetAutoResume enables automatic dispatch of the next wave when stories
@@ -912,6 +925,24 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 
 	if allDone {
 		log.Printf("[auto-resume] all %d stories complete for requirement %s", len(stories), rc.ReqID)
+
+		// Generate/update README documentation as the final step.
+		if m.docClient != nil {
+			storyTitles := make([]string, len(stories))
+			for i, s := range stories {
+				storyTitles[i] = fmt.Sprintf("- %s", s.Title)
+			}
+			reqTitle := rc.ReqID
+			if req, reqErr := m.projStore.GetRequirement(rc.ReqID); reqErr == nil {
+				reqTitle = req.Title
+			}
+			repoDir := "."
+			if wd, err := os.Getwd(); err == nil {
+				repoDir = wd
+			}
+			generateDocumentation(ctx, repoDir, reqTitle, storyTitles, m.docClient, m.docModel)
+		}
+
 		// Mark requirement complete.
 		compEvt := state.NewEvent(state.EventReqCompleted, "monitor", "", map[string]any{"id": rc.ReqID})
 		m.eventStore.Append(compEvt)

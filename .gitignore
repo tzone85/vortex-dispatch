@@ -57,3 +57,12 @@ verification-plan.prompt
 vxd-improve
 cli.test
 AGENTS.md
+
+# VXD agent artifacts (auto-added)
+CLAUDE.md
+.vxd-prompts/
+.serena/
+
+# VXD agent artifacts (auto-added)
+WAVE_CONTEXT.md
+REQUIREMENT.md

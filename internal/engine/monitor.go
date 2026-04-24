@@ -943,6 +943,27 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 			generateDocumentation(ctx, repoDir, reqTitle, storyTitles, m.docClient, m.docModel)
 		}
 
+		// Run verification loop (Cycle 1): check build, tests, hallucinations, artifacts.
+		repoDir := "."
+		if wd, err := os.Getwd(); err == nil {
+			repoDir = wd
+		}
+		verifyResult := RunVerificationLoop(ctx, repoDir, 1)
+
+		if ShouldRunFixCycle(verifyResult) {
+			log.Printf("[verify] cycle 1 found %d gaps — generating fix requirement", len(verifyResult.Gaps))
+			fixReq := GapsToRequirement(verifyResult.Gaps, filepath.Base(repoDir))
+			if fixReq != "" {
+				// Write the fix requirement for manual or auto re-dispatch
+				fixPath := filepath.Join(repoDir, ".vxd-fix-gaps.md")
+				os.WriteFile(fixPath, []byte(fixReq), 0644)
+				log.Printf("[verify] fix requirement written to %s", fixPath)
+				log.Printf("[verify] run 'vxd req --file .vxd-fix-gaps.md --godmode' to auto-fix gaps")
+			}
+		} else {
+			log.Printf("[verify] cycle 1 clean — no critical gaps found")
+		}
+
 		// Mark requirement complete.
 		compEvt := state.NewEvent(state.EventReqCompleted, "monitor", "", map[string]any{"id": rc.ReqID})
 		m.eventStore.Append(compEvt)

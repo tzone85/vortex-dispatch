@@ -438,6 +438,12 @@ func runResume(cmd *cobra.Command, args []string) error {
 	monitor.SetAutoResume(dispatcher, executor)
 	monitor.SetReviewGate(reviewGate)
 
+	// Enable auto-documentation: when all stories merge, the monitor
+	// generates/updates README.md with the implemented features.
+	if llmClient != nil {
+		monitor.SetDocGenerator(llmClient, s.Config.Models.Senior.Model)
+	}
+
 	rc := &engine.RunContext{
 		ReqID:          reqID,
 		PlannedStories: plannedStories,

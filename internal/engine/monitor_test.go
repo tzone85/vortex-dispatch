@@ -603,13 +603,16 @@ func setupGitRepoWithFeature(t *testing.T) string {
 	runGitIn(cloneDir, "config", "user.email", "test@test.com")
 	runGitIn(cloneDir, "config", "user.name", "Test")
 
+	// Ensure branch is named "main" regardless of git default.
+	runGitIn(cloneDir, "checkout", "-b", "main")
+
 	// Initial commit on main.
 	if err := os.WriteFile(filepath.Join(cloneDir, "README.md"), []byte("init"), 0644); err != nil {
 		t.Fatalf("write README: %v", err)
 	}
 	runGitIn(cloneDir, "add", ".")
 	runGitIn(cloneDir, "commit", "-m", "init")
-	runGitIn(cloneDir, "push", "origin", "main")
+	runGitIn(cloneDir, "push", "-u", "origin", "main")
 
 	// Create feature branch with changes.
 	runGitIn(cloneDir, "checkout", "-b", "feature")

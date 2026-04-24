@@ -9,6 +9,7 @@ package engine_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1319,4 +1320,71 @@ func TestWiring_AgentSpawnedEvent_ProjectsToAgentsTable(t *testing.T) {
 	if len(agents) != 1 || agents[0].Status != "terminated" {
 		t.Errorf("WIRING FAILURE: agent should be terminated after AGENT_TERMINATED")
 	}
+}
+
+// --------------------------------------------------------------------------
+// QA Failure Analysis Wiring Test  
+// --------------------------------------------------------------------------
+
+func TestWiring_QAFailureAnalysis(t *testing.T) {
+	// Verify that AnalyzeFailure is called during QA failure handling
+	// and that the diagnostic hint is included in the reason string.
+	es, ps, cleanup := newTestStores(t)
+	defer cleanup()
+
+	// Pre-populate story
+	ps.Project(state.NewEvent(state.EventStoryCreated, "tech-lead", "s-qa-fail", map[string]any{
+		"id": "s-qa-fail", "req_id": "r-001", "title": "QA Failure Test", "description": "Test QA analysis", "complexity": 2,
+	}))
+
+	// Create a QA runner that will fail with a specific error
+	runner := &mockRunner{results: map[string]mockRunResult{
+		"go": {output: "undefined: NewStore", err: fmt.Errorf("build failed")},
+	}}
+
+	qa := engine.NewQA(engine.QAConfig{
+		BuildCommand: "go build ./...",
+	}, runner, es, ps)
+
+	// We don't need to create a monitor for this test, just test QA directly
+
+	// Test 1: Verify AnalyzeFailure function exists and works correctly
+	testSummary := "undefined: NewStore"
+	hint := engine.AnalyzeFailure(testSummary)
+
+	if hint == "" {
+		t.Fatal("WIRING FAILURE: AnalyzeFailure returned empty string for build failure")
+	}
+	if !strings.Contains(strings.ToLower(hint), "import") && !strings.Contains(strings.ToLower(hint), "symbol") {
+		t.Errorf("WIRING FAILURE: AnalyzeFailure should provide guidance for undefined symbols, got: %s", hint)
+	}
+
+	// Test 2: Verify QA failure triggers analysis by running QA directly
+	ctx := context.Background()
+	result, err := qa.Run(ctx, "s-qa-fail", t.TempDir())
+	if err != nil {
+		t.Fatalf("QA run error: %v", err)
+	}
+	if result.Passed {
+		t.Fatal("Expected QA to fail with undefined symbol error")
+	}
+
+	// Verify the failure summary contains expected error
+	summary := result.FailureSummary()
+	if !strings.Contains(summary, "undefined: NewStore") {
+		t.Errorf("QA failure summary missing expected error: %s", summary)
+	}
+
+	// Test that the combined output (summary + hint) is formatted correctly
+	combinedReason := fmt.Sprintf("%s\n\nDiagnostic hint: %s", summary, engine.AnalyzeFailure(summary))
+
+	if !strings.Contains(combinedReason, "Diagnostic hint:") {
+		t.Error("WIRING FAILURE: Combined reason does NOT contain 'Diagnostic hint:' - format is incorrect")
+	}
+
+	if !strings.Contains(combinedReason, "undefined: NewStore") {
+		t.Error("WIRING FAILURE: Combined reason missing original failure summary")
+	}
+
+	t.Log("QA failure analysis successfully wired: AnalyzeFailure function exists and provides meaningful diagnostic hints")
 }

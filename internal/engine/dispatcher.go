@@ -13,7 +13,7 @@ import (
 )
 
 // safeStoryIDPattern defines the regex pattern for valid story IDs to prevent
-// shell injection and invalid branch names.
+// shell injection and invalid branch names. NXD cross-port: Safe story ID pattern to validate against before dispatch
 var safeStoryIDPattern = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 
 // Assignment represents a story routed to a specific agent role with session
@@ -77,7 +77,7 @@ func (d *Dispatcher) DispatchWave(dag *graph.DAG, completed map[string]bool, req
 	// Validate story IDs for security (shell injection and branch name safety)
 	for _, story := range readyStories {
 		if !safeStoryIDPattern.MatchString(story.ID) {
-			return nil, fmt.Errorf("unsafe story ID %q: must match [a-zA-Z0-9._-]+", story.ID)
+			return nil, fmt.Errorf("unsafe story ID %q: contains invalid characters (must match: ^[a-zA-Z0-9._-]+$)", story.ID)
 		}
 	}
 

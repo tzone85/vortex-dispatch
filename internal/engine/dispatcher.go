@@ -4,12 +4,17 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"regexp"
 
 	"github.com/tzone85/vortex-dispatch/internal/agent"
 	"github.com/tzone85/vortex-dispatch/internal/config"
 	"github.com/tzone85/vortex-dispatch/internal/graph"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
+
+// safeStoryIDPattern defines the regex pattern for valid story IDs to prevent
+// shell injection and invalid branch names.
+var safeStoryIDPattern = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 
 // Assignment represents a story routed to a specific agent role with session
 // and branch metadata.
@@ -68,6 +73,13 @@ func (d *Dispatcher) DispatchWave(dag *graph.DAG, completed map[string]bool, req
 		}
 	}
 	d.autoTagWaveHints(readyStories)
+
+	// Validate story IDs for security (shell injection and branch name safety)
+	for _, story := range readyStories {
+		if !safeStoryIDPattern.MatchString(story.ID) {
+			return nil, fmt.Errorf("unsafe story ID %q: must match [a-zA-Z0-9._-]+", story.ID)
+		}
+	}
 
 	// Determine which stories to dispatch this wave
 	dispatchable := d.selectDispatchable(readyStories)

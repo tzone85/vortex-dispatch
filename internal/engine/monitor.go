@@ -590,8 +590,10 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 		}
 		if !result.Passed {
 			summary := result.FailureSummary()
+			hint := AnalyzeFailure(summary)
+			enhancedSummary := summary + "\n\n[Diagnostic Hint] " + hint
 			log.Printf("[pipeline] QA failed for %s: %s", storyID, summary)
-			m.resetStoryToDraft(storyID, "qa", summary)
+			m.resetStoryToDraft(storyID, "qa", enhancedSummary)
 			return
 		}
 		// Persist QA result as artifact.

@@ -91,17 +91,10 @@ func (d *Dispatcher) DispatchWave(dag *graph.DAG, completed map[string]bool, req
 	for _, story := range dispatchable {
 		role := d.routeStory(story)
 		agentCounter++
-		agentID := fmt.Sprintf("%s-%s-%d", role, reqID, agentCounter)
 
-		// If reputation data exists, log the best known agent for this role.
-		if reps != nil {
-			if bestID := BestAgentForRole(reps, string(role)); bestID != "" {
-				if rep, ok := reps[bestID]; ok {
-					log.Printf("[dispatcher] reputation hint for %s: best=%s (score=%.1f, stories=%d)",
-						role, bestID, rep.OverallScore(), rep.TotalStories)
-				}
-			}
-		}
+		// Prefer highest-reputation agent for this role; fall back to counter-based ID.
+		agentID := preferredAgentID(reps, string(role), reqID, agentCounter)
+
 		sessionName := fmt.Sprintf("vxd-%s-%s-%d", reqID, role, agentCounter)
 		branch := fmt.Sprintf("vxd/%s", story.ID)
 
@@ -257,4 +250,23 @@ func (d *Dispatcher) routeStory(story PlannedStory) agent.Role {
 		}
 	}
 	return agent.RouteByComplexity(story.Complexity, d.config.Routing)
+}
+
+// preferredAgentID returns the highest-reputation agent ID for a given role,
+// falling back to a counter-based ID when no reputation data exists.
+func preferredAgentID(reps map[string]agent.AgentReputation, role, reqID string, counter int) string {
+	fallback := fmt.Sprintf("%s-%s-%d", role, reqID, counter)
+	if reps == nil {
+		return fallback
+	}
+	bestID := BestAgentForRole(reps, role)
+	if bestID == "" {
+		return fallback
+	}
+	if rep, ok := reps[bestID]; ok {
+		log.Printf("[dispatcher] reputation-routed %s → %s (score=%.1f, stories=%d)",
+			role, bestID, rep.OverallScore(), rep.TotalStories)
+		return bestID
+	}
+	return fallback
 }

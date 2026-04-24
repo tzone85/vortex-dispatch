@@ -1401,6 +1401,9 @@ func autoCommit(worktreePath, storyID string) {
 func ensureGitignorePatterns(worktreePath string) {
 	vxdPatterns := []string{
 		"CLAUDE.md",
+		"WAVE_CONTEXT.md",
+		"REQUIREMENT.md",
+		"vxd.yaml",
 		".vxd-prompts/",
 		".serena/",
 		"firebase-debug.log",

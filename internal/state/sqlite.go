@@ -229,7 +229,7 @@ func (s *SQLiteStore) Project(evt Event) error {
 		return s.projectAgentSpawned(evt, payload)
 	case EventAgentTerminated:
 		return s.projectAgentTerminated(evt, payload)
-	case EventAgentCheckpoint, EventAgentResumed, EventAgentStuck:
+	case EventAgentCheckpoint, EventAgentResumed, EventAgentStuck, EventPlanApproved:
 		return nil // informational — no projection change
 
 	default:

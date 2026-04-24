@@ -468,6 +468,10 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 
 	log.Printf("[pipeline] starting post-execution for %s", storyID)
 
+	// Create a 5-minute timeout context for the entire pipeline
+	pipelineCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
 	// Auto-commit any uncommitted work left by the agent.
 	// Claude Code agents frequently exit without committing their changes,
 	// especially in -p (prompt) mode. This safety net ensures we capture
@@ -551,8 +555,14 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 			}
 		}
 
-		result, err := m.reviewer.Review(ctx, storyID, storyTitle, storyAC, diff, fileTree, blastRadius)
+		result, err := m.reviewer.Review(pipelineCtx, storyID, storyTitle, storyAC, diff, fileTree, blastRadius)
 		if err != nil {
+			// Check for pipeline timeout
+			if err == context.DeadlineExceeded {
+				log.Printf("[pipeline] review timeout for %s: pipeline timeout exceeded", storyID)
+				m.resetStoryToDraft(storyID, "reviewer", "pipeline timeout: context deadline exceeded")
+				return
+			}
 			// Fatal API errors (auth failures, billing exhaustion,
 			// permission denied) will never succeed on retry — pause
 			// the entire requirement to stop the infinite loop.
@@ -582,8 +592,14 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 
 	// 2. QA
 	if m.qa != nil {
-		result, err := m.qa.Run(ctx, storyID, ag.WorktreePath)
+		result, err := m.qa.Run(pipelineCtx, storyID, ag.WorktreePath)
 		if err != nil {
+			// Check for pipeline timeout
+			if err == context.DeadlineExceeded {
+				log.Printf("[pipeline] QA timeout for %s: pipeline timeout exceeded", storyID)
+				m.resetStoryToDraft(storyID, "qa", "pipeline timeout: context deadline exceeded")
+				return
+			}
 			log.Printf("[pipeline] QA error for %s: %v", storyID, err)
 			m.resetStoryToDraft(storyID, "qa", fmt.Sprintf("QA error: %v", err))
 			return
@@ -633,8 +649,14 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 			if err == nil {
 				mode := m.reviewGate.ResolveMode(story.ReqID, m.config.Merge)
 				if mode == "manual" {
-					result, err := m.rebaseAndCreatePR(ctx, storyID, branch, repoDir, ag.WorktreePath)
+					result, err := m.rebaseAndCreatePR(pipelineCtx, storyID, branch, repoDir, ag.WorktreePath)
 					if err != nil {
+						// Check for pipeline timeout
+						if err == context.DeadlineExceeded {
+							log.Printf("[pipeline] PR creation timeout for %s: pipeline timeout exceeded", storyID)
+							m.resetStoryToDraft(storyID, "merger", "pipeline timeout: context deadline exceeded")
+							return
+						}
 						if llm.IsFatalAPIError(err) {
 							log.Printf("[pipeline] FATAL: non-retryable API error during PR creation for %s: %v", storyID, err)
 							m.pauseRequirement(storyID, fmt.Sprintf("fatal API error during PR creation: %v", err))
@@ -664,9 +686,15 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 			}
 		}
 
-		result, err := m.rebaseAndMerge(ctx, storyID, branch, repoDir, ag.WorktreePath)
+		result, err := m.rebaseAndMerge(pipelineCtx, storyID, branch, repoDir, ag.WorktreePath)
 
 		if err != nil {
+			// Check for pipeline timeout
+			if err == context.DeadlineExceeded {
+				log.Printf("[pipeline] merge timeout for %s: pipeline timeout exceeded", storyID)
+				m.resetStoryToDraft(storyID, "merger", "pipeline timeout: context deadline exceeded")
+				return
+			}
 			// Fatal API errors during conflict resolution (credits exhausted,
 			// auth failure) must pause the requirement immediately.
 			if llm.IsFatalAPIError(err) {

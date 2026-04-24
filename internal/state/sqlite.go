@@ -208,6 +208,8 @@ func (s *SQLiteStore) Project(evt Event) error {
 
 	case EventStoryAwaitingApproval:
 		return s.updateStoryStatus(evt.StoryID, "awaiting_approval")
+	case EventStoryApproved:
+		return s.updateStoryStatus(evt.StoryID, "approved")
 	case EventStoryRejected:
 		return s.updateStoryStatus(evt.StoryID, "draft")
 	case EventStoryReset:

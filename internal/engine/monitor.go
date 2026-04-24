@@ -461,6 +461,28 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 	// the work before checking the diff.
 	autoCommit(ag.WorktreePath, storyID)
 
+	// Guardrail 1: Strip LLM hallucination preamble from committed files.
+	// Agents sometimes prefix files with reasoning text like "Looking at..."
+	// or "Here's the solution:". This scrubs those lines and amends the commit.
+	if cleaned := scrubHallucinationsFromWorktree(ag.WorktreePath); cleaned > 0 {
+		log.Printf("[pipeline] hallucination guardrail: cleaned %d file(s) for %s", cleaned, storyID)
+	}
+
+	// Guardrail 2: Check for unresolved merge conflict markers.
+	if conflicts := validateNoConflictMarkers(ag.WorktreePath); len(conflicts) > 0 {
+		log.Printf("[pipeline] conflict markers found in %d file(s) for %s: %v", len(conflicts), storyID, conflicts)
+		m.resetStoryToDraft(storyID, "monitor", fmt.Sprintf("unresolved merge conflicts in: %s", strings.Join(conflicts, ", ")))
+		return
+	}
+
+	// Guardrail 3: Validate the build to catch syntax errors early.
+	if buildErr := validateBuild(ag.WorktreePath); buildErr != nil {
+		log.Printf("[pipeline] build validation failed for %s: %v", storyID, buildErr)
+		// Don't block — log the warning and let review/QA catch it.
+		// A build failure here means the agent produced broken code,
+		// which the reviewer should reject.
+	}
+
 	// In dry-run mode, simulate a successful agent by writing a placeholder
 	// file and committing it. This allows the full pipeline (review → QA → merge)
 	// to exercise without real agent output.

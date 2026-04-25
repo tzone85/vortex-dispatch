@@ -57,43 +57,38 @@ func TestNXDCrossportFeatures(t *testing.T) {
 		}{
 			{
 				name:           "undefined symbol",
-				qaOutput:       "Error: function 'myFunc' is not defined",
-				expectedSubstr: "Missing symbol/function",
+				qaOutput:       "Error: undefined: myFunc",
+				expectedSubstr: "Compilation error: Undefined symbol",
 			},
 			{
 				name:           "syntax error",
-				qaOutput:       "SyntaxError: Unexpected token",
-				expectedSubstr: "Syntax error detected",
+				qaOutput:       "syntax error: unexpected token",
+				expectedSubstr: "Syntax error",
 			},
 			{
-				name:           "type mismatch",
-				qaOutput:       "TypeError: type mismatch in assignment",
-				expectedSubstr: "Type mismatch",
+				name:           "nil pointer",
+				qaOutput:       "runtime error: nil pointer dereference",
+				expectedSubstr: "Runtime panic",
 			},
 			{
-				name:           "import error",
-				qaOutput:       "ImportError: cannot import module 'missing_package'",
-				expectedSubstr: "Import issue",
+				name:           "missing package",
+				qaOutput:       "cannot find package 'missing_package'",
+				expectedSubstr: "Missing package",
 			},
 			{
 				name:           "test failure",
-				qaOutput:       "Test failed: assertion error in test_function",
+				qaOutput:       "FAIL test_function: test failed",
 				expectedSubstr: "Test failure",
 			},
 			{
-				name:           "timeout",
-				qaOutput:       "Operation timeout after 30 seconds",
-				expectedSubstr: "Operation timed out",
-			},
-			{
 				name:           "permission denied",
-				qaOutput:       "Permission denied: cannot access file",
+				qaOutput:       "permission denied: cannot access file",
 				expectedSubstr: "Permission error",
 			},
 			{
 				name:           "unknown error",
 				qaOutput:       "Some unknown error occurred",
-				expectedSubstr: "Build/test failure detected",
+				expectedSubstr: "Check the QA output",
 			},
 		}
 

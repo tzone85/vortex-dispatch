@@ -229,13 +229,23 @@ func totalDuration(result QAResult) int {
 
 // runCheck executes a single QA command and returns the result.
 func (q *QA) runCheck(ctx context.Context, workDir, name, command string) QACheckResult {
-	parts := strings.Fields(command)
-	if len(parts) == 0 {
+	command = strings.TrimSpace(command)
+	if command == "" {
 		return QACheckResult{Name: name, Passed: false, Output: "empty command"}
 	}
 
 	start := time.Now()
-	output, err := q.runner.Run(ctx, workDir, parts[0], parts[1:]...)
+	cmdName := ""
+	var args []string
+	if needsShell(command) {
+		cmdName = "sh"
+		args = []string{"-c", command}
+	} else {
+		parts := strings.Fields(command)
+		cmdName = parts[0]
+		args = parts[1:]
+	}
+	output, err := q.runner.Run(ctx, workDir, cmdName, args...)
 	elapsed := time.Since(start)
 
 	return QACheckResult{
@@ -244,4 +254,13 @@ func (q *QA) runCheck(ctx context.Context, workDir, name, command string) QAChec
 		Output:  output,
 		Elapsed: elapsed,
 	}
+}
+
+func needsShell(command string) bool {
+	return strings.ContainsAny(command, "|&;<>()$`*?[]{}~") ||
+		strings.Contains(command, "&&") ||
+		strings.Contains(command, "||") ||
+		strings.Contains(command, "'") ||
+		strings.Contains(command, "\"") ||
+		strings.Contains(command, "=")
 }

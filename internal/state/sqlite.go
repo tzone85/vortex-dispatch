@@ -209,7 +209,7 @@ func (s *SQLiteStore) Project(evt Event) error {
 	case EventStoryAwaitingApproval:
 		return s.updateStoryStatus(evt.StoryID, "awaiting_approval")
 	case EventStoryApproved:
-		return s.updateStoryStatus(evt.StoryID, "approved")
+		return s.updateStoryApproved(evt.StoryID)
 	case EventStoryRejected:
 		return s.updateStoryStatus(evt.StoryID, "draft")
 	case EventStoryReset:
@@ -569,10 +569,11 @@ func (s *SQLiteStore) projectStoryCreated(payload map[string]any) error {
 
 func (s *SQLiteStore) projectStoryAssigned(storyID string, payload map[string]any) error {
 	agentID := payloadStr(payload, "agent_id")
+	branch := payloadStr(payload, "branch")
 	wave := payloadInt(payload, "wave")
 	_, err := s.db.Exec(
-		`UPDATE stories SET status = 'assigned', agent_id = ?, wave = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-		agentID, wave, storyID,
+		`UPDATE stories SET status = 'assigned', agent_id = ?, branch = ?, wave = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		agentID, branch, wave, storyID,
 	)
 	return err
 }
@@ -591,6 +592,14 @@ func (s *SQLiteStore) updateStoryStatus(storyID, status string) error {
 	_, err := s.db.Exec(
 		`UPDATE stories SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		status, storyID,
+	)
+	return err
+}
+
+func (s *SQLiteStore) updateStoryApproved(storyID string) error {
+	_, err := s.db.Exec(
+		`UPDATE stories SET status = 'approved', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status != 'merged'`,
+		storyID,
 	)
 	return err
 }

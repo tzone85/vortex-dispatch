@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tzone85/vortex-dispatch/internal/config"
@@ -10,8 +11,8 @@ import (
 
 func TestDefaultConfig(t *testing.T) {
 	cfg := config.DefaultConfig()
-	if cfg.Workspace.Backend != "dolt" {
-		t.Fatalf("expected backend 'dolt', got %s", cfg.Workspace.Backend)
+	if cfg.Workspace.Backend != "sqlite" {
+		t.Fatalf("expected backend 'sqlite', got %s", cfg.Workspace.Backend)
 	}
 	if cfg.Routing.JuniorMaxComplexity != 3 {
 		t.Fatalf("expected junior max 3, got %d", cfg.Routing.JuniorMaxComplexity)
@@ -166,6 +167,23 @@ func TestConfig_PlanningDefaults(t *testing.T) {
 	if cfg.Planning.MaxStoryComplexity != 5 {
 		t.Fatalf("expected max story complexity 5, got %d", cfg.Planning.MaxStoryComplexity)
 	}
+
+	if cfg.Planning.DesignApproach != "ddd-tdd" {
+		t.Fatalf("expected design approach ddd-tdd, got %q", cfg.Planning.DesignApproach)
+	}
+}
+
+func TestConfig_ValidateRejectsUnknownDesignApproach(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Planning.DesignApproach = "waterfall"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for unknown planning design approach")
+	}
+	if !strings.Contains(err.Error(), "planning.design_approach") {
+		t.Fatalf("expected planning.design_approach error, got %v", err)
+	}
 }
 
 func TestLoadFromFile_FileNotFound(t *testing.T) {
@@ -234,8 +252,8 @@ func TestDefaultYAML_RoundTrip(t *testing.T) {
 	if cfg.Version != "1.0" {
 		t.Fatalf("expected version '1.0', got %s", cfg.Version)
 	}
-	if cfg.Workspace.Backend != "dolt" {
-		t.Fatalf("expected backend 'dolt', got %s", cfg.Workspace.Backend)
+	if cfg.Workspace.Backend != "sqlite" {
+		t.Fatalf("expected backend 'sqlite', got %s", cfg.Workspace.Backend)
 	}
 	if cfg.Models.TechLead.Provider != "anthropic" {
 		t.Fatalf("expected tech_lead provider 'anthropic', got %s", cfg.Models.TechLead.Provider)

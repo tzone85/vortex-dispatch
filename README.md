@@ -251,6 +251,7 @@ Run `vxd init` to generate `vxd.yaml` with sensible defaults, then customize:
 | `workspace` | State directory, backend (dolt/sqlite), log level and retention |
 | `models` | LLM provider and model per agent role (tech_lead, senior, intermediate, junior, qa, supervisor, manager) |
 | `routing` | Complexity thresholds, retry and escalation limits |
+| `planning` | Story size limits, sequential-file heuristics, godmode default, design approach |
 | `monitor` | Poll interval, stuck threshold, context freshness token limit |
 | `cleanup` | Worktree pruning strategy, branch retention days |
 | `merge` | Auto-merge toggle, base branch, PR template, review_mode |

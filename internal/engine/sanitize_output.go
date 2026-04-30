@@ -219,10 +219,27 @@ func validateGoProject(dir string) error {
 }
 
 func validatePythonProject(dir string) error {
-	// Try python -m py_compile on changed .py files
-	cmd := exec.Command("python3", "-c", "import ast, sys; [ast.parse(open(f).read()) for f in sys.argv[1:]]")
+	var files []string
+	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || filepath.Ext(path) != ".py" {
+			return nil
+		}
+		rel, _ := filepath.Rel(dir, path)
+		if strings.Contains(rel, ".venv") || strings.Contains(rel, "__pycache__") {
+			return nil
+		}
+		files = append(files, rel)
+		return nil
+	})
+	if len(files) == 0 {
+		return nil
+	}
+	args := append([]string{"-m", "py_compile"}, files...)
+	cmd := exec.Command("python3", args...)
 	cmd.Dir = dir
-	// Just validate syntax, not imports
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("python syntax check failed:\n%s", truncateOutput(string(out), 500))
+	}
 	return nil
 }
 

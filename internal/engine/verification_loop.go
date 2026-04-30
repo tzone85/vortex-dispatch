@@ -2,24 +2,24 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-
 )
 
 // VerificationResult holds the outcome of a post-completion verification cycle.
 type VerificationResult struct {
-	BuildPasses   bool
-	TestsPassing  int
-	TestsFailing  int
-	TestsTotal    int
-	Gaps          []VerificationGap
+	BuildPasses    bool
+	TestsPassing   int
+	TestsFailing   int
+	TestsTotal     int
+	Gaps           []VerificationGap
 	CleanArtifacts bool
-	DepsInstalled bool
+	DepsInstalled  bool
 }
 
 // VerificationGap describes a specific issue found during verification.
@@ -35,8 +35,9 @@ type VerificationGap struct {
 // Returns gaps found. If gaps exist, they can be fed back as a new requirement.
 //
 // This implements the evaluate → fix → verify loop:
-//   Cycle 1: Full verification after all stories merge
-//   Cycle 2: Confirmation pass after fixes (lighter, just build + tests)
+//
+//	Cycle 1: Full verification after all stories merge
+//	Cycle 2: Confirmation pass after fixes (lighter, just build + tests)
 func RunVerificationLoop(ctx context.Context, repoDir string, cycle int) VerificationResult {
 	log.Printf("[verify] starting verification cycle %d for %s", cycle, filepath.Base(repoDir))
 
@@ -156,6 +157,10 @@ func checkTests(repoDir string) (passing, failing, total int) {
 	out, _ := cmd.CombinedOutput()
 	output := string(out)
 
+	if fileExists(filepath.Join(repoDir, "go.mod")) {
+		return parseGoTestJSON(output)
+	}
+
 	// Parse test results (simplified — count PASS/FAIL lines)
 	for _, line := range strings.Split(output, "\n") {
 		if strings.Contains(line, "\"numPassedTests\"") || strings.Contains(line, "PASS:") {
@@ -177,6 +182,31 @@ func checkTests(repoDir string) (passing, failing, total int) {
 		}
 	}
 
+	total = passing + failing
+	log.Printf("[verify] tests: %d passing, %d failing, %d total", passing, failing, total)
+	return passing, failing, total
+}
+
+func parseGoTestJSON(output string) (passing, failing, total int) {
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var evt struct {
+			Action string `json:"Action"`
+			Test   string `json:"Test"`
+		}
+		if err := json.Unmarshal([]byte(line), &evt); err != nil || evt.Test == "" {
+			continue
+		}
+		switch evt.Action {
+		case "pass":
+			passing++
+		case "fail":
+			failing++
+		}
+	}
 	total = passing + failing
 	log.Printf("[verify] tests: %d passing, %d failing, %d total", passing, failing, total)
 	return passing, failing, total
@@ -275,6 +305,9 @@ func GapsToRequirement(gaps []VerificationGap, projectName string) string {
 // verification results.
 func ShouldRunFixCycle(result VerificationResult) bool {
 	if !result.BuildPasses {
+		return true
+	}
+	if result.TestsFailing > 0 {
 		return true
 	}
 	for _, g := range result.Gaps {

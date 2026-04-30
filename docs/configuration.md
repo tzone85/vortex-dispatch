@@ -21,7 +21,7 @@ Controls where VXD stores state and how verbose it is.
 ```yaml
 workspace:
   state_dir: ~/.vxd              # Directory for event log + SQLite DB
-  backend: dolt                   # Projection backend: "dolt" or "sqlite"
+  backend: sqlite                 # Projection backend: "sqlite" or "dolt"
   log_level: info                 # Logging: debug, info, warn, error
   log_retention_days: 30          # Auto-cleanup events older than N days
 ```
@@ -29,7 +29,7 @@ workspace:
 | Key | Default | Notes |
 |-----|---------|-------|
 | `state_dir` | `~/.vxd` | Supports `~` expansion. Created by `vxd init`. |
-| `backend` | `dolt` | `sqlite` is recommended for local use. `dolt` enables versioned state. |
+| `backend` | `sqlite` | SQLite is the active local projection backend. `dolt` remains accepted for legacy configs. |
 | `log_level` | `info` | Set to `debug` for troubleshooting agent issues. |
 | `log_retention_days` | `30` | Set to `0` to keep events indefinitely. |
 
@@ -100,6 +100,28 @@ routing:
 Stories above `intermediate_max_complexity` (6+) always route to **Senior**.
 
 **Tuning tip:** If you see many escalations from Junior to Intermediate, lower `junior_max_complexity` to `2`. If Seniors are underutilized, raise `intermediate_max_complexity` to `8`.
+
+### planning
+
+Controls requirement decomposition and the planning guidance passed into agent prompts.
+
+```yaml
+planning:
+  sequential_file_patterns:
+    - "package.json"
+    - "*.config.*"
+    - "src/core/*"
+  max_story_complexity: 5
+  godmode: false
+  design_approach: ddd-tdd
+```
+
+| Key | Default | Notes |
+|-----|---------|-------|
+| `sequential_file_patterns` | `package.json`, `*.config.*`, `src/core/*` | Matching files are treated as sequencing hazards when stories are planned. |
+| `max_story_complexity` | `5` | Planner target for splitting large work into smaller stories. |
+| `godmode` | `false` | Skips CLI LLM permission prompts when enabled; command flags still take precedence. |
+| `design_approach` | `ddd-tdd` | Prompt strategy for implementation and review: `ddd-tdd`, `tdd`, or `standard`. |
 
 ### monitor
 

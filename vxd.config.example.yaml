@@ -2,7 +2,7 @@ version: "1.0"
 
 workspace:
   state_dir: ~/.vxd
-  backend: dolt
+  backend: sqlite
   log_level: info
   log_retention_days: 30
 
@@ -64,6 +64,7 @@ planning:
     - "src/core/*"
   max_story_complexity: 5
   godmode: false  # Set to true to skip permission prompts on CLI LLM calls
+  design_approach: ddd-tdd  # ddd-tdd | tdd | standard
 
 runtimes:
   claude-code:

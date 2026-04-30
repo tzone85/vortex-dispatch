@@ -2,6 +2,7 @@ package state_test
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tzone85/vortex-dispatch/internal/state"
@@ -133,5 +134,37 @@ func TestFileStore_Limit(t *testing.T) {
 	events, _ := store.List(state.EventFilter{Limit: 3})
 	if len(events) != 3 {
 		t.Fatalf("expected 3 events with limit, got %d", len(events))
+	}
+}
+
+func TestFileStore_ListLargePayload(t *testing.T) {
+	dir := t.TempDir()
+	store, err := state.NewFileStore(filepath.Join(dir, "events.jsonl"))
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	defer store.Close()
+
+	large := strings.Repeat("x", 128*1024)
+	if err := store.Append(state.NewEvent(state.EventStoryQAFailed, "qa", "s-large", map[string]any{
+		"summary": large,
+	})); err != nil {
+		t.Fatalf("append large event: %v", err)
+	}
+
+	events, err := store.List(state.EventFilter{})
+	if err != nil {
+		t.Fatalf("list large event: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	count, err := store.Count(state.EventFilter{})
+	if err != nil {
+		t.Fatalf("count large event: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected count 1, got %d", count)
 	}
 }

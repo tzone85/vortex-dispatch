@@ -478,6 +478,12 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 	// the work before checking the diff.
 	autoCommit(ag.WorktreePath, storyID)
 
+	// Strip VXD artifacts from the branch so they don't appear in PRs.
+	// Agents commit CLAUDE.md, WAVE_CONTEXT.md, .vxd-prompts/ etc. into
+	// their worktree branch. If these reach the PR, they overwrite the
+	// project's real files (e.g. CLAUDE.md gets replaced with agent directive).
+	stripVXDArtifactsFromBranch(ag.WorktreePath, storyID)
+
 	// Guardrail 1: Strip LLM hallucination preamble from committed files.
 	// Agents sometimes prefix files with reasoning text like "Looking at..."
 	// or "Here's the solution:". This scrubs those lines and amends the commit.
@@ -997,6 +1003,8 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 		// Pull merged changes into the local checkout so the repo
 		// reflects all merged PRs. Without this, local files are stale
 		// and tools that read the repo see pre-VXD state.
+		// Note: repoDir here is the shadowed local (line 977), which
+		// resolves to cwd — the actual project root where VXD was invoked.
 		pullMainAfterMerge(repoDir)
 
 		// Mark requirement complete.
@@ -1513,6 +1521,51 @@ func autoCommit(worktreePath, storyID string) {
 	log.Printf("[pipeline] auto-commit succeeded for %s", storyID)
 }
 
+// stripVXDArtifactsFromBranch removes VXD infrastructure files (CLAUDE.md,
+// WAVE_CONTEXT.md, .vxd-prompts/, etc.) from the worktree branch via
+// git rm --cached, then amends the commit. This prevents agent-committed
+// artifacts from appearing in PRs, which would overwrite the project's
+// real CLAUDE.md with the agent-directive version.
+func stripVXDArtifactsFromBranch(worktreePath, storyID string) {
+	artifacts := []string{
+		"CLAUDE.md",
+		"WAVE_CONTEXT.md",
+		"REQUIREMENT.md",
+		".vxd-prompts",
+		".serena",
+		".superpowers",
+	}
+
+	var removed []string
+	for _, art := range artifacts {
+		artPath := filepath.Join(worktreePath, art)
+		if _, err := os.Stat(artPath); err != nil {
+			continue
+		}
+		// Remove from git index (keeps file on disk for agent reference)
+		rmCmd := exec.Command("git", "rm", "-rf", "--cached", art)
+		rmCmd.Dir = worktreePath
+		if out, err := rmCmd.CombinedOutput(); err != nil {
+			log.Printf("[pipeline] git rm --cached %s for %s: %v (%s)", art, storyID, err, strings.TrimSpace(string(out)))
+			continue
+		}
+		removed = append(removed, art)
+	}
+
+	if len(removed) == 0 {
+		return
+	}
+
+	// Amend the last commit to exclude the artifacts
+	amendCmd := exec.Command("git", "commit", "--amend", "--no-edit", "-a")
+	amendCmd.Dir = worktreePath
+	if out, err := amendCmd.CombinedOutput(); err != nil {
+		log.Printf("[pipeline] amend after artifact strip for %s: %v (%s)", storyID, err, strings.TrimSpace(string(out)))
+	} else {
+		log.Printf("[pipeline] stripped %d VXD artifact(s) from branch for %s: %v", len(removed), storyID, removed)
+	}
+}
+
 // pullMainAfterMerge fetches and fast-forward merges the base branch into
 // the local checkout after all PRs have been merged. This ensures the repo
 // directory reflects the actual merged state so that subsequent tools
@@ -1521,6 +1574,24 @@ func pullMainAfterMerge(repoDir string) {
 	if repoDir == "" {
 		return
 	}
+
+	// Clean up VXD artifacts from the repo root so evaluators and
+	// other tools don't see stale context from this pipeline run.
+	for _, artifact := range []string{
+		"WAVE_CONTEXT.md",
+		"REQUIREMENT.md",
+		".vxd-fix-gaps.md",
+	} {
+		p := filepath.Join(repoDir, artifact)
+		if _, err := os.Stat(p); err == nil {
+			os.Remove(p)
+			log.Printf("[auto-resume] cleaned up %s from repo root", artifact)
+		}
+	}
+
+	// Ensure gitignore covers VXD artifacts for the main repo (not just worktrees).
+	ensureGitignorePatterns(repoDir)
+
 	for _, branch := range []string{"main", "master"} {
 		cmd := exec.Command("git", "rev-parse", "--verify", "refs/heads/"+branch)
 		cmd.Dir = repoDir

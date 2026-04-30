@@ -1495,3 +1495,16 @@ func TestWiring_ReviewerDesignApproach_Configurable(t *testing.T) {
 	r.SetDesignApproach("standard")
 	r.SetDesignApproach("")
 }
+
+func TestWiring_TechLeadPrompt_Contains5W1H(t *testing.T) {
+	ctx := agent.PromptContext{
+		RepoPath:  "/tmp/test",
+		TechStack: "Node.js",
+	}
+	prompt := agent.SystemPrompt(agent.RoleTechLead, ctx)
+	for _, dimension := range []string{"WHAT", "WHO", "WHEN", "WHERE", "WHY", "HOW"} {
+		if !strings.Contains(prompt, "**"+dimension+"**") {
+			t.Errorf("WIRING FAILURE: Tech Lead prompt should include 5W1H dimension %s", dimension)
+		}
+	}
+}

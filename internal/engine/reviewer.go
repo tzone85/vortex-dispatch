@@ -58,11 +58,12 @@ func sanitizeReviewResult(r *ReviewResult) {
 // Reviewer performs AI-powered code review on story branch diffs using the
 // Senior model.
 type Reviewer struct {
-	llmClient  llm.Client
-	eventStore state.EventStore
-	projStore  state.ProjectionStore
-	model      string
-	maxTokens  int
+	llmClient      llm.Client
+	eventStore     state.EventStore
+	projStore      state.ProjectionStore
+	model          string
+	maxTokens      int
+	designApproach string // "ddd-tdd", "tdd", "standard"
 }
 
 // NewReviewer creates a Reviewer wired to the given LLM client, model
@@ -75,6 +76,11 @@ func NewReviewer(client llm.Client, model string, maxTokens int, es state.EventS
 		model:      model,
 		maxTokens:  maxTokens,
 	}
+}
+
+// SetDesignApproach configures the design methodology the reviewer checks for.
+func (r *Reviewer) SetDesignApproach(approach string) {
+	r.designApproach = approach
 }
 
 // Review takes a story ID, title, acceptance criteria, and the git diff of
@@ -108,6 +114,25 @@ func (r *Reviewer) Review(ctx context.Context, storyID, title, acceptanceCriteri
 		blastRadiusCtx = "\n" + extra[1]
 	}
 
+	// Build design approach review criteria.
+	designCriteria := ""
+	approach := r.designApproach
+	if approach == "" {
+		approach = "ddd-tdd"
+	}
+	switch approach {
+	case "ddd-tdd":
+		designCriteria = `
+7. DDD compliance - is business logic in the domain layer, separated from infrastructure?
+8. TDD evidence - do test files exist? Do tests define behavior before implementation? Are tests testing behavior, not implementation details?
+9. Separation of concerns - are controllers thin? Is business logic NOT in route handlers?
+Note: DDD/TDD compliance is advisory — do not reject solely for DDD violations if the code otherwise meets acceptance criteria and has tests.`
+	case "tdd":
+		designCriteria = `
+7. TDD evidence - do test files exist? Do tests define behavior before implementation?
+Note: TDD compliance is advisory — do not reject solely for missing tests if the acceptance criteria don't require them.`
+	}
+
 	prompt := fmt.Sprintf(`Review this code change for the following story:
 
 Story: %s
@@ -129,13 +154,13 @@ Review the code for:
 4. Security - any vulnerabilities?
 5. Performance - any obvious issues?
 6. Blast radius - if blast radius analysis is provided above, check whether high-risk callers or dependents might break.
-
+%s
 Respond with JSON:
 {
   "passed": true/false,
   "comments": [{"file": "path", "line": 0, "severity": "critical|major|minor|info", "comment": "..."}],
   "summary": "brief summary"
-}`, title, acceptanceCriteria, fileTreeCtx, blastRadiusCtx, diff)
+}`, title, acceptanceCriteria, fileTreeCtx, blastRadiusCtx, diff, designCriteria)
 
 	resp, err := r.llmClient.Complete(ctx, llm.CompletionRequest{
 		Model:     r.model,

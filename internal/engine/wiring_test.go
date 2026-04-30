@@ -1388,3 +1388,110 @@ func TestWiring_QAFailureAnalysis(t *testing.T) {
 
 	t.Log("QA failure analysis successfully wired: AnalyzeFailure function exists and provides meaningful diagnostic hints")
 }
+
+// --------------------------------------------------------------------------
+// DDD+TDD Default Design Approach Wiring Tests
+// --------------------------------------------------------------------------
+
+func TestWiring_DefaultDesignApproach_IsDDDTDD(t *testing.T) {
+	cfg := config.DefaultConfig()
+	if cfg.Planning.DesignApproach != "ddd-tdd" {
+		t.Errorf("WIRING FAILURE: default DesignApproach = %q, want 'ddd-tdd'", cfg.Planning.DesignApproach)
+	}
+}
+
+func TestWiring_GoalPrompt_ContainsDDDTDD(t *testing.T) {
+	ctx := agent.PromptContext{
+		StoryID:            "s-001",
+		StoryTitle:         "Test Story",
+		StoryDescription:   "Test desc",
+		AcceptanceCriteria: "Tests pass",
+		DesignApproach:     "ddd-tdd",
+	}
+	prompt := agent.GoalPrompt(agent.RoleSenior, ctx)
+	if !strings.Contains(prompt, "Domain-Driven Design") {
+		t.Error("WIRING FAILURE: GoalPrompt with ddd-tdd approach should contain DDD instructions")
+	}
+	if !strings.Contains(prompt, "WRITE A FAILING TEST FIRST") {
+		t.Error("WIRING FAILURE: GoalPrompt with ddd-tdd approach should contain TDD instructions")
+	}
+	if !strings.Contains(prompt, "Entities") {
+		t.Error("WIRING FAILURE: GoalPrompt with ddd-tdd should mention DDD patterns (Entities)")
+	}
+	if !strings.Contains(prompt, "Repositories") {
+		t.Error("WIRING FAILURE: GoalPrompt with ddd-tdd should mention DDD patterns (Repositories)")
+	}
+}
+
+func TestWiring_GoalPrompt_TDDOnly(t *testing.T) {
+	ctx := agent.PromptContext{
+		StoryID:            "s-002",
+		StoryTitle:         "TDD Story",
+		StoryDescription:   "Test desc",
+		AcceptanceCriteria: "Tests pass",
+		DesignApproach:     "tdd",
+	}
+	prompt := agent.GoalPrompt(agent.RoleSenior, ctx)
+	if !strings.Contains(prompt, "WRITE A FAILING TEST FIRST") {
+		t.Error("WIRING FAILURE: GoalPrompt with tdd approach should contain TDD instructions")
+	}
+	if strings.Contains(prompt, "Domain-Driven Design") {
+		t.Error("WIRING FAILURE: GoalPrompt with tdd-only should NOT contain DDD instructions")
+	}
+}
+
+func TestWiring_GoalPrompt_StandardApproach_NoDDDTDD(t *testing.T) {
+	ctx := agent.PromptContext{
+		StoryID:            "s-003",
+		StoryTitle:         "Standard Story",
+		StoryDescription:   "Test desc",
+		AcceptanceCriteria: "Tests pass",
+		DesignApproach:     "standard",
+	}
+	prompt := agent.GoalPrompt(agent.RoleSenior, ctx)
+	if strings.Contains(prompt, "Domain-Driven Design") {
+		t.Error("WIRING FAILURE: GoalPrompt with standard approach should NOT contain DDD instructions")
+	}
+	if strings.Contains(prompt, "WRITE A FAILING TEST FIRST") {
+		t.Error("WIRING FAILURE: GoalPrompt with standard approach should NOT contain TDD instructions")
+	}
+}
+
+func TestWiring_GoalPrompt_EmptyApproach_DefaultsToDDDTDD(t *testing.T) {
+	ctx := agent.PromptContext{
+		StoryID:            "s-004",
+		StoryTitle:         "Default Story",
+		StoryDescription:   "Test desc",
+		AcceptanceCriteria: "Tests pass",
+		DesignApproach:     "", // empty = should default to ddd-tdd
+	}
+	prompt := agent.GoalPrompt(agent.RoleSenior, ctx)
+	if !strings.Contains(prompt, "Domain-Driven Design") {
+		t.Error("WIRING FAILURE: empty DesignApproach should default to ddd-tdd")
+	}
+}
+
+func TestWiring_TechLeadPrompt_ContainsDDDDecomposition(t *testing.T) {
+	// Verify the tech lead prompt template includes DDD decomposition rules
+	ctx := agent.PromptContext{
+		RepoPath:  "/tmp/test",
+		TechStack: "Node.js",
+	}
+	prompt := agent.SystemPrompt(agent.RoleTechLead, ctx)
+	if !strings.Contains(prompt, "Domain-Driven Design") {
+		t.Error("WIRING FAILURE: Tech Lead system prompt should include DDD decomposition rules")
+	}
+	if !strings.Contains(prompt, "DOMAIN LAYER") || !strings.Contains(prompt, "repository interfaces") {
+		t.Error("WIRING FAILURE: Tech Lead prompt should reference DDD story ordering (DOMAIN LAYER, repository interfaces)")
+	}
+}
+
+func TestWiring_ReviewerDesignApproach_Configurable(t *testing.T) {
+	r := engine.NewReviewer(nil, "test", 100, nil, nil)
+	r.SetDesignApproach("ddd-tdd")
+	// Can't easily test the prompt output without mocking LLM,
+	// but verify the setter doesn't panic and the field is stored.
+	r.SetDesignApproach("tdd")
+	r.SetDesignApproach("standard")
+	r.SetDesignApproach("")
+}

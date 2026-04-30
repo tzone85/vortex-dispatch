@@ -141,6 +141,9 @@ func (m *Merger) CreatePROnly(storyID, storyTitle, repoDir, branch string) (Merg
 // MergeExistingPR merges an already-created PR for a story. This is called
 // by the "vxd approve" command after a human reviews and approves the PR.
 func (m *Merger) MergeExistingPR(storyID, repoDir string) error {
+	if m.ghOps == nil {
+		return fmt.Errorf("github operations are not configured")
+	}
 	story, err := m.projStore.GetStory(storyID)
 	if err != nil {
 		return fmt.Errorf("get story %s: %w", storyID, err)

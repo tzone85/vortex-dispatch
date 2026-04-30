@@ -2,9 +2,11 @@ package cli
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/tzone85/vortex-dispatch/internal/engine"
+	vxdgit "github.com/tzone85/vortex-dispatch/internal/git"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
 
@@ -71,6 +73,17 @@ func runApprove(cmd *cobra.Command, args []string) error {
 }
 
 func approveStory(cmd *cobra.Command, s stores, storyID string) error {
+	if !vxdgit.GHAvailable() {
+		return fmt.Errorf("gh CLI is required to approve and merge story %s", storyID)
+	}
+	repoDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get working directory: %w", err)
+	}
+	return approveStoryWithOps(cmd, s, storyID, repoDir, &ghOpsAdapter{})
+}
+
+func approveStoryWithOps(cmd *cobra.Command, s stores, storyID, repoDir string, ghOps engine.GitHubOps) error {
 	story, err := s.Proj.GetStory(storyID)
 	if err != nil {
 		return fmt.Errorf("story %s not found", storyID)
@@ -78,20 +91,26 @@ func approveStory(cmd *cobra.Command, s stores, storyID string) error {
 	if story.Status != "awaiting_approval" {
 		return fmt.Errorf("story %s is in status %q, not awaiting_approval", storyID, story.Status)
 	}
+	if ghOps == nil {
+		return fmt.Errorf("github operations are not configured")
+	}
 
+	merger := engine.NewMerger(s.Config.Merge, ghOps, s.Events, s.Proj)
+	if err := merger.MergeExistingPR(storyID, repoDir); err != nil {
+		return err
+	}
+
+	// Emit approval only after the PR has actually merged. This prevents
+	// audit trails from claiming approval for work that failed to merge.
 	evt := state.NewEvent(state.EventStoryApproved, "human", storyID, map[string]any{
 		"story_id":    storyID,
 		"approved_by": "human",
 	})
-	s.Events.Append(evt)
-	s.Proj.Project(evt)
-
-	// Merge the existing PR
-	repoDir := story.Branch // worktree path not available here; use cwd
-	merger := engine.NewMerger(s.Config.Merge, nil, s.Events, s.Proj)
-	if err := merger.MergeExistingPR(storyID, repoDir); err != nil {
-		fmt.Fprintf(cmd.OutOrStdout(), "Approved: %s (PR #%d) — merge manually or re-run 'vxd resume'\n", story.Title, story.PRNumber)
-		return nil
+	if err := s.Events.Append(evt); err != nil {
+		return fmt.Errorf("append approval event: %w", err)
+	}
+	if err := s.Proj.Project(evt); err != nil {
+		return fmt.Errorf("project approval event: %w", err)
 	}
 
 	fmt.Fprintf(cmd.OutOrStdout(), "Approved and merged: %s (PR #%d)\n", story.Title, story.PRNumber)

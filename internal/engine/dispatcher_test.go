@@ -180,6 +180,56 @@ func TestDispatcher_EventEmission(t *testing.T) {
 	}
 }
 
+func TestDispatcher_ProjectsAgentSpawnedAndSkipsAwaitingApproval(t *testing.T) {
+	es, ps, cleanup := newTestStores(t)
+	defer cleanup()
+
+	for _, id := range []string{"s-await", "s-ready"} {
+		evt := state.NewEvent(state.EventStoryCreated, "tech-lead", id, map[string]any{
+			"id": id, "req_id": "r-approval", "title": id, "description": "d", "complexity": 1,
+		})
+		if err := ps.Project(evt); err != nil {
+			t.Fatalf("project story %s: %v", id, err)
+		}
+	}
+	awaitEvt := state.NewEvent(state.EventStoryAwaitingApproval, "monitor", "s-await", nil)
+	if err := ps.Project(awaitEvt); err != nil {
+		t.Fatalf("project awaiting approval: %v", err)
+	}
+
+	dispatcher := engine.NewDispatcher(config.DefaultConfig(), es, ps)
+	stories := []engine.PlannedStory{
+		{ID: "s-await", Title: "Await", Complexity: 1},
+		{ID: "s-ready", Title: "Ready", Complexity: 1},
+	}
+	dag := graph.New()
+	dag.AddNode("s-await")
+	dag.AddNode("s-ready")
+
+	assignments, err := dispatcher.DispatchWave(dag, map[string]bool{}, "r-approval", stories, 1)
+	if err != nil {
+		t.Fatalf("DispatchWave: %v", err)
+	}
+	if len(assignments) != 1 || assignments[0].StoryID != "s-ready" {
+		t.Fatalf("expected only s-ready to dispatch, got %#v", assignments)
+	}
+
+	sqliteStore := ps.(*state.SQLiteStore)
+	agents, err := sqliteStore.ListAgents(state.AgentFilter{})
+	if err != nil {
+		t.Fatalf("ListAgents: %v", err)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("expected AGENT_SPAWNED to be projected, got %d agents", len(agents))
+	}
+	if agents[0].CurrentStoryID != "s-ready" {
+		t.Fatalf("expected agent story s-ready, got %q", agents[0].CurrentStoryID)
+	}
+	if agents[0].Runtime == "" {
+		t.Fatal("expected projected agent runtime to be populated")
+	}
+}
+
 func TestDispatchWave_SequentialFirst(t *testing.T) {
 	es, ps, cleanup := newTestStores(t)
 	defer cleanup()

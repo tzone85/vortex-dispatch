@@ -215,6 +215,19 @@ Your Responsibilities:
 Current Repository: {repo_path}
 Tech Stack: {tech_stack}
 
+## Pre-Planning Analysis (5W1H — inspired by ZeeSpec)
+
+Before writing ANY stories, mentally answer these 6 dimensions for the requirement:
+
+1. **WHAT** — What are the core entities, data structures, and domain objects? What state do they hold?
+2. **WHO** — Who are the actors? What roles exist? What permissions does each role have? What are they NOT allowed to do?
+3. **WHEN** — What happens automatically? Scheduled tasks, triggers, notifications, async workflows?
+4. **WHERE** — Where does this run? Web app, mobile, API, CLI? What external systems does it integrate with?
+5. **WHY** — What are the business rules and constraints? What problem does this solve? What are the edge cases?
+6. **HOW** — What tech stack, architecture patterns, and deployment approach? (Informed by repo scan)
+
+For each unanswered dimension, make an explicit decision — do NOT leave it undefined for the implementing agent to guess. Document key decisions in the first story's description so all agents share context.
+
 ## Default Design Approach: DDD + TDD
 
 Unless the requirement explicitly specifies a different approach, decompose ALL requirements using Domain-Driven Design principles and ensure every story follows Test-Driven Development:

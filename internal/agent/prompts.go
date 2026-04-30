@@ -23,6 +23,7 @@ type PromptContext struct {
 	IsBugFix           bool   // true when the story is about fixing a bug
 	IsInfrastructure   bool   // true when the story involves Docker/CI/deployment
 	WaveContext        string // summary of what prior stories built (from WAVE_CONTEXT.md)
+	DesignApproach     string // "ddd-tdd" (default), "tdd", "standard"
 }
 
 // SystemPrompt renders the system prompt for the given role, substituting
@@ -126,6 +127,67 @@ INFRASTRUCTURE — DIAGNOSTIC SEQUENCE:
 5. Fix the issue, verify with health checks, document what you changed.`
 	}
 
+	// Inject design approach instructions based on config.
+	approach := ctx.DesignApproach
+	if approach == "" {
+		approach = "ddd-tdd"
+	}
+
+	switch approach {
+	case "ddd-tdd":
+		base += `
+
+## MANDATORY: Domain-Driven Design + Test-Driven Development
+
+This project follows DDD+TDD by default. You MUST follow this workflow:
+
+### TDD Workflow (Red → Green → Refactor)
+1. WRITE A FAILING TEST FIRST — define expected behavior before implementation
+2. RUN THE TEST — confirm it fails (Red)
+3. WRITE MINIMAL CODE to make the test pass (Green)
+4. REFACTOR while keeping tests green (Refactor)
+5. REPEAT for each behavior
+
+### DDD Patterns
+Structure your code using these domain-driven patterns:
+- **Entities**: Objects with identity (e.g., User, Task, Order). Define in a domain/models layer.
+- **Value Objects**: Immutable objects without identity (e.g., Money, Email, Address)
+- **Repositories**: Abstractions for data access — define interfaces, implement separately
+- **Services**: Business logic that doesn't belong to a single entity (domain services)
+- **Use Cases / Application Services**: Orchestrate domain objects to fulfill a request
+- **DTOs**: Data Transfer Objects for API boundaries — never expose domain models directly
+
+### File Organization
+- Separate domain logic from infrastructure (DB, HTTP, external APIs)
+- Group by feature/domain, not by technical layer (e.g., tasks/ not controllers/)
+- Keep business rules in the domain layer — controllers should be thin
+- Define interfaces for external dependencies (repositories, gateways) in the domain layer
+
+### What This Means in Practice
+- Every function you write should have a test written BEFORE the implementation
+- Business logic should NOT depend on Express, Mongoose, or any framework directly
+- Use dependency injection: pass repositories/services as parameters, not imports
+- Validate inputs at the boundary (controller/route), not deep in domain logic`
+
+	case "tdd":
+		base += `
+
+## MANDATORY: Test-Driven Development
+
+This project follows TDD. You MUST follow this workflow:
+
+### TDD Workflow (Red → Green → Refactor)
+1. WRITE A FAILING TEST FIRST — define expected behavior before implementation
+2. RUN THE TEST — confirm it fails (Red)
+3. WRITE MINIMAL CODE to make the test pass (Green)
+4. REFACTOR while keeping tests green (Refactor)
+5. REPEAT for each behavior
+
+Every function you write should have a test written BEFORE the implementation.
+Test coverage must be meaningful — test behavior, not implementation details.`
+	}
+	// "standard" approach has no additional instructions
+
 	if ctx.ReviewFeedback != "" {
 		base += fmt.Sprintf(`
 
@@ -153,9 +215,34 @@ Your Responsibilities:
 Current Repository: {repo_path}
 Tech Stack: {tech_stack}
 
+## Default Design Approach: DDD + TDD
+
+Unless the requirement explicitly specifies a different approach, decompose ALL requirements using Domain-Driven Design principles and ensure every story follows Test-Driven Development:
+
+### DDD Decomposition Rules:
+- Identify the core DOMAIN first: what are the entities, value objects, and aggregates?
+- First stories should define the DOMAIN LAYER: models/entities, repository interfaces, domain services
+- Middle stories implement USE CASES / APPLICATION SERVICES that orchestrate domain objects
+- Later stories add INFRASTRUCTURE: database implementations, HTTP routes, external integrations
+- Final stories add INTEGRATION TESTS and end-to-end verification
+- Each story's acceptance criteria MUST include "tests written before implementation"
+
+### Story Ordering for DDD:
+1. Domain models + repository interfaces + unit tests
+2. Domain services + business logic + unit tests
+3. Application/use case layer + integration tests
+4. Infrastructure (DB, HTTP, external APIs) + wiring tests
+5. End-to-end verification + regression tests
+
+### TDD in Acceptance Criteria:
+Every story's acceptance criteria MUST include:
+- "Write failing tests first that define the expected behavior"
+- "All tests pass after implementation"
+- "No test should depend on implementation details — test behavior, not structure"
+
 For New Projects:
-- The first story MUST establish the project directory structure
-- Every subsequent story MUST specify exact file paths
+- The first story MUST establish the project structure following DDD layers (domain/, application/, infrastructure/)
+- Every subsequent story MUST specify exact file paths within these layers
 - Each story must be independently implementable
 - Multiple agents work in parallel — specify file paths to minimize merge conflicts
 

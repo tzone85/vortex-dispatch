@@ -183,6 +183,7 @@ func (e *Executor) spawn(repoDir string, a Assignment, story PlannedStory) Spawn
 		LintCommand:        lintCmd,
 		BuildCommand:       buildCmd,
 		TestCommand:        testCmd,
+		DesignApproach:     e.config.Planning.DesignApproach,
 	}
 
 	// If this is a retry (feedback exists from a prior attempt), enhance

@@ -81,6 +81,9 @@ models:
 routing:
   junior_max_complexity: 3
   max_retries_before_escalation: 2
+planning:
+  max_story_complexity: 5
+  design_approach: ddd-tdd  # ddd-tdd | tdd | standard
 merge:
   auto_merge: true
   review_mode: auto  # auto | manual | plan_only

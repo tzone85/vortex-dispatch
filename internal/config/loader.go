@@ -14,7 +14,7 @@ func DefaultConfig() Config {
 		Version: "1.0",
 		Workspace: WorkspaceConfig{
 			StateDir:         "~/.vxd",
-			Backend:          "dolt",
+			Backend:          "sqlite",
 			LogLevel:         "info",
 			LogRetentionDays: 30,
 		},
@@ -54,6 +54,7 @@ func DefaultConfig() Config {
 		Planning: PlanningConfig{
 			SequentialFilePatterns: []string{"package.json", "*.config.*", "src/core/*"},
 			MaxStoryComplexity:     5,
+			DesignApproach:         "ddd-tdd",
 		},
 		Billing: BillingConfig{
 			DefaultRate: 150.0,

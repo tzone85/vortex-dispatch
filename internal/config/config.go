@@ -43,6 +43,7 @@ type PlanningConfig struct {
 	SequentialFilePatterns []string `yaml:"sequential_file_patterns"`
 	MaxStoryComplexity     int      `yaml:"max_story_complexity"`
 	Godmode                bool     `yaml:"godmode"`
+	DesignApproach         string   `yaml:"design_approach"` // "ddd-tdd" (default), "tdd", "standard"
 }
 
 // WorkspaceConfig holds workspace-level settings.
@@ -175,7 +176,7 @@ type BillingConfig struct {
 
 // LLMCostConfig tracks LLM API costs.
 type LLMCostConfig struct {
-	Mode  string              `yaml:"mode"`
+	Mode  string               `yaml:"mode"`
 	Rates map[string]TokenRate `yaml:"rates,omitempty"`
 }
 
@@ -210,6 +211,13 @@ var validLogArchive = map[string]bool{
 	"dolt": true,
 	"file": true,
 	"none": true,
+}
+
+var validDesignApproaches = map[string]bool{
+	"":         true,
+	"ddd-tdd":  true,
+	"tdd":      true,
+	"standard": true,
 }
 
 // Validate checks that all configuration values are within allowed ranges.
@@ -273,6 +281,10 @@ func (c Config) Validate() error {
 
 	if c.Routing.IntermediateMaxComplexity > 13 {
 		return fmt.Errorf("routing.intermediate_max_complexity must be <= 13, got %d", c.Routing.IntermediateMaxComplexity)
+	}
+
+	if !validDesignApproaches[c.Planning.DesignApproach] {
+		return fmt.Errorf("planning.design_approach must be \"ddd-tdd\", \"tdd\", or \"standard\"; got %q", c.Planning.DesignApproach)
 	}
 
 	// Billing validation

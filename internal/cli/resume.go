@@ -18,6 +18,7 @@ import (
 	"github.com/tzone85/vortex-dispatch/internal/graph"
 	"github.com/tzone85/vortex-dispatch/internal/llm"
 	"github.com/tzone85/vortex-dispatch/internal/notify"
+	"github.com/tzone85/vortex-dispatch/internal/repolearn"
 	"github.com/tzone85/vortex-dispatch/internal/runtime"
 	"github.com/tzone85/vortex-dispatch/internal/scratchboard"
 	"github.com/tzone85/vortex-dispatch/internal/state"
@@ -88,8 +89,10 @@ func runResume(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Acquire advisory lock to prevent concurrent VXD runs.
-	stateDir := expandHome(s.Config.Workspace.StateDir)
+	runtimeCfg := projectRuntimeConfig(s)
+
+	// Acquire advisory lock to prevent concurrent VXD runs for this project.
+	stateDir := expandHome(runtimeCfg.Workspace.StateDir)
 	lockPath := filepath.Join(stateDir, "vxd.lock")
 	forceFlag, _ := cmd.Flags().GetBool("force")
 	if forceFlag {
@@ -191,11 +194,11 @@ func runResume(cmd *cobra.Command, args []string) error {
 	// Recover orphaned in-progress stories whose agent sessions have ended
 	// but whose worktrees still contain committed work. The monitor will
 	// detect these as StatusTerminated and run postExecutionPipeline.
-	orphanAgents := recoverOrphanedStories(stories, s.Proj, s.Config)
+	orphanAgents := recoverOrphanedStories(stories, s.Proj, runtimeCfg)
 
 	// Run consistency check for crash recovery.
 	checkpointPath := filepath.Join(stateDir, "checkpoint.json")
-	recoveryIssues := runConsistencyCheck(stories, s.Config, stateDir)
+	recoveryIssues := runConsistencyCheck(stories, runtimeCfg, stateDir)
 	if len(recoveryIssues) > 0 {
 		fmt.Fprintf(out, "\nRecovery: found %d inconsistent stories\n", len(recoveryIssues))
 		for _, issue := range recoveryIssues {
@@ -238,11 +241,11 @@ func runResume(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("repository has no commits — run 'git add . && git commit -m \"initial commit\"' first")
 	}
 
-	dispatcher := engine.NewDispatcher(s.Config, s.Events, s.Proj)
-	executor := engine.NewExecutor(reg, s.Config, s.Events, s.Proj)
+	dispatcher := engine.NewDispatcher(runtimeCfg, s.Events, s.Proj)
+	executor := engine.NewExecutor(reg, runtimeCfg, s.Events, s.Proj)
 
 	// Initialize artifact store for per-story persistence.
-	stateDir0 := expandHome(s.Config.Workspace.StateDir)
+	stateDir0 := expandHome(runtimeCfg.Workspace.StateDir)
 	artifactDir := filepath.Join(stateDir0, "artifacts")
 	artStore, artErr := artifact.NewStore(artifactDir)
 	if artErr == nil {
@@ -345,21 +348,11 @@ func runResume(cmd *cobra.Command, args []string) error {
 		seniorModel := s.Config.Models.Senior
 		reviewer = engine.NewReviewer(llmClient, seniorModel.Model, seniorModel.MaxTokens, s.Events, s.Proj)
 	}
-
-	// Convert config success criteria to engine criteria
-	var successCriteria []engine.Criterion
-	for _, sc := range s.Config.QA.SuccessCriteria {
-		successCriteria = append(successCriteria, engine.Criterion{
-			Kind:    engine.CriterionKind(sc.Kind),
-			Value:   sc.Value,
-			Path:    sc.Path,
-			Message: sc.Message,
-		})
+	if s.Config.Planning.DesignApproach != "" {
+		reviewer.SetDesignApproach(s.Config.Planning.DesignApproach)
 	}
 
-	qaRunner := engine.NewQA(engine.QAConfig{
-		SuccessCriteria: successCriteria,
-	}, &engine.ExecRunner{}, s.Events, s.Proj)
+	qaRunner := engine.NewQA(buildQAConfig(s.Config, s.ProjectDir, repoDir), &engine.ExecRunner{}, s.Events, s.Proj)
 
 	var merger *engine.Merger
 	if vxdgit.GHAvailable() {
@@ -374,7 +367,7 @@ func runResume(cmd *cobra.Command, args []string) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	monitor := engine.NewMonitor(reg, watchdog, reviewer, qaRunner, merger, s.Config, s.Events, s.Proj)
+	monitor := engine.NewMonitor(reg, watchdog, reviewer, qaRunner, merger, runtimeCfg, s.Events, s.Proj)
 	monitor.SetCheckpointPath(checkpointPath)
 	if artStore != nil {
 		monitor.SetArtifactStore(artStore)
@@ -427,7 +420,7 @@ func runResume(cmd *cobra.Command, args []string) error {
 			}
 		}
 		if planningClient != nil {
-			rePlanner := engine.NewPlanner(planningClient, s.Config, s.Events, s.Proj)
+			rePlanner := engine.NewPlanner(planningClient, runtimeCfg, s.Events, s.Proj)
 			rePlanner.SetProjectDir(s.ProjectDir)
 			monitor.SetPlanner(rePlanner)
 		}
@@ -470,6 +463,41 @@ func runResume(cmd *cobra.Command, args []string) error {
 func dirExists(path string) bool {
 	fi, err := os.Stat(path)
 	return err == nil && fi.IsDir()
+}
+
+func projectRuntimeConfig(s stores) config.Config {
+	cfg := s.Config
+	if s.ProjectDir != "" {
+		cfg.Workspace.StateDir = s.ProjectDir
+	}
+	return cfg
+}
+
+func buildQAConfig(cfg config.Config, projectDir, repoDir string) engine.QAConfig {
+	qaCfg := engine.QAConfig{}
+	if projectDir != "" {
+		if profile, err := repolearn.LoadProfile(projectDir); err == nil {
+			qaCfg.LintCommand = profile.Build.LintCommand
+			qaCfg.BuildCommand = profile.Build.BuildCommand
+			qaCfg.TestCommand = profile.Test.TestCommand
+		}
+	}
+	if qaCfg.LintCommand == "" && qaCfg.BuildCommand == "" && qaCfg.TestCommand == "" && repoDir != "" {
+		if profile, err := repolearn.ScanStatic(repoDir); err == nil {
+			qaCfg.LintCommand = profile.Build.LintCommand
+			qaCfg.BuildCommand = profile.Build.BuildCommand
+			qaCfg.TestCommand = profile.Test.TestCommand
+		}
+	}
+	for _, sc := range cfg.QA.SuccessCriteria {
+		qaCfg.SuccessCriteria = append(qaCfg.SuccessCriteria, engine.Criterion{
+			Kind:    engine.CriterionKind(sc.Kind),
+			Value:   sc.Value,
+			Path:    sc.Path,
+			Message: sc.Message,
+		})
+	}
+	return qaCfg
 }
 
 func runConsistencyCheck(stories []state.Story, cfg config.Config, stateDir string) []engine.RecoveryIssue {

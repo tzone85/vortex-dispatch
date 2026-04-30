@@ -156,6 +156,31 @@ func TestQA_Run_SkipsEmptyCommands(t *testing.T) {
 	}
 }
 
+func TestQA_Run_UsesShellForComplexCommands(t *testing.T) {
+	es, ps, cleanup := newTestStores(t)
+	defer cleanup()
+
+	ps.Project(state.NewEvent(state.EventStoryCreated, "tech-lead", "s-shell", map[string]any{
+		"id": "s-shell", "req_id": "r-shell", "title": "Task", "description": "desc", "complexity": 1,
+	}))
+
+	runner := &mockRunner{results: map[string]mockRunResult{
+		"sh -c": {output: "ok", err: nil},
+	}}
+
+	qa := engine.NewQA(engine.QAConfig{
+		TestCommand: `go test $(go list ./... | grep -v improve) -count=1`,
+	}, runner, es, ps)
+
+	result, err := qa.Run(context.Background(), "s-shell", "/tmp/worktree")
+	if err != nil {
+		t.Fatalf("qa run: %v", err)
+	}
+	if !result.Passed {
+		t.Fatalf("expected complex command to pass via shell, got %#v", result.Checks)
+	}
+}
+
 func TestQA_Run_ProjectionUpdated(t *testing.T) {
 	es, ps, cleanup := newTestStores(t)
 	defer cleanup()

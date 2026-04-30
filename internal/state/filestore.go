@@ -14,6 +14,8 @@ type FileStore struct {
 	mu   sync.RWMutex
 }
 
+const maxEventLineBytes = 10 * 1024 * 1024
+
 // NewFileStore creates a new FileStore that persists events to the given path.
 func NewFileStore(path string) (*FileStore, error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
@@ -63,6 +65,7 @@ func (fs *FileStore) Count(filter EventFilter) (int, error) {
 
 	count := 0
 	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), maxEventLineBytes)
 	for scanner.Scan() {
 		var evt Event
 		if err := json.Unmarshal(scanner.Bytes(), &evt); err != nil {
@@ -102,6 +105,7 @@ func (fs *FileStore) readAndFilter(filter EventFilter) ([]Event, error) {
 
 	var events []Event
 	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), maxEventLineBytes)
 	for scanner.Scan() {
 		var evt Event
 		if err := json.Unmarshal(scanner.Bytes(), &evt); err != nil {

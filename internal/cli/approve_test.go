@@ -2,11 +2,13 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/tzone85/vortex-dispatch/internal/engine"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
 
@@ -90,24 +92,67 @@ func TestApproveStory_AwaitingApproval_MergeFails(t *testing.T) {
 	var buf bytes.Buffer
 	cmdObj.SetOut(&buf)
 
-	// approveStory will emit EventStoryApproved then try MergeExistingPR
-	// which will fail (no real git repo/PR), but the function should not error —
-	// it prints a message and returns nil
-	err := approveStory(cmdObj, s, "STR-APP2")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	err := approveStoryWithOps(cmdObj, s, "STR-APP2", t.TempDir(), &fakeApproveOps{
+		mergeErr: fmt.Errorf("merge failed"),
+	})
+	if err == nil {
+		t.Fatal("expected merge error")
 	}
 
-	output := buf.String()
-	// Should mention approval and suggest manual merge
-	if !strings.Contains(output, "Approved") {
-		t.Errorf("expected 'Approved' in output, got: %s", output)
-	}
-
-	// Verify event was emitted
 	events, _ := s.Events.List(state.EventFilter{Type: state.EventStoryApproved})
-	if len(events) == 0 {
+	if len(events) != 0 {
+		t.Error("approval event must not be emitted when merge fails")
+	}
+}
+
+func TestApproveStory_AwaitingApproval_MergesBeforeApprovalEvent(t *testing.T) {
+	_, s := setupTestEnv(t)
+
+	reqEvt := state.NewEvent(state.EventReqSubmitted, "", "", map[string]any{
+		"id":    "REQ-APP2B",
+		"title": "Approve Test",
+	})
+	s.Events.Append(reqEvt)
+	s.Proj.Project(reqEvt)
+
+	storyEvt := state.NewEvent(state.EventStoryCreated, "tech-lead", "STR-APP2B", map[string]any{
+		"id":         "STR-APP2B",
+		"req_id":     "REQ-APP2B",
+		"title":      "Story For Approval",
+		"complexity": 3,
+	})
+	s.Events.Append(storyEvt)
+	s.Proj.Project(storyEvt)
+
+	prEvt := state.NewEvent(state.EventStoryPRCreated, "merger", "STR-APP2B", map[string]any{
+		"pr_number": 42,
+		"pr_url":    "https://github.com/test/repo/pull/42",
+	})
+	s.Events.Append(prEvt)
+	s.Proj.Project(prEvt)
+
+	awaitEvt := state.NewEvent(state.EventStoryAwaitingApproval, "", "STR-APP2B", nil)
+	s.Events.Append(awaitEvt)
+	s.Proj.Project(awaitEvt)
+
+	cmdObj := makeCmdWithStores(t, "")
+	var buf bytes.Buffer
+	cmdObj.SetOut(&buf)
+
+	ops := &fakeApproveOps{}
+	if err := approveStoryWithOps(cmdObj, s, "STR-APP2B", t.TempDir(), ops); err != nil {
+		t.Fatalf("approveStoryWithOps: %v", err)
+	}
+	if ops.mergedPR != 42 {
+		t.Fatalf("expected PR #42 to be merged, got %d", ops.mergedPR)
+	}
+	events, _ := s.Events.List(state.EventFilter{Type: state.EventStoryApproved})
+	if len(events) != 1 {
 		t.Error("expected EventStoryApproved event to be emitted")
+	}
+	story, _ := s.Proj.GetStory("STR-APP2B")
+	if story.Status != "merged" {
+		t.Fatalf("expected story to be merged after approval, got %q", story.Status)
 	}
 }
 
@@ -198,13 +243,11 @@ func TestApproveAll_WithPendingStories(t *testing.T) {
 	cmdObj.SetOut(&buf)
 
 	err := approveAll(cmdObj, s, "REQ-ALL2")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("expected error because pending stories have no PRs")
 	}
-
-	output := buf.String()
-	if !strings.Contains(output, "Approving 2 stories") {
-		t.Errorf("expected 'Approving 2 stories', got: %s", output)
+	if !strings.Contains(err.Error(), "has no PR") {
+		t.Fatalf("expected no PR error, got %v", err)
 	}
 }
 
@@ -278,11 +321,26 @@ func TestRunApprove_AwaitingApproval_FullFlow(t *testing.T) {
 	cmd.SetErr(&buf)
 
 	err := cmd.Execute()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("expected error when gh-backed approval cannot merge test PR")
 	}
-	output := buf.String()
-	if !strings.Contains(output, "Approved") {
-		t.Errorf("expected 'Approved' in output, got: %s", output)
+}
+
+type fakeApproveOps struct {
+	mergeErr error
+	mergedPR int
+}
+
+func (f *fakeApproveOps) PushBranch(repoDir, branch string) error { return nil }
+
+func (f *fakeApproveOps) CreatePR(repoDir, title, body, baseBranch, headBranch string) (engine.PRCreationResult, error) {
+	return engine.PRCreationResult{}, nil
+}
+
+func (f *fakeApproveOps) MergePR(repoDir string, prNumber int) error {
+	if f.mergeErr != nil {
+		return f.mergeErr
 	}
+	f.mergedPR = prNumber
+	return nil
 }

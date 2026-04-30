@@ -5,6 +5,7 @@ import (
 	"log"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/tzone85/vortex-dispatch/internal/agent"
 	"github.com/tzone85/vortex-dispatch/internal/config"
@@ -68,6 +69,9 @@ func (d *Dispatcher) DispatchWave(dag *graph.DAG, completed map[string]bool, req
 	// Collect ready stories and auto-tag wave hints
 	readyStories := make([]PlannedStory, 0, len(readyIDs))
 	for _, id := range readyIDs {
+		if !d.storyDispatchable(id) {
+			continue
+		}
 		if s, ok := storyMap[id]; ok {
 			readyStories = append(readyStories, s)
 		}
@@ -123,15 +127,20 @@ func (d *Dispatcher) DispatchWave(dag *graph.DAG, completed map[string]bool, req
 		spawnEvt := state.NewEvent(state.EventAgentSpawned, agentID, story.ID, map[string]any{
 			"role":         string(role),
 			"session_name": sessionName,
+			"runtime":      d.runtimeForRole(role),
 		})
 		if err := d.eventStore.Append(spawnEvt); err != nil {
 			return nil, fmt.Errorf("emit agent spawned: %w", err)
+		}
+		if err := d.projStore.Project(spawnEvt); err != nil {
+			return nil, fmt.Errorf("project agent spawned: %w", err)
 		}
 
 		// Emit assignment event
 		assignEvt := state.NewEvent(state.EventStoryAssigned, agentID, story.ID, map[string]any{
 			"agent_id": agentID,
 			"wave":     waveNumber,
+			"branch":   branch,
 		})
 		if err := d.eventStore.Append(assignEvt); err != nil {
 			return nil, fmt.Errorf("emit story assigned: %w", err)
@@ -142,6 +151,19 @@ func (d *Dispatcher) DispatchWave(dag *graph.DAG, completed map[string]bool, req
 	}
 
 	return assignments, nil
+}
+
+func (d *Dispatcher) storyDispatchable(storyID string) bool {
+	story, err := d.projStore.GetStory(storyID)
+	if err != nil {
+		return true
+	}
+	switch story.Status {
+	case "draft", "estimated":
+		return true
+	default:
+		return false
+	}
 }
 
 // autoTagWaveHints assigns wave hints to stories that don't already have one
@@ -262,6 +284,30 @@ func (d *Dispatcher) routeStory(story PlannedStory) agent.Role {
 		}
 	}
 	return agent.RouteByComplexity(story.Complexity, d.config.Routing)
+}
+
+func (d *Dispatcher) runtimeForRole(role agent.Role) string {
+	modelCfg := role.ModelConfig(d.config.Models)
+	provider := strings.ToLower(modelCfg.Provider)
+
+	providerRuntimes := map[string][]string{
+		"anthropic": {"claude-code", "claude"},
+		"openai":    {"codex", "openai"},
+		"google":    {"gemini"},
+		"gemini":    {"gemini"},
+	}
+
+	if candidates, ok := providerRuntimes[provider]; ok {
+		for _, name := range candidates {
+			if _, exists := d.config.Runtimes[name]; exists {
+				return name
+			}
+		}
+	}
+	for name := range d.config.Runtimes {
+		return name
+	}
+	return "claude-code"
 }
 
 // preferredAgentID returns the highest-reputation agent ID for a given role,

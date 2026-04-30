@@ -517,7 +517,7 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 	// Distinguish between git infrastructure errors (which count toward
 	// the retry limit) and genuinely empty diffs so that broken worktrees
 	// don't loop forever.
-	diff, err := gitDiff(ag.WorktreePath)
+	diff, err := gitDiffForBase(ag.WorktreePath, m.config.Merge.BaseBranch)
 	if err != nil {
 		log.Printf("[pipeline] git diff error for %s: %v", storyID, err)
 		m.resetStoryToDraft(storyID, "monitor", fmt.Sprintf("git diff error: %v", err))
@@ -1005,7 +1005,7 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 		// and tools that read the repo see pre-VXD state.
 		// Note: repoDir here is the shadowed local (line 977), which
 		// resolves to cwd — the actual project root where VXD was invoked.
-		pullMainAfterMerge(repoDir)
+		pullBaseAfterMerge(repoDir, m.config.Merge.BaseBranch)
 
 		// Mark requirement complete.
 		compEvt := state.NewEvent(state.EventReqCompleted, "monitor", "", map[string]any{"id": rc.ReqID})
@@ -1605,6 +1605,10 @@ func stripVXDArtifactsFromBranch(worktreePath, storyID string) {
 // directory reflects the actual merged state so that subsequent tools
 // (evaluators, linters, other agents) see the completed work.
 func pullMainAfterMerge(repoDir string) {
+	pullBaseAfterMerge(repoDir, "")
+}
+
+func pullBaseAfterMerge(repoDir, baseBranch string) {
 	if repoDir == "" {
 		return
 	}
@@ -1626,7 +1630,14 @@ func pullMainAfterMerge(repoDir string) {
 	// Ensure gitignore covers VXD artifacts for the main repo (not just worktrees).
 	ensureGitignorePatterns(repoDir)
 
-	for _, branch := range []string{"main", "master"} {
+	branches := []string{baseBranch}
+	if baseBranch == "" {
+		branches = []string{"main", "master"}
+	}
+	for _, branch := range branches {
+		if branch == "" {
+			continue
+		}
 		cmd := exec.Command("git", "rev-parse", "--verify", "refs/heads/"+branch)
 		cmd.Dir = repoDir
 		if err := cmd.Run(); err == nil {
@@ -1640,7 +1651,7 @@ func pullMainAfterMerge(repoDir string) {
 			return
 		}
 	}
-	log.Printf("[auto-resume] could not detect base branch for pull (tried main, master)")
+	log.Printf("[auto-resume] could not detect base branch for pull")
 }
 
 // ensureGitignorePatterns appends VXD artifact patterns to .gitignore if
@@ -1696,9 +1707,18 @@ func captureFileTree(worktreePath string) string {
 // Tries merge-base candidates in order: origin/<base>, local <base>, then
 // falls back to the repo root commit so repos without a remote still work.
 func gitDiff(worktreePath string) (string, error) {
+	return gitDiffForBase(worktreePath, "")
+}
+
+func gitDiffForBase(worktreePath, baseBranch string) (string, error) {
 	// Try merge-base candidates in order of preference.
 	// Include both main and master to support repos using either convention.
-	candidates := []string{"origin/main", "origin/master", "main", "master"}
+	var candidates []string
+	if baseBranch != "" {
+		candidates = []string{"origin/" + baseBranch, baseBranch}
+	} else {
+		candidates = []string{"origin/main", "origin/master", "main", "master"}
+	}
 	var mbOut []byte
 	var mbErr error
 	for _, ref := range candidates {

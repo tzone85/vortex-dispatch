@@ -88,6 +88,44 @@ func makeCmdWithStores(t *testing.T, dir string) *cobra.Command {
 	return cmd
 }
 
+func TestBuildQAConfig_LoadsRepoProfileCommands(t *testing.T) {
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, ".vxd", "projects", "test-project")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	profile := &repolearn.RepoProfile{
+		RepoPath: dir,
+		Build: repolearn.BuildConfig{
+			BuildCommand: "go build ./...",
+			LintCommand:  "go vet ./...",
+		},
+		Test: repolearn.TestConfig{
+			TestCommand: "go test ./...",
+		},
+	}
+	if err := repolearn.SaveProfile(projectDir, profile); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.QA.SuccessCriteria = []config.SuccessCriterion{{Kind: "file_exists", Path: "coverage.html"}}
+
+	qaCfg := buildQAConfig(cfg, projectDir, dir)
+	if qaCfg.LintCommand != "go vet ./..." {
+		t.Fatalf("expected lint command from repo profile, got %q", qaCfg.LintCommand)
+	}
+	if qaCfg.BuildCommand != "go build ./..." {
+		t.Fatalf("expected build command from repo profile, got %q", qaCfg.BuildCommand)
+	}
+	if qaCfg.TestCommand != "go test ./..." {
+		t.Fatalf("expected test command from repo profile, got %q", qaCfg.TestCommand)
+	}
+	if len(qaCfg.SuccessCriteria) != 1 {
+		t.Fatalf("expected success criteria to be preserved, got %d", len(qaCfg.SuccessCriteria))
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Root command tests
 // ---------------------------------------------------------------------------

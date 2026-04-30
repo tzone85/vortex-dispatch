@@ -75,8 +75,8 @@ workspace:
   state_dir: ~/.vxd
   backend: sqlite
 models:
-  tech_lead: {provider: anthropic, model: claude-opus-4-6-20250620}
-  senior: {provider: anthropic, model: claude-sonnet-4-6-20250620}
+  tech_lead: {provider: anthropic, model: claude-opus-4-20250514}
+  senior: {provider: anthropic, model: claude-sonnet-4-20250514}
   junior: {provider: google, model: gemma-4-27b-it}
 routing:
   junior_max_complexity: 3
@@ -260,17 +260,35 @@ Every failure is a chance to make the system stronger:
 - To find which state dir a running dashboard uses: `lsof -p <PID> | grep events.jsonl`
 - The `vxd projects` command shows what VXD knows, but custom state dirs may not appear there
 
+### Post-Merge Artifact Protection
+- `stripVXDArtifactsFromBranch()` runs after autoCommit, before review/merge
+- For files that exist on the base branch (e.g. project CLAUDE.md): restores the base version via `git checkout origin/main -- CLAUDE.md` so the merge is a no-op
+- For VXD-only files (WAVE_CONTEXT.md, .vxd-prompts/, .serena/): fully removes via `git rm -rf`
+- `pullMainAfterMerge()` runs after all stories complete: pulls latest main/master, cleans up WAVE_CONTEXT.md/REQUIREMENT.md from repo root, applies gitignore patterns
+- 16 tests in `artifact_protection_test.go` verify: auto-pull, master branch support, artifact cleanup, gitignore, CLAUDE.md preservation after merge, full pipeline integration
+- **Root cause (2026-04-30):** agents commit VXD directive CLAUDE.md into worktree branches → PR merges it → overwrites project's real CLAUDE.md. Tests caught that naive `git rm` would DELETE CLAUDE.md from main on merge — restore-to-base is the correct approach.
+
+### Model ID Compatibility
+- Claude CLI subscription uses `claude-sonnet-4-20250514` / `claude-opus-4-20250514`
+- Dated 4.6 IDs (`claude-sonnet-4-6-20250620`) do NOT work on CLI subscription tier
+- Always test model IDs with `claude --model <id> -p "test" --max-turns 1` before updating defaults
+
 ### Debugging Checklist (Pipeline Issues)
 1. **Stories stuck in draft after escalation** → Check if SLA breach is killing them on resume. Reset `escalation_tier` in SQLite if needed.
 2. **Review keeps rejecting valid work** → Check `gitDiff()` merge-base. Does the repo use `master` or `main`? Check diff output manually: `cd <worktree> && git diff origin/<branch>...HEAD --stat`
 3. **Self-improvement findings all aborted** → Check `--max-turns`, env vars, and whether findings are actionable
 4. **Email never sends (email_sent: false)** → Verify `RESEND_API_KEY` is set. Check if summary is re-saved after email phase.
 5. **Agent produces work but diff shows empty** → Agent may not have committed. `autoCommit()` runs in post-execution, but check worktree: `cd <worktree> && git status`
+6. **CLAUDE.md overwritten after merge** → `stripVXDArtifactsFromBranch` should prevent this. If it still happens, check that the function runs before `rebaseAndMerge`. Verify with: `git log --oneline --diff-filter=M -- CLAUDE.md`
+7. **Code exists on GitHub but not locally** → `pullMainAfterMerge` should auto-pull. If it failed, check for dirty working tree or network issues. Manual fix: `git pull --ff-only origin main`
 
-## Pending Work (as of 2026-04-19)
-1. ~~Port Docker/SSH runners to NXD~~ — DONE (runner_factory.go + config structs)
-2. Fix GitHub Actions billing — account payment issue, CI slimmed to ubuntu-only (~70% cost reduction)
-3. Re-planner guardrails — prevent hallucinated sub-stories during tier-3 splits
-4. Post-merge rebase check — auto-detect and resolve conflicts on open PRs
-5. Mukuru-api pipeline — stories resuming with fixed gitDiff + SLA timer
-6. NXD native runtime unstaged changes — auto-commit before rebase
+## Pending Work (as of 2026-04-30)
+1. ~~Port Docker/SSH runners to NXD~~ — DONE
+2. Fix GitHub Actions billing — account payment issue, CI slimmed to ubuntu-only
+3. ~~Mukuru-api pipeline~~ — DONE (7/7 merged, PRs #6-#12)
+4. ~~Mukuru-site pipeline~~ — DONE (7/7 merged, PRs #18-#24)
+5. ~~CashTask backend~~ — DONE (10/10 merged, PRs #1-#10)
+6. ~~Artifact protection~~ — DONE (stripVXDArtifactsFromBranch + pullMainAfterMerge + 16 tests)
+7. ~~Codex review fixes~~ — DONE (scoping, agent projection, handler errors, ergonomics)
+8. Post-merge rebase check — auto-detect and resolve conflicts on open PRs
+9. Re-planner guardrails — prevent hallucinated sub-stories during tier-3 splits

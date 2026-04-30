@@ -994,6 +994,11 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 			log.Printf("[verify] cycle 1 clean — no critical gaps found")
 		}
 
+		// Pull merged changes into the local checkout so the repo
+		// reflects all merged PRs. Without this, local files are stale
+		// and tools that read the repo see pre-VXD state.
+		pullMainAfterMerge(repoDir)
+
 		// Mark requirement complete.
 		compEvt := state.NewEvent(state.EventReqCompleted, "monitor", "", map[string]any{"id": rc.ReqID})
 		m.eventStore.Append(compEvt)
@@ -1506,6 +1511,31 @@ func autoCommit(worktreePath, storyID string) {
 	}
 
 	log.Printf("[pipeline] auto-commit succeeded for %s", storyID)
+}
+
+// pullMainAfterMerge fetches and fast-forward merges the base branch into
+// the local checkout after all PRs have been merged. This ensures the repo
+// directory reflects the actual merged state so that subsequent tools
+// (evaluators, linters, other agents) see the completed work.
+func pullMainAfterMerge(repoDir string) {
+	if repoDir == "" {
+		return
+	}
+	for _, branch := range []string{"main", "master"} {
+		cmd := exec.Command("git", "rev-parse", "--verify", "refs/heads/"+branch)
+		cmd.Dir = repoDir
+		if err := cmd.Run(); err == nil {
+			pull := exec.Command("git", "pull", "--ff-only", "origin", branch)
+			pull.Dir = repoDir
+			if out, pullErr := pull.CombinedOutput(); pullErr != nil {
+				log.Printf("[auto-resume] git pull %s failed (non-fatal): %v\n%s", branch, pullErr, string(out))
+			} else {
+				log.Printf("[auto-resume] pulled latest %s into local checkout", branch)
+			}
+			return
+		}
+	}
+	log.Printf("[auto-resume] could not detect base branch for pull (tried main, master)")
 }
 
 // ensureGitignorePatterns appends VXD artifact patterns to .gitignore if

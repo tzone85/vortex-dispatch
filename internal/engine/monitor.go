@@ -1536,33 +1536,67 @@ func stripVXDArtifactsFromBranch(worktreePath, storyID string) {
 		".superpowers",
 	}
 
-	var removed []string
+	// Detect base branch for restoring artifacts to their original state.
+	baseBranch := "main"
+	for _, candidate := range []string{"origin/main", "origin/master"} {
+		check := exec.Command("git", "rev-parse", "--verify", candidate)
+		check.Dir = worktreePath
+		if err := check.Run(); err == nil {
+			baseBranch = candidate
+			break
+		}
+	}
+
+	var restored []string
 	for _, art := range artifacts {
 		artPath := filepath.Join(worktreePath, art)
 		if _, err := os.Stat(artPath); err != nil {
 			continue
 		}
-		// Remove from git index (keeps file on disk for agent reference)
-		rmCmd := exec.Command("git", "rm", "-rf", "--cached", art)
-		rmCmd.Dir = worktreePath
-		if out, err := rmCmd.CombinedOutput(); err != nil {
-			log.Printf("[pipeline] git rm --cached %s for %s: %v (%s)", art, storyID, err, strings.TrimSpace(string(out)))
-			continue
+
+		// Check if this file exists on the base branch (i.e., it's a
+		// project file the agent overwrote, like CLAUDE.md).
+		checkBase := exec.Command("git", "cat-file", "-e", baseBranch+":"+art)
+		checkBase.Dir = worktreePath
+		existsOnBase := checkBase.Run() == nil
+
+		if existsOnBase {
+			// Restore the base branch version so the merge is a no-op
+			// for this file. The agent's changes are discarded.
+			restoreCmd := exec.Command("git", "checkout", baseBranch, "--", art)
+			restoreCmd.Dir = worktreePath
+			if out, err := restoreCmd.CombinedOutput(); err != nil {
+				log.Printf("[pipeline] git checkout %s -- %s for %s: %v (%s)", baseBranch, art, storyID, err, strings.TrimSpace(string(out)))
+				continue
+			}
+		} else {
+			// File doesn't exist on base — it was created by VXD/agent.
+			// Remove it completely so it doesn't appear in the PR.
+			rmCmd := exec.Command("git", "rm", "-rf", art)
+			rmCmd.Dir = worktreePath
+			if out, err := rmCmd.CombinedOutput(); err != nil {
+				log.Printf("[pipeline] git rm %s for %s: %v (%s)", art, storyID, err, strings.TrimSpace(string(out)))
+				continue
+			}
 		}
-		removed = append(removed, art)
+		restored = append(restored, art)
 	}
 
-	if len(removed) == 0 {
+	if len(restored) == 0 {
 		return
 	}
 
-	// Amend the last commit to exclude the artifacts
-	amendCmd := exec.Command("git", "commit", "--amend", "--no-edit", "-a")
+	// Stage changes and amend the commit
+	stageCmd := exec.Command("git", "add", "-A")
+	stageCmd.Dir = worktreePath
+	stageCmd.CombinedOutput()
+
+	amendCmd := exec.Command("git", "commit", "--amend", "--no-edit")
 	amendCmd.Dir = worktreePath
 	if out, err := amendCmd.CombinedOutput(); err != nil {
 		log.Printf("[pipeline] amend after artifact strip for %s: %v (%s)", storyID, err, strings.TrimSpace(string(out)))
 	} else {
-		log.Printf("[pipeline] stripped %d VXD artifact(s) from branch for %s: %v", len(removed), storyID, removed)
+		log.Printf("[pipeline] stripped %d VXD artifact(s) from branch for %s: %v", len(restored), storyID, restored)
 	}
 }
 

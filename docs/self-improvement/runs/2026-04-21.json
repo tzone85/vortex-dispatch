@@ -1,0 +1,15 @@
+{
+  "run_id": "2026-04-21T04:00:10Z",
+  "started_at": "2026-04-21T06:00:10.332831+02:00",
+  "completed_at": "2026-04-21T08:33:06.362017+02:00",
+  "sources_scraped": 12,
+  "findings_total": 12,
+  "findings_relevant": 3,
+  "findings_analyzed": 3,
+  "prs_created": 0,
+  "prs_proposed": 3,
+  "errors": [
+    "email send: http request: Post \"https://api.resend.com/emails\": dial tcp: lookup api.resend.com: no such host"
+  ],
+  "email_sent": false
+}

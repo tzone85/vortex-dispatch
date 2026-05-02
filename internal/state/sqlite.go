@@ -232,6 +232,22 @@ func (s *SQLiteStore) Project(evt Event) error {
 	case EventAgentCheckpoint, EventAgentResumed, EventAgentStuck, EventPlanApproved:
 		return nil // informational — no projection change
 
+	case EventBaselineMeasured,
+		EventExperimentProposed,
+		EventExperimentRunning,
+		EventExperimentMeasured,
+		EventExperimentTiebroken,
+		EventExperimentTripwired,
+		EventExperimentKept,
+		EventExperimentDiscarded,
+		EventExperimentFailed,
+		EventCoordinatorPanic,
+		EventProgrammdEvolved:
+		// Autoresearch events are read directly from the event log by the
+		// HypothesisBank/BayesSampler; no SQLite projection is needed in v1.
+		// Explicit case ensures we don't trip the default-WARNING branch.
+		return nil
+
 	default:
 		log.Printf("[projector] WARNING: unhandled event type %q (story=%s)", evt.Type, evt.StoryID)
 		return nil

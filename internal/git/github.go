@@ -157,3 +157,21 @@ func GHAvailable() bool {
 	_, err := exec.LookPath("gh")
 	return err == nil
 }
+
+// FastForwardLocal advances the named target ref to the tip of source, locally.
+// Implemented via `git fetch . source:target`, which is a fast-forward-only
+// update of one local ref to another and fails if the move would not be a
+// fast-forward (preventing accidental loss of commits on target).
+//
+// Used by the autoresearch GateRouter to stack winning experiments onto an
+// `autoresearch/winning` branch without touching the working tree.
+func FastForwardLocal(repoDir, source, target string) error {
+	refspec := source + ":" + target
+	cmd := exec.Command("git", "fetch", ".", refspec)
+	cmd.Dir = repoDir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git fetch . %s: %w (%s)", refspec, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}

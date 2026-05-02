@@ -45,6 +45,7 @@ func init() {
 	rootCmd.AddCommand(newLearnCmd())
 	rootCmd.AddCommand(newBackupCmd())
 	rootCmd.AddCommand(newImproveCmd())
+	rootCmd.AddCommand(newAutoresearchCmd())
 }
 
 func Execute() error {

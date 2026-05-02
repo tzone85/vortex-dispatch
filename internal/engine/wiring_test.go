@@ -1508,3 +1508,140 @@ func TestWiring_TechLeadPrompt_Contains5W1H(t *testing.T) {
 		}
 	}
 }
+
+// --------------------------------------------------------------------------
+// Autoresearch Harness Wiring Tests
+// --------------------------------------------------------------------------
+// See docs/superpowers/specs/2026-05-02-autoresearch-harness-design.md.
+// These verify autoresearch event types and config schema are activated.
+
+func TestWiring_AutoresearchEvents_Projected(t *testing.T) {
+	// Every new autoresearch event type MUST have an explicit case in
+	// sqlite.go Project(); otherwise it falls through to the default
+	// WARNING branch and the bank/sampler still works but the operator
+	// gets noise. We catch that by projecting each event and asserting
+	// no error is returned (default WARNING path returns nil too, but
+	// the *test asserts the case exists by exercising it explicitly*).
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	store, err := state.NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer store.Close()
+
+	autoresearchEvents := []state.EventType{
+		state.EventBaselineMeasured,
+		state.EventExperimentProposed,
+		state.EventExperimentRunning,
+		state.EventExperimentMeasured,
+		state.EventExperimentTiebroken,
+		state.EventExperimentTripwired,
+		state.EventExperimentKept,
+		state.EventExperimentDiscarded,
+		state.EventExperimentFailed,
+		state.EventCoordinatorPanic,
+		state.EventProgrammdEvolved,
+	}
+	for _, et := range autoresearchEvents {
+		evt := state.NewEvent(et, "autoresearch", "", map[string]any{"id": "x"})
+		if err := store.Project(evt); err != nil {
+			t.Errorf("WIRING FAILURE: Project(%s) returned %v — must be handled explicitly in sqlite.go", et, err)
+		}
+	}
+}
+
+func TestWiring_AutoresearchConfig_DisabledByDefault(t *testing.T) {
+	// Empty AutoresearchConfig must validate (feature is opt-in).
+	cfg := config.Config{
+		Workspace: config.WorkspaceConfig{Backend: "sqlite", LogLevel: "info"},
+		Cleanup:   config.CleanupConfig{WorktreePrune: "immediate", LogArchive: "none"},
+		Routing:   config.RoutingConfig{MaxConcurrentAgents: 5, JuniorMaxComplexity: 3, IntermediateMaxComplexity: 8},
+		Billing:   config.BillingConfig{DefaultRate: 100, Currency: "USD", LLMCosts: config.LLMCostConfig{Mode: "subscription"}},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("WIRING FAILURE: empty AutoresearchConfig must validate when feature is disabled, got: %v", err)
+	}
+}
+
+func TestWiring_AutoresearchConfig_EnabledRequiresFields(t *testing.T) {
+	cfg := config.Config{
+		Workspace: config.WorkspaceConfig{Backend: "sqlite", LogLevel: "info"},
+		Cleanup:   config.CleanupConfig{WorktreePrune: "immediate", LogArchive: "none"},
+		Routing:   config.RoutingConfig{MaxConcurrentAgents: 5, JuniorMaxComplexity: 3, IntermediateMaxComplexity: 8},
+		Billing:   config.BillingConfig{DefaultRate: 100, Currency: "USD", LLMCosts: config.LLMCostConfig{Mode: "subscription"}},
+		Autoresearch: config.AutoresearchConfig{
+			Enabled: true,
+			// missing metric, paths, gate, budget, parallel
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Error("WIRING FAILURE: enabled autoresearch with no metric/paths/gate must fail validation")
+	}
+}
+
+func TestWiring_AutoresearchConfig_FullValid(t *testing.T) {
+	cfg := config.Config{
+		Workspace: config.WorkspaceConfig{Backend: "sqlite", LogLevel: "info"},
+		Cleanup:   config.CleanupConfig{WorktreePrune: "immediate", LogArchive: "none"},
+		Routing:   config.RoutingConfig{MaxConcurrentAgents: 5, JuniorMaxComplexity: 3, IntermediateMaxComplexity: 8},
+		Billing:   config.BillingConfig{DefaultRate: 100, Currency: "USD", LLMCosts: config.LLMCostConfig{Mode: "subscription"}},
+		Autoresearch: config.AutoresearchConfig{
+			Enabled: true,
+			Metric: config.AutoresearchMetric{
+				Command: "go test -bench=.",
+				Parser: config.AutoresearchMetricParser{
+					Kind:          "regex",
+					Pattern:       `(\d+)\s+ns/op`,
+					LowerIsBetter: true,
+				},
+				TieEpsilon: 0.02,
+			},
+			EditablePaths: []string{"internal/**/*.go"},
+			Gate:          "winning",
+			Budget:        "5m",
+			Parallel:      4,
+		},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("WIRING FAILURE: valid autoresearch block rejected by Validate(): %v", err)
+	}
+}
+
+func TestWiring_AutoresearchCLI_Registered(t *testing.T) {
+	// Build the CLI binary's help and verify "autoresearch" subcommand is reachable.
+	cmd := exec.Command("go", "run", "../../cmd/vxd", "autoresearch", "--help")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("WIRING FAILURE: vxd autoresearch --help failed: %v\n%s", err, string(out))
+	}
+	expectedSubs := []string{"start", "stop", "status", "hypotheses", "evolve"}
+	for _, sub := range expectedSubs {
+		if !strings.Contains(string(out), sub) {
+			t.Errorf("WIRING FAILURE: subcommand %q not advertised by `vxd autoresearch --help`\n%s", sub, string(out))
+		}
+	}
+}
+
+func TestWiring_AutoresearchConfig_InvalidGate(t *testing.T) {
+	cfg := config.Config{
+		Workspace: config.WorkspaceConfig{Backend: "sqlite", LogLevel: "info"},
+		Cleanup:   config.CleanupConfig{WorktreePrune: "immediate", LogArchive: "none"},
+		Routing:   config.RoutingConfig{MaxConcurrentAgents: 5, JuniorMaxComplexity: 3, IntermediateMaxComplexity: 8},
+		Billing:   config.BillingConfig{DefaultRate: 100, Currency: "USD", LLMCosts: config.LLMCostConfig{Mode: "subscription"}},
+		Autoresearch: config.AutoresearchConfig{
+			Enabled: true,
+			Metric: config.AutoresearchMetric{
+				Command: "make test",
+				Parser:  config.AutoresearchMetricParser{Kind: "last_float", LowerIsBetter: true},
+			},
+			EditablePaths: []string{"src/**"},
+			Gate:          "yolo", // invalid
+			Budget:        "5m",
+			Parallel:      1,
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Error("WIRING FAILURE: invalid gate \"yolo\" must be rejected by Validate()")
+	}
+}

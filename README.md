@@ -260,6 +260,8 @@ Run `vxd init` to generate `vxd.yaml` with sensible defaults, then customize:
 | `qa` | Lint/build/test commands, declarative success criteria |
 | `sla` | Per-complexity duration limits, optional auto-escalation on breach |
 | `secrets` | Secrets provider (`env` or `vault`) and Vault connection settings |
+| `notify` | Webhook notification settings (Slack URL, SLA/complete triggers) |
+| `autoresearch` | Per-repo autoresearch harness: metric, editable_paths, gate, budget, parallel, schedule, tripwire, bayes |
 
 ## Architecture
 

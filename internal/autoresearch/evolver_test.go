@@ -3,11 +3,32 @@ package autoresearch
 import (
 	"context"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
+
+// fakeWorkspaceWriter records what was written for evolver tests.
+type fakeWorkspaceWriter struct {
+	mu      sync.Mutex
+	calls   int
+	branch  string
+	files   map[string]string
+	message string
+	err     error
+}
+
+func (f *fakeWorkspaceWriter) WriteAndCommit(_, branch, message string, files map[string]string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	f.branch = branch
+	f.message = message
+	f.files = files
+	return f.err
+}
 
 func TestEvolver_OpensPRNeverMerges(t *testing.T) {
 	dir := t.TempDir()
@@ -21,12 +42,14 @@ func TestEvolver_OpensPRNeverMerges(t *testing.T) {
 
 	bank := NewHypothesisBank(store)
 	gateOps := newFakeGateOps()
+	writer := &fakeWorkspaceWriter{}
 
 	e := &ProgramMDEvolver{
 		Client:     scriptedClient{reply: "# new program.md\n\nbe better"},
 		Model:      "test",
 		Bank:       bank,
 		GateOps:    gateOps,
+		Workspace:  writer,
 		BaseBranch: "main",
 		Events:     store,
 		Now:        func() time.Time { return time.Date(2026, 5, 3, 0, 0, 0, 0, time.UTC) },
@@ -48,6 +71,45 @@ func TestEvolver_OpensPRNeverMerges(t *testing.T) {
 	// Branch convention check.
 	if gateOps.createdBranches[0] != "autoresearch/evolve-20260503" {
 		t.Errorf("branch name unexpected: %s", gateOps.createdBranches[0])
+	}
+	// Workspace writer must have committed program.md to the branch
+	// before the push step. This is the v1 fix that makes the PR non-empty.
+	if writer.calls != 1 {
+		t.Errorf("expected workspace WriteAndCommit to be called exactly once, got %d", writer.calls)
+	}
+	if writer.branch != "autoresearch/evolve-20260503" {
+		t.Errorf("workspace called with wrong branch: %s", writer.branch)
+	}
+	if _, ok := writer.files["program.md"]; !ok {
+		t.Errorf("expected program.md in committed files, got %v", writer.files)
+	}
+}
+
+func TestEvolver_CustomProgramMDPath(t *testing.T) {
+	dir := t.TempDir()
+	store, _ := state.NewFileStore(filepath.Join(dir, "events.jsonl"))
+	defer store.Close()
+
+	bank := NewHypothesisBank(store)
+	gateOps := newFakeGateOps()
+	writer := &fakeWorkspaceWriter{}
+
+	e := &ProgramMDEvolver{
+		Client:        scriptedClient{reply: "rewritten"},
+		Model:         "test",
+		Bank:          bank,
+		GateOps:       gateOps,
+		Workspace:     writer,
+		ProgramMDPath: "docs/agent-instructions.md",
+		BaseBranch:    "main",
+		Events:        store,
+		Now:           func() time.Time { return time.Date(2026, 5, 3, 0, 0, 0, 0, time.UTC) },
+	}
+	if _, err := e.Evolve(context.Background(), "/repo", "r1", "old"); err != nil {
+		t.Fatalf("evolve: %v", err)
+	}
+	if _, ok := writer.files["docs/agent-instructions.md"]; !ok {
+		t.Errorf("custom ProgramMDPath should be honored, got %v", writer.files)
 	}
 }
 

@@ -69,6 +69,19 @@ const (
 	// Recovery events.
 	EventStoryReset        EventType = "STORY_RESET"
 	EventRecoveryCompleted EventType = "RECOVERY_COMPLETED"
+
+	// Autoresearch harness events. See docs/superpowers/specs/2026-05-02-autoresearch-harness-design.md.
+	EventBaselineMeasured    EventType = "BASELINE_MEASURED"
+	EventExperimentProposed  EventType = "EXPERIMENT_PROPOSED"
+	EventExperimentRunning   EventType = "EXPERIMENT_RUNNING"
+	EventExperimentMeasured  EventType = "EXPERIMENT_MEASURED"
+	EventExperimentTiebroken EventType = "EXPERIMENT_TIEBROKEN"
+	EventExperimentTripwired EventType = "EXPERIMENT_TRIPWIRED"
+	EventExperimentKept      EventType = "EXPERIMENT_KEPT"
+	EventExperimentDiscarded EventType = "EXPERIMENT_DISCARDED"
+	EventExperimentFailed    EventType = "EXPERIMENT_FAILED"
+	EventCoordinatorPanic    EventType = "COORDINATOR_PANIC"
+	EventProgrammdEvolved    EventType = "PROGRAMMD_EVOLVED"
 )
 
 // Event represents a single domain event in the append-only event store.

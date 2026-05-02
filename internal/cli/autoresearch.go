@@ -4,14 +4,19 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/tzone85/vortex-dispatch/internal/autoresearch"
 	"github.com/tzone85/vortex-dispatch/internal/config"
+	"github.com/tzone85/vortex-dispatch/internal/llm"
+	"github.com/tzone85/vortex-dispatch/internal/runtime"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
 
@@ -49,13 +54,15 @@ func newAutoresearchStartCmd() *cobra.Command {
 	var (
 		budget     time.Duration
 		continuous bool
+		duration   time.Duration
+		dryRun     bool
 	)
 	cmd := &cobra.Command{
 		Use:   "start <repo>",
 		Short: "Start the autoresearch coordinator for a repo",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			repo := args[0]
+			repoArg := args[0]
 			cfg, err := loadConfigForAutoresearch(cmd)
 			if err != nil {
 				return err
@@ -64,21 +71,277 @@ func newAutoresearchStartCmd() *cobra.Command {
 				return fmt.Errorf("autoresearch.enabled is false in vxd.yaml — set it to true first")
 			}
 			if budget > 0 {
-				// CLI override of config.
 				cfg.Autoresearch.Budget = budget.String()
 			}
 			if continuous {
 				cfg.Autoresearch.Continuous = true
 			}
+
+			repoDir, err := filepath.Abs(repoArg)
+			if err != nil {
+				return fmt.Errorf("resolve repo path %s: %w", repoArg, err)
+			}
+			if _, statErr := os.Stat(filepath.Join(repoDir, ".git")); statErr != nil {
+				return fmt.Errorf("not a git repository: %s", repoDir)
+			}
+
 			fmt.Fprintf(cmd.OutOrStdout(), "autoresearch start: repo=%s budget=%s parallel=%d gate=%s\n",
-				repo, cfg.Autoresearch.Budget, cfg.Autoresearch.Parallel, cfg.Autoresearch.Gate)
-			fmt.Fprintln(cmd.OutOrStdout(), "v1: coordinator wiring is in place; full agent driver integration is the next milestone.")
+				repoDir, cfg.Autoresearch.Budget, cfg.Autoresearch.Parallel, cfg.Autoresearch.Gate)
+
+			if dryRun {
+				fmt.Fprintln(cmd.OutOrStdout(), "--dry-run: configuration validated; not spawning coordinator")
+				return nil
+			}
+
+			coord, runner, cleanup, err := buildLiveCoordinator(repoDir, cfg)
+			if err != nil {
+				return err
+			}
+			defer cleanup()
+
+			ctx, cancel := context.WithCancel(cmd.Context())
+			if duration > 0 {
+				ctx, cancel = context.WithTimeout(cmd.Context(), duration)
+			}
+			defer cancel()
+
+			// Trap SIGINT/SIGTERM so the coordinator drains in-flight experiments.
+			sigCh := make(chan os.Signal, 1)
+			signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+			go func() {
+				<-sigCh
+				fmt.Fprintln(cmd.OutOrStdout(), "autoresearch: stop requested, draining...")
+				coord.Stop()
+				cancel()
+			}()
+
+			_ = runner // silence unused; reserved for future status hooks
+			fmt.Fprintln(cmd.OutOrStdout(), "autoresearch: coordinator running (Ctrl-C to stop)")
+			if err := coord.Run(ctx); err != nil && err != context.Canceled && err != context.DeadlineExceeded {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "autoresearch: coordinator stopped")
 			return nil
 		},
 	}
 	cmd.Flags().DurationVar(&budget, "budget", 0, "Override autoresearch.budget (e.g. 10m)")
 	cmd.Flags().BoolVar(&continuous, "continuous", false, "Run back-to-back instead of scheduled batch")
+	cmd.Flags().DurationVar(&duration, "duration", 0, "Maximum wall-clock duration for this session (default: until Ctrl-C)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Validate config and resolve dependencies without spawning the coordinator")
 	return cmd
+}
+
+// buildLiveCoordinator wires up every dependency the autoresearch
+// Coordinator needs from the configured project state. Returns the
+// Coordinator, its underlying ExperimentRunner (for diagnostics), and
+// a cleanup func that releases the event store.
+func buildLiveCoordinator(repoDir string, cfg config.Config) (*autoresearch.Coordinator, *autoresearch.ExperimentRunner, func(), error) {
+	stateDir := defaultStateDir()
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		return nil, nil, nil, fmt.Errorf("ensure state dir %s: %w", stateDir, err)
+	}
+	store, err := state.NewFileStore(filepath.Join(stateDir, "events.jsonl"))
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("open event store: %w", err)
+	}
+	cleanup := func() { _ = store.Close() }
+
+	rt, runtimeName, err := pickAutoresearchRuntime(cfg.Runtimes)
+	if err != nil {
+		cleanup()
+		return nil, nil, nil, err
+	}
+
+	ll, err := buildAutoresearchLLMClient(cfg)
+	if err != nil {
+		cleanup()
+		return nil, nil, nil, err
+	}
+
+	model := cfg.Models.Senior.Model
+	if model == "" {
+		model = "claude-sonnet-4-20250514"
+	}
+
+	worktreeRoot := filepath.Join(stateDir, "autoresearch-worktrees", filepath.Base(repoDir))
+	if err := os.MkdirAll(worktreeRoot, 0o755); err != nil {
+		cleanup()
+		return nil, nil, nil, fmt.Errorf("ensure worktree root: %w", err)
+	}
+
+	driver := &autoresearch.LiveAgentDriver{
+		Runtime: rt,
+		Model:   model,
+		LogDir:  filepath.Join(stateDir, "autoresearch-logs"),
+	}
+
+	metric := &autoresearch.MetricHarness{
+		Metric: cfg.Autoresearch.Metric,
+		Tiebreaker: &autoresearch.LLMTiebreaker{
+			Client: ll,
+			Model:  model,
+		},
+	}
+	tripwireModel := cfg.Autoresearch.Tripwire.Model
+	if tripwireModel == "" {
+		tripwireModel = model
+	}
+	tripwire := &autoresearch.TripwireJudge{Client: ll, Model: tripwireModel}
+
+	bayesClasses := autoresearch.DefaultClasses
+	if len(cfg.Autoresearch.Bayes.Classes) > 0 {
+		bayesClasses = make([]autoresearch.ExperimentClass, 0, len(cfg.Autoresearch.Bayes.Classes))
+		for _, c := range cfg.Autoresearch.Bayes.Classes {
+			bayesClasses = append(bayesClasses, autoresearch.ExperimentClass(c))
+		}
+	}
+	sampler := autoresearch.NewBayesSampler(
+		bayesClasses,
+		cfg.Autoresearch.Bayes.PriorAlpha,
+		cfg.Autoresearch.Bayes.PriorBeta,
+	)
+	bank := autoresearch.NewHypothesisBank(store)
+
+	gate := autoresearch.NewGateRouter(cfg.Merge.BaseBranch, autoresearch.DefaultGateOps{})
+	if gate.BaseBranch == "" {
+		gate.BaseBranch = "main"
+	}
+
+	allow := cfg.Autoresearch.EditablePaths
+	deny := cfg.Autoresearch.ForbiddenPaths
+	runner := &autoresearch.ExperimentRunner{
+		RepoDir:      repoDir,
+		BaseBranch:   gate.BaseBranch,
+		WorktreeRoot: worktreeRoot,
+		Worktree:     autoresearch.DefaultWorktreeOps{},
+		Driver:       driver,
+		Filter:       autoresearch.PathFilter{Allow: allow, Deny: deny},
+		Metric:       metric,
+		Tripwire:     tripwire,
+		Bank:         bank,
+		Sampler:      sampler,
+		Gate:         gate,
+		GateAction:   autoresearch.GateAction(cfg.Autoresearch.Gate),
+		Conventions: autoresearch.Conventions{
+			Language:     guessLanguage(repoDir),
+			TestPatterns: []string{"*_test.go", "**/*_test.go"},
+		},
+		Events: store,
+	}
+
+	budget := parseBudget(cfg.Autoresearch.Budget)
+	parallel := cfg.Autoresearch.Parallel
+	if parallel < 1 {
+		parallel = 1
+	}
+
+	coord := autoresearch.NewCoordinator(
+		repoDir,
+		bank,
+		sampler,
+		runner,
+		baselineFromConfig(cfg),
+		parallel,
+		budget,
+	)
+
+	// One last log line so operators can confirm the runtime selection.
+	fmt.Fprintf(os.Stderr, "autoresearch: runtime=%s model=%s baseline-source=fixed\n", runtimeName, model)
+	return coord, runner, cleanup, nil
+}
+
+// pickAutoresearchRuntime picks the first runtime registered in the config
+// (alphabetical for determinism), or returns an error advising the user
+// to configure one.
+func pickAutoresearchRuntime(cfg map[string]config.RuntimeConfig) (runtime.Runtime, string, error) {
+	if len(cfg) == 0 {
+		return nil, "", fmt.Errorf("no runtimes configured in vxd.yaml — add a runtimes: block")
+	}
+	reg, err := runtime.NewRegistry(cfg)
+	if err != nil {
+		return nil, "", fmt.Errorf("build runtime registry: %w", err)
+	}
+	names := reg.List()
+	sort.Strings(names)
+	rt, err := reg.Get(names[0])
+	if err != nil {
+		return nil, "", err
+	}
+	return rt, names[0], nil
+}
+
+// buildAutoresearchLLMClient picks the best available LLM client for
+// tripwire and tiebreak calls. Prefers the Anthropic API (when an API
+// key is set), falls back to the Claude CLI subscription path.
+func buildAutoresearchLLMClient(cfg config.Config) (llm.Client, error) {
+	if apiKey := resolveAPIKey("ANTHROPIC_API_KEY"); apiKey != "" {
+		return llm.NewRetryClient(llm.NewAnthropicClient(apiKey), 2), nil
+	}
+	if _, err := lookPath("claude"); err == nil {
+		return llm.NewClaudeCLIClient(), nil
+	}
+	return nil, fmt.Errorf("no LLM client available — set ANTHROPIC_API_KEY or install the claude CLI")
+}
+
+// baselineFromConfig returns a baseline source. For v1 we use a fixed
+// value of 0 (callers seed via BASELINE_MEASURED events as those land);
+// the runner reads baseline from the latest kept-experiment delta.
+//
+// A more sophisticated baseline would re-measure on `main` HEAD between
+// experiments; left as a v2 lever per the spec's "open questions".
+func baselineFromConfig(_ config.Config) func() float64 {
+	return func() float64 { return 0 }
+}
+
+func parseBudget(s string) time.Duration {
+	if s == "" {
+		return 5 * time.Minute
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil || d <= 0 {
+		return 5 * time.Minute
+	}
+	return d
+}
+
+// guessLanguage returns a coarse language label from the repo's go.mod /
+// package.json / etc. Used by the tripwire judge to weight which patterns
+// to be paranoid about.
+func guessLanguage(repoDir string) string {
+	checks := []struct {
+		marker string
+		lang   string
+	}{
+		{"go.mod", "go"},
+		{"package.json", "javascript"},
+		{"pyproject.toml", "python"},
+		{"requirements.txt", "python"},
+		{"Cargo.toml", "rust"},
+		{"build.gradle", "java"},
+		{"pom.xml", "java"},
+		{"composer.json", "php"},
+	}
+	for _, c := range checks {
+		if _, err := os.Stat(filepath.Join(repoDir, c.marker)); err == nil {
+			return c.lang
+		}
+	}
+	return ""
+}
+
+// lookPath is a thin wrapper to keep `exec` out of the file's import set
+// when the resolveAPIKey helper already exists in the package.
+func lookPath(name string) (string, error) {
+	for _, dir := range strings.Split(os.Getenv("PATH"), string(os.PathListSeparator)) {
+		if dir == "" {
+			continue
+		}
+		full := filepath.Join(dir, name)
+		if fi, err := os.Stat(full); err == nil && !fi.IsDir() {
+			return full, nil
+		}
+	}
+	return "", fmt.Errorf("%s not in PATH", name)
 }
 
 func newAutoresearchStopCmd() *cobra.Command {

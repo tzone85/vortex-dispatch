@@ -11,18 +11,27 @@ import (
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
 
+// WorkspaceWriter persists file content onto a branch via a one-shot
+// commit. Production impl creates an ephemeral worktree, writes the
+// files, commits, and removes the worktree. Tests inject fakes.
+type WorkspaceWriter interface {
+	WriteAndCommit(repoDir, branch, message string, files map[string]string) error
+}
+
 // ProgramMDEvolver rewrites a repo's program.md based on accumulated wins/losses.
 //
 // HARDCODED HUMAN REVIEW: never auto-merges, regardless of the repo's gate
 // setting. Always opens a PR.
 type ProgramMDEvolver struct {
-	Client    llm.Client
-	Model     string
-	Bank      *HypothesisBank
-	GateOps   GateOps   // for opening the PR
-	BaseBranch string
-	Events    EventSink
-	Now       func() time.Time
+	Client          llm.Client
+	Model           string
+	Bank            *HypothesisBank
+	GateOps         GateOps         // for opening the PR
+	Workspace       WorkspaceWriter // writes the new program.md onto the branch
+	ProgramMDPath   string          // relative path within repo, defaults to "program.md"
+	BaseBranch      string
+	Events          EventSink
+	Now             func() time.Time
 }
 
 const evolverSystem = `You are evolving the program.md instructions for an autoresearch coding agent.
@@ -70,9 +79,21 @@ func (e *ProgramMDEvolver) Evolve(ctx context.Context, repoDir, repo, currentMD 
 		return "", fmt.Errorf("create branch %s: %w", branch, err)
 	}
 
-	// Persist the new program.md to the worktree (caller's responsibility
-	// in production paths; the evolver only orchestrates). We stop short
-	// of writing the file here so this method stays a pure orchestrator.
+	// Persist the new program.md onto the branch via the WorkspaceWriter
+	// before pushing. Without this, the push would have no commits and the
+	// resulting PR would be empty.
+	if e.Workspace != nil {
+		programPath := e.ProgramMDPath
+		if programPath == "" {
+			programPath = "program.md"
+		}
+		commitMsg := "autoresearch: program.md evolution " + e.now().Format("2006-01-02")
+		if err := e.Workspace.WriteAndCommit(repoDir, branch, commitMsg, map[string]string{
+			programPath: newMD + "\n",
+		}); err != nil {
+			return "", fmt.Errorf("write program.md on %s: %w", branch, err)
+		}
+	}
 
 	if err := e.GateOps.PushBranch(repoDir, branch); err != nil {
 		return "", fmt.Errorf("push %s: %w", branch, err)

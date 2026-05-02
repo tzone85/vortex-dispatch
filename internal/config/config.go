@@ -6,20 +6,21 @@ import "fmt"
 
 // Config is the top-level VXD configuration.
 type Config struct {
-	Version   string                   `yaml:"version"`
-	Workspace WorkspaceConfig          `yaml:"workspace"`
-	Models    ModelsConfig             `yaml:"models"`
-	Routing   RoutingConfig            `yaml:"routing"`
-	Monitor   MonitorConfig            `yaml:"monitor"`
-	Cleanup   CleanupConfig            `yaml:"cleanup"`
-	Merge     MergeConfig              `yaml:"merge"`
-	Planning  PlanningConfig           `yaml:"planning"`
-	Runtimes  map[string]RuntimeConfig `yaml:"runtimes"`
-	Billing   BillingConfig            `yaml:"billing"`
-	QA        QAConfig                 `yaml:"qa"`
-	SLA       SLAConfig                `yaml:"sla"`
-	Secrets   SecretsConfig            `yaml:"secrets"`
-	Notify    NotifyConfig             `yaml:"notify,omitempty"`
+	Version      string                   `yaml:"version"`
+	Workspace    WorkspaceConfig          `yaml:"workspace"`
+	Models       ModelsConfig             `yaml:"models"`
+	Routing      RoutingConfig            `yaml:"routing"`
+	Monitor      MonitorConfig            `yaml:"monitor"`
+	Cleanup      CleanupConfig            `yaml:"cleanup"`
+	Merge        MergeConfig              `yaml:"merge"`
+	Planning     PlanningConfig           `yaml:"planning"`
+	Runtimes     map[string]RuntimeConfig `yaml:"runtimes"`
+	Billing      BillingConfig            `yaml:"billing"`
+	QA           QAConfig                 `yaml:"qa"`
+	SLA          SLAConfig                `yaml:"sla"`
+	Secrets      SecretsConfig            `yaml:"secrets"`
+	Notify       NotifyConfig             `yaml:"notify,omitempty"`
+	Autoresearch AutoresearchConfig       `yaml:"autoresearch,omitempty"`
 }
 
 // SecretsConfig configures the secrets provider.
@@ -157,6 +158,69 @@ type SuccessCriterion struct {
 	Value   string `yaml:"value,omitempty"`
 	Path    string `yaml:"path,omitempty"`
 	Message string `yaml:"message,omitempty"`
+}
+
+// AutoresearchConfig configures the per-repo autoresearch experiment harness.
+// See docs/superpowers/specs/2026-05-02-autoresearch-harness-design.md.
+type AutoresearchConfig struct {
+	Enabled        bool                `yaml:"enabled"`
+	Metric         AutoresearchMetric  `yaml:"metric"`
+	EditablePaths  []string            `yaml:"editable_paths"`
+	ForbiddenPaths []string            `yaml:"forbidden_paths,omitempty"`
+	Gate           string              `yaml:"gate"`        // "auto" | "winning" | "pr"
+	Budget         string              `yaml:"budget"`      // duration string, e.g. "5m"
+	Parallel       int                 `yaml:"parallel"`    // max concurrent experiments
+	Continuous     bool                `yaml:"continuous"`  // run back-to-back vs scheduled batch only
+	Schedule       AutoresearchSchedule `yaml:"schedule,omitempty"`
+	Tripwire       AutoresearchTripwire `yaml:"tripwire,omitempty"`
+	Bayes          AutoresearchBayes    `yaml:"bayes,omitempty"`
+}
+
+// AutoresearchMetric describes how to measure an experiment outcome.
+type AutoresearchMetric struct {
+	Command        string                  `yaml:"command"`
+	Parser         AutoresearchMetricParser `yaml:"parser"`
+	TieEpsilon     float64                  `yaml:"tie_epsilon"`
+	TiebreakRubric string                   `yaml:"tiebreak_rubric,omitempty"`
+}
+
+// AutoresearchMetricParser declares how to extract a numeric score from
+// the metric command's output.
+type AutoresearchMetricParser struct {
+	Kind          string `yaml:"kind"` // "regex" | "json_path" | "last_float" | "exit_code_inverse"
+	Pattern       string `yaml:"pattern,omitempty"`
+	LowerIsBetter bool   `yaml:"lower_is_better"`
+}
+
+// AutoresearchSchedule controls when the coordinator and evolver run.
+type AutoresearchSchedule struct {
+	Nightly AutoresearchNightly `yaml:"nightly,omitempty"`
+	Evolver AutoresearchEvolver `yaml:"evolver,omitempty"`
+}
+
+// AutoresearchNightly defines a recurring batch window.
+type AutoresearchNightly struct {
+	Enabled bool   `yaml:"enabled"`
+	Window  string `yaml:"window"` // e.g. "23:00-06:00"
+}
+
+// AutoresearchEvolver defines the program.md auto-evolution cron.
+type AutoresearchEvolver struct {
+	Enabled bool   `yaml:"enabled"`
+	Cron    string `yaml:"cron"` // e.g. "0 3 * * 0"
+}
+
+// AutoresearchTripwire configures the LLM judge that catches metric-hacking.
+type AutoresearchTripwire struct {
+	Model      string `yaml:"model,omitempty"`
+	FailClosed bool   `yaml:"fail_closed,omitempty"` // documented for clarity; always treated as true
+}
+
+// AutoresearchBayes configures the per-class Beta-prior sampler.
+type AutoresearchBayes struct {
+	Classes    []string `yaml:"classes,omitempty"`
+	PriorAlpha float64  `yaml:"prior_alpha,omitempty"`
+	PriorBeta  float64  `yaml:"prior_beta,omitempty"`
 }
 
 // SLAConfig defines per-complexity story duration limits in minutes.
@@ -324,5 +388,52 @@ func (c Config) Validate() error {
 		}
 	}
 
+	if err := c.Autoresearch.validate(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateAutoresearch is exported via Config.Validate; only checks fields
+// when autoresearch is enabled, keeping the feature fully opt-in.
+func (a AutoresearchConfig) validate() error {
+	if !a.Enabled {
+		return nil
+	}
+	if a.Metric.Command == "" {
+		return fmt.Errorf("autoresearch.metric.command is required when autoresearch.enabled is true")
+	}
+	validParserKinds := map[string]bool{
+		"regex": true, "json_path": true, "last_float": true, "exit_code_inverse": true,
+	}
+	if !validParserKinds[a.Metric.Parser.Kind] {
+		return fmt.Errorf("autoresearch.metric.parser.kind must be one of regex, json_path, last_float, exit_code_inverse; got %q", a.Metric.Parser.Kind)
+	}
+	if a.Metric.Parser.Kind == "regex" && a.Metric.Parser.Pattern == "" {
+		return fmt.Errorf("autoresearch.metric.parser.pattern is required for regex parser")
+	}
+	if a.Metric.Parser.Kind == "json_path" && a.Metric.Parser.Pattern == "" {
+		return fmt.Errorf("autoresearch.metric.parser.pattern is required for json_path parser")
+	}
+	if a.Metric.TieEpsilon < 0 {
+		return fmt.Errorf("autoresearch.metric.tie_epsilon must be >= 0, got %v", a.Metric.TieEpsilon)
+	}
+	if len(a.EditablePaths) == 0 {
+		return fmt.Errorf("autoresearch.editable_paths must contain at least one allowlisted glob")
+	}
+	validGates := map[string]bool{"auto": true, "winning": true, "pr": true}
+	if !validGates[a.Gate] {
+		return fmt.Errorf("autoresearch.gate must be \"auto\", \"winning\", or \"pr\"; got %q", a.Gate)
+	}
+	if a.Budget == "" {
+		return fmt.Errorf("autoresearch.budget is required (e.g. \"5m\")")
+	}
+	if a.Parallel < 1 {
+		return fmt.Errorf("autoresearch.parallel must be >= 1, got %d", a.Parallel)
+	}
+	if a.Bayes.PriorAlpha < 0 || a.Bayes.PriorBeta < 0 {
+		return fmt.Errorf("autoresearch.bayes.prior_alpha and prior_beta must be >= 0")
+	}
 	return nil
 }

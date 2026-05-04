@@ -1,0 +1,10 @@
+wing: knowledge
+rooms:
+- name: autoresearch
+  description: Files from autoresearch/
+- name: wiring
+  description: Files from wiring/
+- name: conventions
+  description: Files from conventions/
+- name: general
+  description: Files that don't fit other rooms

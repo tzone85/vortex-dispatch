@@ -112,11 +112,11 @@ billing:
 | `vxd estimate "req"` | Cost estimation with `--quick`, `--json`, `--rate` |
 | `vxd report <req-id>` | Client delivery report (`--html`, `--internal`) |
 | `vxd preflight` | Run 12 pre-flight checks before dispatch |
-| `vxd approve/reject` | Human review gates for PRs |
+| `vxd approve <story-id>` | Approve a story PR for merge (`--all <req-id>` for batch) |
 | `vxd approve-plan` | Approve story plan before dispatch |
-| `vxd reject-plan` | Reject story plan |
-| `vxd review` | View PR diff and approve/reject |
-| `vxd reject` | Reject a story's PR |
+| `vxd reject-plan` | Reject a plan with feedback |
+| `vxd review <story-id>` | View PR diff before approving (`--open` to open in browser) |
+| `vxd reject <story-id>` | Reject a story's PR with feedback |
 | `vxd projects` | List all projects |
 | `vxd agents` | List active agents |
 | `vxd events` | View event log |

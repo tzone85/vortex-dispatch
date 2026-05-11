@@ -246,22 +246,22 @@ Archives include `events.jsonl`, `store.db`, and other state files. Combined wit
 
 Run `vxd init` to generate `vxd.yaml` with sensible defaults, then customize:
 
-| Section | Purpose |
-|---------|---------|
-| `workspace` | State directory, backend (dolt/sqlite), log level and retention |
-| `models` | LLM provider and model per agent role (tech_lead, senior, intermediate, junior, qa, supervisor, manager) |
-| `routing` | Complexity thresholds, retry and escalation limits |
-| `planning` | Story size limits, sequential-file heuristics, godmode default, design approach |
-| `monitor` | Poll interval, stuck threshold, context freshness token limit |
-| `cleanup` | Worktree pruning strategy, branch retention days |
-| `merge` | Auto-merge toggle, base branch, PR template, review_mode |
-| `runtimes` | CLI runtime definitions (command, args, model list, detection patterns) |
-| `billing` | Hourly rate, Fibonacci-to-hours mapping for cost estimation |
-| `qa` | Lint/build/test commands, declarative success criteria |
-| `sla` | Per-complexity duration limits, optional auto-escalation on breach |
-| `secrets` | Secrets provider (`env` or `vault`) and Vault connection settings |
-| `notify` | Webhook notification settings (Slack URL, SLA/complete triggers) |
-| `autoresearch` | Per-repo autoresearch harness: metric, editable_paths, gate, budget, parallel, schedule, tripwire, bayes |
+| Section | Purpose | Key Defaults |
+|---------|---------|--------------|
+| `workspace` | State directory, storage backend (`sqlite`/`dolt`), log level (`debug`/`info`/`warn`/`error`), and log retention in days | `state_dir: ~/.vxd`, `backend: sqlite`, `log_level: info`, `log_retention_days: 30` |
+| `models` | LLM provider and model binding per agent role — tech_lead, senior, intermediate, junior, qa, supervisor, manager | `tech_lead: claude-opus-4-20250514` (anthropic), `senior/qa/manager: claude-sonnet-4-20250514`, `junior/intermediate/supervisor: gemma-4-27b-it` (google) |
+| `routing` | Story complexity thresholds per tier, max retries before escalation, and max concurrent agents | `junior_max_complexity: 3`, `intermediate_max_complexity: 5`, `max_retries_before_escalation: 2`, `max_concurrent_agents: 5` |
+| `planning` | Max story complexity (Fibonacci cap), sequential-file patterns, design approach, and godmode flag | `max_story_complexity: 5`, `design_approach: ddd-tdd`, `godmode: false` |
+| `monitor` | Supervisor polling interval, stuck-agent threshold, and context-freshness token budget | `poll_interval_ms: 10000`, `stuck_threshold_s: 120`, `context_freshness_tokens: 150000` |
+| `cleanup` | Worktree pruning strategy (`immediate`/`deferred`), branch retention window, and log archive mode | `worktree_prune: immediate`, `branch_retention_days: 7`, `log_archive: dolt` |
+| `merge` | Auto-merge toggle, base branch, PR body template, and human review mode (`auto`/`plan_only`/`manual`) | `auto_merge: true`, `base_branch: main`, `review_mode: auto` |
+| `runtimes` | Map of named CLI runtime definitions — command, args, supported models, and idle/permission detection patterns | Includes built-in entries for `claude-code`, `codex`, `gemini`, `swe-agent`; each supports optional `runner: docker\|ssh` |
+| `billing` | Hourly consulting rate, currency, Fibonacci-to-hours range mapping, and LLM cost accounting mode | `default_rate: 150.0`, `currency: USD`, `llm_costs.mode: subscription` |
+| `qa` | Declarative success criteria evaluated after each story (output_contains, file_exists, file_contains, exit_code_zero, etc.) | No criteria by default; standard lint/build/test always run |
+| `sla` | Per-Fibonacci-point maximum story duration in minutes; `auto_escalate` promotes breached stories to the next tier | `1pt→60m`, `2pt→120m`, `3pt→240m`, `5pt→480m`, `8pt→960m`, `13pt→1920m`; `auto_escalate: false` |
+| `secrets` | Secrets provider: `env` (default, reads from environment) or `vault` (HashiCorp Vault KV v2) | `provider: env`; Vault settings: `vault_mount: secret`, `vault_path: vxd` |
+| `notify` | Outbound Slack webhook URL and per-event triggers (`notify_on_sla`, `notify_on_complete`) | Disabled by default (empty `slack_webhook_url`) |
+| `autoresearch` | Per-repo Karpathy-style experiment loop: metric command, editable_paths allowlist, gate (`auto`/`winning`/`pr`), experiment budget, and Bayesian sampler | Disabled by default (`enabled: false`); requires `metric.command` and `editable_paths` when enabled |
 
 ## Architecture
 

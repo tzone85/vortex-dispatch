@@ -1,0 +1,107 @@
+direction: down
+
+title: VXD Architecture Overview {
+  shape: text
+  style.font-size: 28
+  style.bold: true
+}
+
+user: User / Operator {
+  shape: person
+}
+
+cli: vxd CLI {
+  shape: hexagon
+  style.fill: "#dbeafe"
+}
+
+engine: Pipeline Engine {
+  style.fill: "#fef3c7"
+  techlead: TechLead\n(decompose)
+  dispatcher: Dispatcher
+  executor: Executor\n(tmux + worktree)
+  monitor: Monitor\n(10s poll)
+  reviewer: Reviewer\n(LLM)
+  qa: QA\n(criteria)
+  merger: Merger\n(rebase+PR)
+  escalation: Escalation\n(5 tiers)
+}
+
+state: State {
+  style.fill: "#e0e7ff"
+  events: events.jsonl\n(append-only)
+  sqlite: SQLite\n(WAL)
+}
+
+llm: LLM Clients {
+  style.fill: "#fce7f3"
+  anthropic: Anthropic
+  google: Google AI
+  cli_client: Claude CLI
+  fallback: Fallback
+}
+
+agents: Agents (tmux) {
+  style.fill: "#dcfce7"
+  junior: Junior\n(Gemma)
+  intermediate: Intermediate
+  senior: Senior\n(Sonnet)
+}
+
+improve: Self-Improvement {
+  style.fill: "#fee2e2"
+  research: Research
+  analyze: Analyze
+  implement: Implement
+  email: Email Digest
+}
+
+autoresearch: Autoresearch {
+  style.fill: "#f3e8ff"
+  coordinator: Coordinator
+  hypotheses: Hypotheses
+  bayes: Bayes Posterior
+}
+
+memory: MemPalace {
+  style.fill: "#cffafe"
+  drawers: Drawers (~/.mempalace)
+  automine: Auto-Mine
+}
+
+dash: Dashboards {
+  style.fill: "#fef9c3"
+  tui: TUI (Bubbletea)
+  web: Web (WebSocket)
+}
+
+user -> cli
+cli -> engine: req / status / approve
+cli -> dash
+cli -> improve
+cli -> autoresearch
+
+engine.techlead -> engine.dispatcher
+engine.dispatcher -> engine.executor
+engine.executor -> agents
+engine.monitor -> agents: poll
+engine.monitor -> engine.reviewer
+engine.reviewer -> engine.qa
+engine.qa -> engine.merger
+engine.qa -> engine.escalation: fail
+engine.escalation -> engine.dispatcher: retry
+
+engine -> state.events: append
+state.events -> state.sqlite: project
+
+agents -> llm
+
+improve -> llm
+improve -> memory: index findings
+
+autoresearch -> llm
+autoresearch -> state.events
+
+memory.automine <- engine: on STORY_COMPLETED
+
+dash -> state.sqlite: read

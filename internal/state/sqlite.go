@@ -199,7 +199,7 @@ func (s *SQLiteStore) Project(evt Event) error {
 	case EventStoryAssigned:
 		return s.projectStoryAssigned(evt.StoryID, payload)
 	case EventStoryStarted:
-		return s.updateStoryStatus(evt.StoryID, "in_progress")
+		return s.guardedStartStory(evt.StoryID)
 	case EventStoryProgress:
 		return nil // progress events are informational only
 	case EventStoryCompleted:
@@ -587,6 +587,26 @@ func (s *SQLiteStore) updateStoryStatus(storyID, status string) error {
 		status, storyID,
 	)
 	return err
+}
+
+// guardedStartStory transitions a story to "in_progress" only when its current
+// status is not already terminal. Emitting STORY_STARTED for a story that is
+// already merged, awaiting approval, split, or pr_submitted indicates a bug in
+// the dispatcher (e.g., the auto-resume loop fixed in PR #40). Rejecting such
+// transitions here surfaces the bug instead of silently corrupting state.
+func (s *SQLiteStore) guardedStartStory(storyID string) error {
+	var currentStatus string
+	err := s.db.QueryRow(`SELECT status FROM stories WHERE id = ?`, storyID).Scan(&currentStatus)
+	if err != nil {
+		// Story not found yet — allow the transition so that
+		// STORY_STARTED events replayed before STORY_CREATED don't error.
+		return s.updateStoryStatus(storyID, "in_progress")
+	}
+	if IsStoryComplete(currentStatus) {
+		log.Printf("[projection] rejecting STORY_STARTED for %s: current status is terminal (%s) — likely a dispatcher bug", storyID, currentStatus)
+		return nil // no state regression; silently drop the transition
+	}
+	return s.updateStoryStatus(storyID, "in_progress")
 }
 
 func (s *SQLiteStore) updateStoryApproved(storyID string) error {

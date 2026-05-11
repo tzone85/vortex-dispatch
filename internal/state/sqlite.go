@@ -487,8 +487,13 @@ func (s *SQLiteStore) decodePayload(evt Event) map[string]any {
 }
 
 func (s *SQLiteStore) projectReqSubmitted(payload map[string]any) error {
+	// INSERT OR IGNORE makes duplicate REQ_SUBMITTED events idempotent:
+	// if a requirement with the same id already exists (e.g., from a replay
+	// or a double-emit bug), the second event is silently ignored rather than
+	// returning a unique-constraint error that would surface as a projection
+	// failure.
 	_, err := s.db.Exec(
-		`INSERT INTO requirements (id, title, description, status, repo_path) VALUES (?, ?, ?, 'pending', ?)`,
+		`INSERT OR IGNORE INTO requirements (id, title, description, status, repo_path) VALUES (?, ?, ?, 'pending', ?)`,
 		payloadStr(payload, "id"),
 		payloadStr(payload, "title"),
 		payloadStr(payload, "description"),

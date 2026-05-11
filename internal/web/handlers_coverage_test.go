@@ -2,7 +2,10 @@ package web
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
+
+	"github.com/tzone85/vortex-dispatch/internal/state"
 )
 
 // --- handleKill coverage (currently 52.2%) ---
@@ -154,5 +157,73 @@ func TestHandlePause_EmptyReqID(t *testing.T) {
 	resp := s.HandleCommand("pause_requirement", payload)
 	if resp.Success {
 		t.Error("expected failure for empty req_id")
+	}
+}
+
+// TestHandleKill_MaliciousSessionName verifies that a session name containing
+// shell metacharacters is rejected with a validation error (Success=false)
+// before exec.Command is ever called, ensuring ValidateSessionName is active.
+func TestHandleKill_MaliciousSessionName(t *testing.T) {
+	s := newTestServer(t)
+
+	// Seed an agent whose SessionName contains shell metacharacters.
+	// This simulates a corrupted or adversarially crafted store entry.
+	maliciousSession := "; rm -rf /"
+	agentID := "agent-malicious-01"
+	evt := state.NewEvent(state.EventAgentSpawned, agentID, "", map[string]any{
+		"id":           agentID,
+		"type":         "dev",
+		"model":        "claude",
+		"runtime":      "tmux",
+		"session_name": maliciousSession,
+	})
+	if err := s.eventStore.Append(evt); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
+	if err := s.projStore.Project(evt); err != nil {
+		t.Fatalf("project agent: %v", err)
+	}
+
+	payload := mustMarshal(t, agentPayload{AgentID: agentID})
+	resp := s.HandleCommand("kill_agent", payload)
+
+	// Handler must reject the malicious session name before executing tmux.
+	if resp.Success {
+		t.Error("expected Success=false for agent with malicious session name")
+	}
+	if !strings.Contains(resp.Message, "invalid session") {
+		t.Errorf("expected 'invalid session' in message, got: %q", resp.Message)
+	}
+}
+
+// TestHandleKill_MaliciousSessionName_Dollar verifies that a session name
+// with a dollar-sign metacharacter is also rejected.
+func TestHandleKill_MaliciousSessionName_Dollar(t *testing.T) {
+	s := newTestServer(t)
+
+	maliciousSession := "$(whoami)"
+	agentID := "agent-malicious-02"
+	evt := state.NewEvent(state.EventAgentSpawned, agentID, "", map[string]any{
+		"id":           agentID,
+		"type":         "dev",
+		"model":        "claude",
+		"runtime":      "tmux",
+		"session_name": maliciousSession,
+	})
+	if err := s.eventStore.Append(evt); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
+	if err := s.projStore.Project(evt); err != nil {
+		t.Fatalf("project agent: %v", err)
+	}
+
+	payload := mustMarshal(t, agentPayload{AgentID: agentID})
+	resp := s.HandleCommand("kill_agent", payload)
+
+	if resp.Success {
+		t.Error("expected Success=false for agent with $(whoami) session name")
+	}
+	if !strings.Contains(resp.Message, "invalid session") {
+		t.Errorf("expected 'invalid session' in message, got: %q", resp.Message)
 	}
 }

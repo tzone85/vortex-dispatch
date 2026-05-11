@@ -1,0 +1,34 @@
+@startuml sequence-autoresearch
+title Autoresearch Coordinator Loop
+
+actor Operator
+participant "vxd autoresearch\nstart <repo>" as CLI
+participant "Coordinator" as CO
+participant "Hypothesis Gen" as HG
+participant "Experiment Runner" as EX
+participant "Bayes Updater" as BU
+participant "program.md" as PM
+database "events.jsonl" as EV
+
+Operator -> CLI : start --budget --continuous
+CLI -> CO : start(repo, budget)
+
+loop until budget exhausted or drained
+    CO -> HG : sample hypothesis
+    HG --> CO : hypothesis + diff hash
+    CO -> EX : run experiment
+    EX -> EX : apply diff, run tests
+    EX --> CO : win / loss + metrics
+    CO -> BU : update posterior
+    BU --> CO : new prior
+    CO -> EV : AUTORESEARCH_TRIAL
+end
+
+CO -> PM : evolve(program.md)\nhuman-gated PR
+CO -> EV : AUTORESEARCH_EVOLVED
+
+Operator -> CLI : status / hypotheses / evolve
+CLI -> CO : query state
+CO --> CLI : posterior + budget + top wins
+
+@enduml

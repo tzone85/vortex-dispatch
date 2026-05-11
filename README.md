@@ -295,6 +295,8 @@ Requirement
 
 Events are appended at every stage. SQLite projections materialize the current state for queries.
 
+See [docs/diagrams/](docs/diagrams/) for rendered architecture and sequence diagrams.
+
 ## Agent Roles
 
 | Role | Model Tier | Responsibility |

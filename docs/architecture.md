@@ -531,4 +531,4 @@ Rendered diagrams live under `docs/diagrams/`:
 - ![Self-Improve](diagrams/sequence-improve.png) — daily self-improvement cycle
 - ![Autoresearch](diagrams/sequence-autoresearch.png) — coordinator loop
 
-Regenerate via `./docs/diagrams/render.sh`.
+Regenerate D2/PlantUML diagrams via `./docs/diagrams/render.sh`. Regenerate the package-deps graph via `./docs/diagrams/gen-deps.sh`.

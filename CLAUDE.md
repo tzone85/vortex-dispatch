@@ -103,7 +103,7 @@ billing:
 | Command | Purpose |
 |---------|---------|
 | `vxd init` | Initialize workspace, create `~/.vxd/`, generate default `vxd.yaml` |
-| `vxd req "requirement"` | Submit new requirement for autonomous implementation |
+| `vxd req "requirement"` | Submit new requirement; auto-dispatches when `review_mode=auto` (use `--no-dispatch` to stop after planning) |
 | `vxd resume <req-id>` | Resume paused pipeline (has lock file + crash recovery) |
 | `vxd status` | Show requirement and story status |
 | `vxd pause <req-id>` | Pause a running requirement |

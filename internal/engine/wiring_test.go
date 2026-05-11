@@ -1869,3 +1869,96 @@ func TestWiring_InformationalEvents_ProjectedWithoutError(t *testing.T) {
 		}
 	}
 }
+
+// ---- Finding #3: --godmode help text must not be misleading ----
+
+// TestWiring_GodmodeHelpText_NotMisleading asserts that neither req.go nor
+// resume.go still contains the old misleading "fully autonomous" help string
+// for --godmode. The correct help text explains that godmode only skips
+// per-tool permission prompts and does NOT bypass review_mode or auto_merge.
+func TestWiring_GodmodeHelpText_NotMisleading(t *testing.T) {
+	cliDir := filepath.Join("..", "..", "internal", "cli")
+	targets := []string{"req.go", "resume.go"}
+
+	const misleadingPhrase = "fully autonomous"
+
+	for _, fname := range targets {
+		raw, err := os.ReadFile(filepath.Join(cliDir, fname))
+		if err != nil {
+			t.Fatalf("read %s: %v", fname, err)
+		}
+		if strings.Contains(string(raw), misleadingPhrase) {
+			t.Errorf("WIRING FAILURE: %s still contains misleading godmode help text %q — update the flag description to clarify it only skips per-tool permission prompts", fname, misleadingPhrase)
+		}
+	}
+}
+
+// ---- Finding #4: REQ_SUBMITTED must be emitted at most once per req_id ----
+
+// TestWiring_ReqSubmitted_UniquePerReqID verifies that calling Planner.Plan
+// once emits exactly one REQ_SUBMITTED event, and that the SQLite projection
+// handles a duplicate REQ_SUBMITTED event idempotently (INSERT OR IGNORE)
+// rather than returning a unique-constraint error.
+//
+// This catches two related bugs:
+//  1. Double-emit: Plan() would emit REQ_SUBMITTED twice for the same reqID
+//     if called twice (e.g., from a retry loop or external harness).
+//  2. Non-idempotent projection: if a duplicate does appear in the JSONL
+//     (from any source), re-projecting it must not break the store.
+func TestWiring_ReqSubmitted_UniquePerReqID(t *testing.T) {
+	dir := t.TempDir()
+
+	// Set up real file store + SQLite store.
+	es, err := state.NewFileStore(filepath.Join(dir, "events.jsonl"))
+	if err != nil {
+		t.Fatalf("create event store: %v", err)
+	}
+	defer es.Close()
+
+	ps, err := state.NewSQLiteStore(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("create projection store: %v", err)
+	}
+	defer ps.Close()
+
+	// Run planner once with a dry-run LLM client.
+	cfg := config.DefaultConfig()
+	client := llm.NewDryRunClient(0)
+	planner := engine.NewPlanner(client, cfg, es, ps)
+
+	repoDir := dir
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	const reqID = "wiring-req-unique-001"
+	_, err = planner.Plan(context.Background(), reqID, "add a health check endpoint", repoDir)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+
+	// Assert exactly one REQ_SUBMITTED event in the JSONL.
+	evts, err := es.List(state.EventFilter{Type: state.EventReqSubmitted})
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(evts) != 1 {
+		t.Errorf("expected exactly 1 REQ_SUBMITTED in event log, got %d — possible double-emit", len(evts))
+	}
+	if len(evts) == 1 {
+		pl := state.DecodePayload(evts[0].Payload)
+		if id, _ := pl["id"].(string); id != reqID {
+			t.Errorf("expected req_id %q in payload, got %q", reqID, id)
+		}
+	}
+
+	// Assert projection handles a second REQ_SUBMITTED for the same id without error.
+	// (idempotency test — simulates a JSONL replay with duplicate events)
+	dupEvt := state.NewEvent(state.EventReqSubmitted, "system", "", map[string]any{
+		"id":    reqID,
+		"title": "add a health check endpoint (dup)",
+	})
+	if err := ps.Project(dupEvt); err != nil {
+		t.Errorf("WIRING FAILURE: second REQ_SUBMITTED projection for same id returned error %v — projectReqSubmitted must use INSERT OR IGNORE", err)
+	}
+}

@@ -2,6 +2,7 @@ package llm_test
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -58,6 +59,66 @@ func TestClaudeCLIClient_ContextCancellation(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error when context is cancelled")
+	}
+}
+
+// TestClaudeCLIClient_FiltersClaudeCode verifies that CLAUDECODE is stripped
+// from the child process environment when calling Complete(). We set CLAUDECODE
+// in the test environment and use a fake "claude" script that ignores all CLI
+// flags and prints its environment to stdout, then assert the output does not
+// contain CLAUDECODE=.
+func TestClaudeCLIClient_FiltersClaudeCode(t *testing.T) {
+	// Write a fake claude script that prints its environment to stdout.
+	// It must accept all flags silently and exit 0 with a JSON-like output
+	// so Complete() can parse it (or fall through to raw mode).
+	fakeScript := `#!/bin/sh
+/usr/bin/env
+`
+	scriptPath := t.TempDir() + "/fake-claude"
+	if err := os.WriteFile(scriptPath, []byte(fakeScript), 0o755); err != nil {
+		t.Fatalf("write fake claude: %v", err)
+	}
+
+	t.Setenv("CLAUDECODE", "1")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-placeholder-for-test")
+
+	client := llm.NewClaudeCLIClientWithPath(scriptPath)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Complete will fail to parse JSON (env output is not JSON), but
+	// raw non-JSON output is returned as Content unchanged.
+	resp, _ := client.Complete(ctx, llm.CompletionRequest{
+		Messages: []llm.Message{{Role: llm.RoleUser, Content: "test"}},
+	})
+	// If CLAUDECODE was NOT stripped it will appear in the env dump → Content.
+	if strings.Contains(resp.Content, "CLAUDECODE=") {
+		t.Errorf("CLAUDECODE must be stripped from child env, but found in output:\n%s", resp.Content)
+	}
+}
+
+// TestClaudeCLIClient_FiltersAnthropicAPIKey verifies that ANTHROPIC_API_KEY
+// is also stripped from the child process environment.
+func TestClaudeCLIClient_FiltersAnthropicAPIKey(t *testing.T) {
+	fakeScript := `#!/bin/sh
+/usr/bin/env
+`
+	scriptPath := t.TempDir() + "/fake-claude"
+	if err := os.WriteFile(scriptPath, []byte(fakeScript), 0o755); err != nil {
+		t.Fatalf("write fake claude: %v", err)
+	}
+
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-placeholder-for-test")
+
+	client := llm.NewClaudeCLIClientWithPath(scriptPath)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	resp, _ := client.Complete(ctx, llm.CompletionRequest{
+		Messages: []llm.Message{{Role: llm.RoleUser, Content: "test"}},
+	})
+	if strings.Contains(resp.Content, "ANTHROPIC_API_KEY=") {
+		t.Errorf("ANTHROPIC_API_KEY must be stripped from child env, but found in output:\n%s", resp.Content)
 	}
 }
 

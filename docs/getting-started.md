@@ -8,9 +8,9 @@ For a quick architectural picture, see the rendered diagrams under [`docs/diagra
 
 - [Architecture overview](diagrams/arch-overview.svg) — services and event flow
 - [Pipeline flow](diagrams/pipeline-flow.svg) — requirement → stories → merge
+- [Escalation tiers](diagrams/escalation-tiers.svg) — 5-tier escalation chain
+- [Package dependencies](diagrams/package-deps.svg) — Go package DAG
 - [Sequence diagrams](diagrams/) — dispatch, escalation, merge, self-improve, autoresearch
-
-(Phase 5 of the 2026-05-11 codebase audit produces these.)
 
 ## Prerequisites
 

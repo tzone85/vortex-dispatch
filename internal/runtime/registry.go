@@ -155,12 +155,13 @@ func (c *CLIRuntime) BuildCommand(cfg SessionConfig) (string, error) {
 		// issues in tmux's sh -c invocation. The $(...) must remain outside
 		// single quotes so the shell expands it, so we concatenate:
 		//   -p "$(cat '/path/to/prompt.txt')"
-		cmdStr = fmt.Sprintf("%s -p \"$(cat '%s')\"", cmdStr, promptFile)
+		// QuoteShellArg handles embedded single quotes via the '\'' idiom.
+		cmdStr = fmt.Sprintf("%s -p \"$(cat %s)\"", cmdStr, QuoteShellArg(promptFile))
 	}
 
 	// Tee output to a log file so we can inspect it after the session exits.
 	if cfg.LogFile != "" {
-		cmdStr += fmt.Sprintf(" 2>&1 | tee '%s'", cfg.LogFile)
+		cmdStr += fmt.Sprintf(" 2>&1 | tee %s", QuoteShellArg(cfg.LogFile))
 	}
 
 	// Pass through non-Anthropic API keys and unset CLAUDECODE to prevent

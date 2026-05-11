@@ -67,7 +67,6 @@ func TestEventTypeConstants(t *testing.T) {
 		state.EventAgentStuck,
 		state.EventAgentTerminated,
 		state.EventSupervisorCheck,
-		state.EventSupervisorReprioritize,
 		state.EventSupervisorDriftDetected,
 		state.EventWorktreePruned,
 		state.EventBranchDeleted,

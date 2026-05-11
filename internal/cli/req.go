@@ -22,8 +22,12 @@ import (
 func newReqCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "req [requirement]",
-		Short: "Submit a new requirement for planning",
-		Long: `Decomposes a requirement into stories via the Tech Lead LLM and prints the plan.
+		Short: "Submit a new requirement for autonomous implementation",
+		Long: `Decomposes a requirement into stories via the Tech Lead LLM and dispatches agents.
+
+When review_mode is "auto" (the default), planning is followed immediately by
+agent dispatch — one command, fully autonomous. Use --no-dispatch or set
+review_mode to "manual" or "plan_only" to stop after planning.
 
 The requirement text can be provided as:
   - A positional argument:  vxd req "Add a health check endpoint"
@@ -35,6 +39,7 @@ The requirement text can be provided as:
 	cmd.Flags().StringP("file", "f", "", "read requirement from a file (use - for stdin)")
 	cmd.Flags().Bool("godmode", false, "skip permission prompts on LLM calls (fully autonomous)")
 	cmd.Flags().Bool("dry-run", false, "Simulate LLM responses for pipeline testing (no API calls)")
+	cmd.Flags().Bool("no-dispatch", false, "stop after planning; do not auto-dispatch agents (plan-only mode)")
 	cmd.SilenceUsage = true
 	return cmd
 }
@@ -142,9 +147,26 @@ func runReq(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Fprintf(out, "\nTotal complexity: %d story points\n", totalComplexity)
-	fmt.Fprintf(out, "Run 'vxd status --req %s' to track progress.\n", reqID)
 
-	return nil
+	// Auto-dispatch: when review_mode is "auto" (the default), chain directly
+	// into the dispatch loop so `vxd req` is truly one-command autonomous.
+	// --no-dispatch or a non-auto review_mode skips this and prints guidance.
+	noDispatch, _ := cmd.Flags().GetBool("no-dispatch")
+	if noDispatch {
+		fmt.Fprintf(out, "Run 'vxd resume %s' to start dispatch.\n", reqID)
+		return nil
+	}
+
+	reviewGate := engine.NewReviewGate(s.Events)
+	effectiveMode := reviewGate.ResolveMode(reqID, s.Config.Merge)
+	if effectiveMode != "auto" {
+		fmt.Fprintf(out, "review_mode=%s: run 'vxd approve-plan %s' then 'vxd resume %s' to start.\n",
+			effectiveMode, reqID, reqID)
+		return nil
+	}
+
+	fmt.Fprintf(out, "\nreview_mode=auto — starting dispatch...\n\n")
+	return runResume(cmd, []string{reqID})
 }
 
 // resolveRequirement reads the requirement text from either the --file flag,

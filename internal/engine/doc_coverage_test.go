@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -131,6 +132,124 @@ func TestDocCoverage_EventTypes(t *testing.T) {
 		// Verify it's documented
 		if !strings.Contains(claudeStr, evt) {
 			t.Errorf("critical event %s not documented in CLAUDE.md — add it to the Architecture section", evt)
+		}
+	}
+}
+
+// TestDocCoverage_SubCommands verifies that every sub-command registered via
+// cmd.AddCommand(newXxxCmd()) inside a parent command function is documented
+// in CLAUDE.md. This catches "dark sub-commands" — e.g. `vxd opportunity list`
+// exists in code but isn't visible to agents or users reading CLAUDE.md.
+//
+// Detection strategy:
+//  1. Scan all .go files in internal/cli/ for parent-command functions that
+//     call cmd.AddCommand(newXxxCmd()).
+//  2. For each such parent, read its Use: field to get the CLI noun.
+//  3. For each registered sub-command, read its Use: field to get the verb.
+//  4. Assert that CLAUDE.md contains "vxd <parent> <verb>".
+func TestDocCoverage_SubCommands(t *testing.T) {
+	cliDir := filepath.Join("..", "..", "internal", "cli")
+	entries, err := os.ReadDir(cliDir)
+	if err != nil {
+		t.Skipf("cannot read cli dir: %v", err)
+	}
+
+	claudeMD, err := os.ReadFile(filepath.Join("..", "..", "CLAUDE.md"))
+	if err != nil {
+		t.Skipf("cannot read CLAUDE.md: %v", err)
+	}
+	claudeStr := strings.ToLower(string(claudeMD))
+
+	// Regexps
+	reFuncDecl := regexp.MustCompile(`(?m)^func (new\w+Cmd)\(\)`)
+	reAddCmd := regexp.MustCompile(`cmd\.AddCommand\((new\w+Cmd)\(\)\)`)
+	reUseField := regexp.MustCompile(`Use:\s*"([^"]+)"`)
+
+	type funcInfo struct {
+		body string // raw source between function signature and final return
+		use  string // first word of Use: field
+	}
+
+	// Pass 1: collect the source body of every newXxxCmd function across all files.
+	funcBodies := map[string]funcInfo{} // "newXxxCmd" -> funcInfo
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(cliDir, e.Name()))
+		if err != nil {
+			continue
+		}
+		src := string(raw)
+
+		// Find each "func newXxxCmd() …" and extract its body up to the first
+		// closing brace at depth 0 relative to the opening brace.
+		locs := reFuncDecl.FindAllStringSubmatchIndex(src, -1)
+		for _, loc := range locs {
+			name := src[loc[2]:loc[3]] // capture group 1
+
+			// Find opening brace after the function signature.
+			start := loc[1]
+			braceStart := strings.Index(src[start:], "{")
+			if braceStart == -1 {
+				continue
+			}
+			braceStart += start // absolute index
+
+			// Walk to find matching closing brace.
+			depth, end := 0, braceStart
+			for i, ch := range src[braceStart:] {
+				if ch == '{' {
+					depth++
+				} else if ch == '}' {
+					depth--
+					if depth == 0 {
+						end = braceStart + i
+						break
+					}
+				}
+			}
+			body := src[braceStart : end+1]
+
+			// Extract Use: value (first word only — strip args like "<id>").
+			use := ""
+			if m := reUseField.FindStringSubmatch(body); m != nil {
+				use = strings.Fields(m[1])[0] // first word is the CLI token
+			}
+			funcBodies[name] = funcInfo{body: body, use: use}
+		}
+	}
+
+	// Pass 2: find parent commands — those whose body contains cmd.AddCommand.
+	for parentFunc, info := range funcBodies {
+		subMatches := reAddCmd.FindAllStringSubmatch(info.body, -1)
+		if len(subMatches) == 0 {
+			continue // leaf command, skip
+		}
+		parentUse := info.use
+		if parentUse == "" {
+			t.Logf("skipping %s: no Use: field found", parentFunc)
+			continue
+		}
+
+		for _, sm := range subMatches {
+			subFunc := sm[1] // e.g. "newOppListCmd"
+			subInfo, ok := funcBodies[subFunc]
+			if !ok {
+				t.Logf("skipping %s: func body not found", subFunc)
+				continue
+			}
+			subUse := subInfo.use
+			if subUse == "" {
+				t.Logf("skipping %s: no Use: field found", subFunc)
+				continue
+			}
+
+			needle := "vxd " + parentUse + " " + subUse
+			if !strings.Contains(claudeStr, needle) {
+				t.Errorf("CLAUDE.md missing sub-command documentation: `%s` (from %s → %s) — add it to the CLI Commands table",
+					needle, parentFunc, subFunc)
+			}
 		}
 	}
 }

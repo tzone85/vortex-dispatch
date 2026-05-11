@@ -25,6 +25,7 @@ func TestRunReq_DryRun(t *testing.T) {
 	cmd.PersistentFlags().String("project", "test-project", "")
 	cmd.PersistentFlags().Bool("skip-preflight", true, "")
 	cmd.Flags().Set("dry-run", "true")
+	cmd.Flags().Set("no-dispatch", "true") // plan-only; resume is tested separately
 	cmd.SetArgs([]string{"Add a health check endpoint"})
 
 	var buf bytes.Buffer
@@ -61,6 +62,7 @@ func TestRunReq_DryRun_WithFile(t *testing.T) {
 	cmd.PersistentFlags().String("project", "test-project", "")
 	cmd.PersistentFlags().Bool("skip-preflight", true, "")
 	cmd.Flags().Set("dry-run", "true")
+	cmd.Flags().Set("no-dispatch", "true") // plan-only; resume is tested separately
 	cmd.Flags().Set("file", reqFile)
 
 	var buf bytes.Buffer
@@ -90,6 +92,7 @@ func TestRunReq_DryRun_WithGodmode(t *testing.T) {
 	cmd.PersistentFlags().String("project", "test-project", "")
 	cmd.PersistentFlags().Bool("skip-preflight", true, "")
 	cmd.Flags().Set("dry-run", "true")
+	cmd.Flags().Set("no-dispatch", "true") // plan-only; resume is tested separately
 	cmd.Flags().Set("godmode", "true")
 	cmd.SetArgs([]string{"Add OAuth login"})
 
@@ -123,5 +126,83 @@ func TestRunReq_NoArgNoFile(t *testing.T) {
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected error when no arg and no file provided")
+	}
+}
+
+// TestRunReq_NoDispatch_SkipsAutoDispatch verifies that --no-dispatch stops
+// after planning and prints guidance instead of chaining into runResume.
+func TestRunReq_NoDispatch_SkipsAutoDispatch(t *testing.T) {
+	dir, _ := setupTestEnv(t)
+
+	orig, _ := os.Getwd()
+	os.Chdir(dir)
+	t.Cleanup(func() { os.Chdir(orig) })
+	t.Setenv("HOME", dir)
+
+	cmd := newReqCmd()
+	cmd.PersistentFlags().String("config", filepath.Join(dir, "nonexistent.yaml"), "")
+	cmd.PersistentFlags().String("project", "test-project", "")
+	cmd.PersistentFlags().Bool("skip-preflight", true, "")
+	cmd.Flags().Set("dry-run", "true")
+	cmd.Flags().Set("no-dispatch", "true")
+	cmd.SetArgs([]string{"Add a login page"})
+
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	output := buf.String()
+	// Should print guidance to run resume, not attempt dispatch.
+	if !strings.Contains(output, "vxd resume") {
+		t.Errorf("expected 'vxd resume' in --no-dispatch output, got: %s", output)
+	}
+	// Must NOT contain "starting dispatch" — that indicates auto-dispatch fired.
+	if strings.Contains(output, "starting dispatch") {
+		t.Errorf("unexpected dispatch message in --no-dispatch output: %s", output)
+	}
+}
+
+// TestRunReq_ManualReviewMode_SkipsAutoDispatch verifies that a non-auto
+// review_mode (manual or plan_only) causes runReq to stop after planning
+// and print approval guidance instead of dispatching.
+func TestRunReq_ManualReviewMode_SkipsAutoDispatch(t *testing.T) {
+	dir, _ := setupTestEnv(t)
+
+	orig, _ := os.Getwd()
+	os.Chdir(dir)
+	t.Cleanup(func() { os.Chdir(orig) })
+	t.Setenv("HOME", dir)
+
+	// Write a vxd.yaml with manual review mode.
+	vxdYaml := filepath.Join(dir, "vxd.yaml")
+	os.WriteFile(vxdYaml, []byte("merge:\n  review_mode: manual\n"), 0644)
+
+	cmd := newReqCmd()
+	cmd.PersistentFlags().String("config", vxdYaml, "")
+	cmd.PersistentFlags().String("project", "test-project", "")
+	cmd.PersistentFlags().Bool("skip-preflight", true, "")
+	cmd.Flags().Set("dry-run", "true")
+	cmd.SetArgs([]string{"Add OAuth support"})
+
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	output := buf.String()
+	// Should print plan approval guidance.
+	if !strings.Contains(output, "approve-plan") {
+		t.Errorf("expected 'approve-plan' in manual review_mode output, got: %s", output)
+	}
+	// Must NOT say "starting dispatch".
+	if strings.Contains(output, "starting dispatch") {
+		t.Errorf("unexpected dispatch message in manual review_mode output: %s", output)
 	}
 }

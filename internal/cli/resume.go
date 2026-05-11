@@ -33,7 +33,7 @@ func newResumeCmd() *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		RunE:  runResume,
 	}
-	cmd.Flags().Bool("godmode", false, "skip permission prompts on LLM calls (fully autonomous)")
+	cmd.Flags().Bool("godmode", false, "skip per-tool permission prompts during agent execution (does NOT bypass review_mode plan gate or auto_merge PR gate — use review_mode=auto and auto_merge=true for fully unattended operation)")
 	cmd.Flags().Bool("review", false, "Force manual review mode for this run")
 	cmd.Flags().Bool("auto", false, "Force auto mode for this run (skip review gates)")
 	cmd.Flags().Bool("force", false, "Force override of lock file if another instance appears stuck")

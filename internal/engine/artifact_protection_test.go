@@ -2,7 +2,6 @@ package engine
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -37,15 +36,6 @@ func initBareAndClone(t *testing.T, branch string) (string, string) {
 }
 
 // run is declared in gitdiff_test.go (same package).
-// runNoFail is used for cases where we expect failure.
-func runNoFail(dir string, name string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...)
-	if dir != "" {
-		cmd.Dir = dir
-	}
-	out, err := cmd.CombinedOutput()
-	return strings.TrimSpace(string(out)), err
-}
 
 // ===================================================================
 // Fix 1: pullMainAfterMerge

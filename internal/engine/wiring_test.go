@@ -1645,3 +1645,158 @@ func TestWiring_AutoresearchConfig_InvalidGate(t *testing.T) {
 		t.Error("WIRING FAILURE: invalid gate \"yolo\" must be rejected by Validate()")
 	}
 }
+
+// --------------------------------------------------------------------------
+// Wave B — Wiring Tests for Unhandled Events (Task 10)
+// --------------------------------------------------------------------------
+// Every event type MUST have an explicit case in sqlite.go Project() to
+// prevent silent drops via the default WARNING branch.
+
+// newWiringStore is a helper that creates a temporary SQLite store for wiring
+// tests, and pre-populates a requirement + story so projection helpers that
+// reference existing rows don't error.
+func newWiringStore(t *testing.T) (*state.SQLiteStore, func()) {
+	t.Helper()
+	dir := t.TempDir()
+	store, err := state.NewSQLiteStore(filepath.Join(dir, "wiring.db"))
+	if err != nil {
+		t.Fatalf("create wiring store: %v", err)
+	}
+	store.Project(state.NewEvent(state.EventReqSubmitted, "", "", map[string]any{
+		"id":    "r-wiring",
+		"title": "Wiring Test Req",
+	}))
+	store.Project(state.NewEvent(state.EventStoryCreated, "", "s-wiring", map[string]any{
+		"id":     "s-wiring",
+		"req_id": "r-wiring",
+		"title":  "Wiring Test Story",
+	}))
+	return store, func() { store.Close() }
+}
+
+// ---- HIGH severity: EventPlanRejected ----
+
+func TestWiring_PlanRejectedEvent_UpdatesReqStatus(t *testing.T) {
+	store, cleanup := newWiringStore(t)
+	defer cleanup()
+
+	evt := state.NewEvent(state.EventPlanRejected, "human", "", map[string]any{
+		"req_id":   "r-wiring",
+		"feedback": "Not detailed enough",
+	})
+	if err := store.Project(evt); err != nil {
+		t.Fatalf("WIRING FAILURE: PLAN_REJECTED not handled by projector: %v", err)
+	}
+
+	req, err := store.GetRequirement("r-wiring")
+	if err != nil {
+		t.Fatalf("get requirement: %v", err)
+	}
+	if req.Status != "plan_rejected" {
+		t.Errorf("WIRING FAILURE: PLAN_REJECTED should set requirement status to 'plan_rejected', got %q. "+
+			"Check sqlite.go Project() — EventPlanRejected may be falling through to default case.", req.Status)
+	}
+}
+
+// ---- HIGH severity: EventReviewModeSet ----
+
+func TestWiring_ReviewModeSetEvent_ProjectedWithoutError(t *testing.T) {
+	store, cleanup := newWiringStore(t)
+	defer cleanup()
+
+	evt := state.NewEvent(state.EventReviewModeSet, "system", "", map[string]any{
+		"req_id": "r-wiring",
+		"mode":   "manual",
+	})
+	if err := store.Project(evt); err != nil {
+		t.Fatalf("WIRING FAILURE: REVIEW_MODE_SET not handled by projector: %v", err)
+	}
+	// Verify the mode is visible on the requirement row.
+	req, err := store.GetRequirement("r-wiring")
+	if err != nil {
+		t.Fatalf("get requirement: %v", err)
+	}
+	if req.ReviewMode != "manual" {
+		t.Errorf("WIRING FAILURE: REVIEW_MODE_SET should set review_mode='manual' on requirement, got %q. "+
+			"Check sqlite.go Project() and the requirements schema.", req.ReviewMode)
+	}
+}
+
+// ---- HIGH severity: EventReqEstimated ----
+
+func TestWiring_ReqEstimatedEvent_ProjectedWithoutError(t *testing.T) {
+	store, cleanup := newWiringStore(t)
+	defer cleanup()
+
+	evt := state.NewEvent(state.EventReqEstimated, "estimator", "", map[string]any{
+		"estimate_id":  "est-001",
+		"requirement":  "r-wiring",
+		"hours_low":    4.0,
+		"hours_high":   8.0,
+		"quote_low":    600.0,
+		"quote_high":   1200.0,
+		"total_points": 13,
+		"stories":      3,
+		"llm_cost":     0.5,
+		"rate":         150.0,
+		"currency":     "USD",
+		"project":      "test-project",
+	})
+	if err := store.Project(evt); err != nil {
+		t.Fatalf("WIRING FAILURE: REQ_ESTIMATED not handled by projector: %v", err)
+	}
+	// Verify estimated_hours and estimated_cost are stored.
+	req, err := store.GetRequirement("r-wiring")
+	if err != nil {
+		t.Fatalf("get requirement: %v", err)
+	}
+	if req.EstimatedHoursLow == 0 {
+		t.Errorf("WIRING FAILURE: REQ_ESTIMATED should set estimated_hours_low on requirement, got 0. "+
+			"Check sqlite.go Project() and the requirements schema.")
+	}
+	if req.EstimatedCostLow == 0 {
+		t.Errorf("WIRING FAILURE: REQ_ESTIMATED should set estimated_cost_low on requirement, got 0. "+
+			"Check sqlite.go Project() and the requirements schema.")
+	}
+}
+
+// ---- HIGH severity: EventRecoveryCompleted ----
+
+func TestWiring_RecoveryCompletedEvent_ProjectedWithoutError(t *testing.T) {
+	store, cleanup := newWiringStore(t)
+	defer cleanup()
+
+	evt := state.NewEvent(state.EventRecoveryCompleted, "system", "", map[string]any{
+		"issues_found": 2,
+	})
+	if err := store.Project(evt); err != nil {
+		t.Fatalf("WIRING FAILURE: RECOVERY_COMPLETED not handled by projector: %v", err)
+	}
+	// No structural assertion needed — this is an informational marker.
+	// The test verifies the event does NOT fall through to the default WARNING branch.
+}
+
+// ---- MEDIUM severity: informational events ----
+
+func TestWiring_InformationalEvents_ProjectedWithoutError(t *testing.T) {
+	// BRANCH_DELETED, GC_COMPLETED, WORKTREE_PRUNED, SUPERVISOR_CHECK,
+	// SUPERVISOR_DRIFT_DETECTED must all have explicit cases in sqlite.go so
+	// they don't trip the default WARNING branch (which produces log noise but
+	// also masks real unhandled events).
+	store, cleanup := newWiringStore(t)
+	defer cleanup()
+
+	informationalEvents := []state.EventType{
+		state.EventBranchDeleted,
+		state.EventGCCompleted,
+		state.EventWorktreePruned,
+		state.EventSupervisorCheck,
+		state.EventSupervisorDriftDetected,
+	}
+	for _, et := range informationalEvents {
+		evt := state.NewEvent(et, "system", "", map[string]any{"detail": "test"})
+		if err := store.Project(evt); err != nil {
+			t.Errorf("WIRING FAILURE: Project(%s) returned error %v — must be handled explicitly in sqlite.go", et, err)
+		}
+	}
+}

@@ -131,6 +131,19 @@ func NewSQLiteStore(dsn string) (*SQLiteStore, error) {
 		db.Exec(m) // errors ignored for idempotency
 	}
 
+	// Migrate existing databases: add review/estimation/recovery columns to requirements.
+	requirementMigrations := []string{
+		"ALTER TABLE requirements ADD COLUMN review_mode TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE requirements ADD COLUMN estimated_hours_low REAL NOT NULL DEFAULT 0",
+		"ALTER TABLE requirements ADD COLUMN estimated_hours_high REAL NOT NULL DEFAULT 0",
+		"ALTER TABLE requirements ADD COLUMN estimated_cost_low REAL NOT NULL DEFAULT 0",
+		"ALTER TABLE requirements ADD COLUMN estimated_cost_high REAL NOT NULL DEFAULT 0",
+		"ALTER TABLE requirements ADD COLUMN recovered_at TIMESTAMP",
+	}
+	for _, m := range requirementMigrations {
+		db.Exec(m) // errors ignored for idempotency
+	}
+
 	indexStatements := []string{
 		`CREATE INDEX IF NOT EXISTS idx_stories_req_id ON stories(req_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_stories_status ON stories(status)`,
@@ -170,6 +183,14 @@ func (s *SQLiteStore) Project(evt Event) error {
 		return s.updateReqStatus(payload, "planned")
 	case EventReqCompleted:
 		return s.updateReqStatus(payload, "completed")
+	case EventReqEstimated:
+		return s.projectReqEstimated(payload)
+	case EventPlanRejected:
+		return s.updateReqStatusByReqID(payload, "plan_rejected")
+	case EventReviewModeSet:
+		return s.projectReviewModeSet(payload)
+	case EventRecoveryCompleted:
+		return s.projectRecoveryCompleted(evt)
 
 	case EventStoryCreated:
 		return s.projectStoryCreated(payload)
@@ -232,6 +253,17 @@ func (s *SQLiteStore) Project(evt Event) error {
 	case EventAgentCheckpoint, EventAgentResumed, EventAgentStuck, EventPlanApproved:
 		return nil // informational — no projection change
 
+	case EventBranchDeleted:
+		return nil // informational — no projection change needed
+	case EventGCCompleted:
+		return nil // informational — no projection change needed
+	case EventWorktreePruned:
+		return nil // informational — no projection change needed
+	case EventSupervisorCheck:
+		return nil // informational — no projection change needed
+	case EventSupervisorDriftDetected:
+		return nil // informational — no projection change needed
+
 	case EventBaselineMeasured,
 		EventExperimentProposed,
 		EventExperimentRunning,
@@ -257,12 +289,25 @@ func (s *SQLiteStore) Project(evt Event) error {
 // GetRequirement returns a single requirement by ID.
 func (s *SQLiteStore) GetRequirement(id string) (Requirement, error) {
 	var req Requirement
+	var recoveredAt sql.NullTime
 	err := s.db.QueryRow(
-		`SELECT id, title, description, status, repo_path, created_at FROM requirements WHERE id = ?`,
+		`SELECT id, title, description, status, repo_path,
+		        review_mode, estimated_hours_low, estimated_hours_high,
+		        estimated_cost_low, estimated_cost_high, recovered_at,
+		        created_at
+		 FROM requirements WHERE id = ?`,
 		id,
-	).Scan(&req.ID, &req.Title, &req.Description, &req.Status, &req.RepoPath, &req.CreatedAt)
+	).Scan(
+		&req.ID, &req.Title, &req.Description, &req.Status, &req.RepoPath,
+		&req.ReviewMode, &req.EstimatedHoursLow, &req.EstimatedHoursHigh,
+		&req.EstimatedCostLow, &req.EstimatedCostHigh, &recoveredAt,
+		&req.CreatedAt,
+	)
 	if err != nil {
 		return Requirement{}, fmt.Errorf("get requirement %s: %w", id, err)
+	}
+	if recoveredAt.Valid {
+		req.RecoveredAt = recoveredAt.Time
 	}
 	return req, nil
 }
@@ -358,7 +403,10 @@ func (s *SQLiteStore) ListRequirements() ([]Requirement, error) {
 // ListRequirementsFiltered returns requirements matching the given filter,
 // ordered by creation time.
 func (s *SQLiteStore) ListRequirementsFiltered(filter ReqFilter) ([]Requirement, error) {
-	query := `SELECT id, title, description, status, repo_path, created_at FROM requirements`
+	query := `SELECT id, title, description, status, repo_path,
+	                 review_mode, estimated_hours_low, estimated_hours_high,
+	                 estimated_cost_low, estimated_cost_high, recovered_at,
+	                 created_at FROM requirements`
 	var conditions []string
 	var args []any
 
@@ -384,8 +432,17 @@ func (s *SQLiteStore) ListRequirementsFiltered(filter ReqFilter) ([]Requirement,
 	var reqs []Requirement
 	for rows.Next() {
 		var req Requirement
-		if err := rows.Scan(&req.ID, &req.Title, &req.Description, &req.Status, &req.RepoPath, &req.CreatedAt); err != nil {
+		var recoveredAt sql.NullTime
+		if err := rows.Scan(
+			&req.ID, &req.Title, &req.Description, &req.Status, &req.RepoPath,
+			&req.ReviewMode, &req.EstimatedHoursLow, &req.EstimatedHoursHigh,
+			&req.EstimatedCostLow, &req.EstimatedCostHigh, &recoveredAt,
+			&req.CreatedAt,
+		); err != nil {
 			return nil, fmt.Errorf("scan requirement: %w", err)
+		}
+		if recoveredAt.Valid {
+			req.RecoveredAt = recoveredAt.Time
 		}
 		reqs = append(reqs, req)
 	}
@@ -525,6 +582,75 @@ func (s *SQLiteStore) updateReqStatus(payload map[string]any, status string) err
 	_, err := s.db.Exec(
 		`UPDATE requirements SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		status, id,
+	)
+	return err
+}
+
+// updateReqStatusByReqID is like updateReqStatus but reads the requirement ID
+// from the "req_id" payload key (used by events that are not themselves tied
+// to a specific story, e.g. EventPlanRejected).
+func (s *SQLiteStore) updateReqStatusByReqID(payload map[string]any, status string) error {
+	id := payloadStr(payload, "req_id")
+	_, err := s.db.Exec(
+		`UPDATE requirements SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		status, id,
+	)
+	return err
+}
+
+func (s *SQLiteStore) projectReviewModeSet(payload map[string]any) error {
+	id := payloadStr(payload, "req_id")
+	mode := payloadStr(payload, "mode")
+	_, err := s.db.Exec(
+		`UPDATE requirements SET review_mode = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		mode, id,
+	)
+	return err
+}
+
+func (s *SQLiteStore) projectReqEstimated(payload map[string]any) error {
+	// The REQ_ESTIMATED event does not carry a dedicated "req_id" field in the
+	// current estimator; the requirement is identified via the "project" field
+	// which maps to the project name, not the requirement ID. We store the
+	// estimation numbers without requiring a row match so callers that save
+	// the event before the requirement row exists do not error. In practice the
+	// event is emitted standalone (not tied to a req row) so we do a best-effort
+	// update using whichever ID fields are present.
+	reqID := payloadStr(payload, "requirement")
+	if reqID == "" {
+		reqID = payloadStr(payload, "req_id")
+	}
+	hoursLow := payloadFloat(payload, "hours_low")
+	hoursHigh := payloadFloat(payload, "hours_high")
+	costLow := payloadFloat(payload, "quote_low")
+	costHigh := payloadFloat(payload, "quote_high")
+	_, err := s.db.Exec(
+		`UPDATE requirements SET
+		   estimated_hours_low = ?, estimated_hours_high = ?,
+		   estimated_cost_low = ?, estimated_cost_high = ?,
+		   updated_at = CURRENT_TIMESTAMP
+		 WHERE id = ?`,
+		hoursLow, hoursHigh, costLow, costHigh, reqID,
+	)
+	return err
+}
+
+func (s *SQLiteStore) projectRecoveryCompleted(evt Event) error {
+	// RECOVERY_COMPLETED is emitted per-resume run (not per-requirement) so
+	// it carries no req_id. Record the timestamp on the most-recently active
+	// non-terminal requirement as an informational marker. We use a sub-select
+	// to work around SQLite's lack of ORDER BY in UPDATE.
+	// A no-op when no matching row exists (valid — recovery may run on a blank
+	// workspace).
+	_, err := s.db.Exec(
+		`UPDATE requirements SET recovered_at = ?
+		 WHERE id = (
+		   SELECT id FROM requirements
+		   WHERE status IN ('planned','paused','analyzed')
+		   ORDER BY created_at DESC
+		   LIMIT 1
+		 )`,
+		evt.Timestamp,
 	)
 	return err
 }
@@ -763,6 +889,21 @@ func payloadInt(m map[string]any, key string) int {
 		return int(n)
 	case int:
 		return n
+	default:
+		return 0
+	}
+}
+
+func payloadFloat(m map[string]any, key string) float64 {
+	v, ok := m[key]
+	if !ok {
+		return 0
+	}
+	switch n := v.(type) {
+	case float64:
+		return n
+	case int:
+		return float64(n)
 	default:
 		return 0
 	}

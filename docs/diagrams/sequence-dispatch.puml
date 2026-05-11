@@ -1,0 +1,39 @@
+@startuml sequence-dispatch
+title Requirement Intake → Story Dispatch
+
+actor User
+participant "vxd CLI" as CLI
+participant "TechLead" as TL
+participant "Planner" as PL
+participant "Dispatcher" as DP
+participant "Executor" as EX
+participant "Worktree" as WT
+participant "tmux" as TM
+participant "Agent" as AG
+database "events.jsonl" as EV
+database "SQLite" as DB
+
+User -> CLI : vxd req "requirement"
+CLI -> EV : REQ_CREATED
+CLI -> TL : plan(requirement)
+TL -> PL : decompose
+PL -> PL : Fibonacci complexity scoring
+PL --> TL : [stories]
+TL -> EV : STORIES_PLANNED
+EV -> DB : project
+
+TL -> DP : dispatch(stories)
+loop per ready story
+    DP -> DP : route by tier\n(junior/intermediate/senior)
+    DP -> EX : execute(story)
+    EX -> WT : git worktree add
+    EX -> TM : create session
+    TM -> AG : spawn (CLAUDE.md, prompt file)
+    EX -> EV : STORY_STARTED (tier, role)
+end
+
+EV -> DB : project
+DB --> CLI : status
+CLI --> User : dispatched
+
+@enduml

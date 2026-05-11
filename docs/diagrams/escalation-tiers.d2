@@ -1,0 +1,46 @@
+direction: down
+
+title: 5-Tier Escalation Chain {
+  shape: text
+  style.font-size: 22
+  style.bold: true
+}
+
+t0: Tier 0 — Same-role retry\nSmart error analysis (8 categories) {
+  style.fill: "#dcfce7"
+}
+
+t1: Tier 1 — Senior developer\nMore capable model (Sonnet/Opus) {
+  style.fill: "#fef9c3"
+}
+
+t2: Tier 2 — Manager diagnosis\nLLM analyzes failure pattern → rewrite story {
+  style.fill: "#fed7aa"
+}
+
+t3: Tier 3 — Tech Lead re-plan\nDecompose into smaller stories {
+  style.fill: "#fecaca"
+}
+
+t4: Tier 4 — Pause\nHuman intervention required {
+  style.fill: "#e5e7eb"
+}
+
+events: Emitted events {
+  style.fill: "#dbeafe"
+  escalated: STORY_ESCALATED
+  rewritten: STORY_REWRITTEN
+  split: STORY_SPLIT
+  sla: STORY_SLA_BREACHED
+}
+
+t0 -> t1: retry exhausted
+t1 -> t2: senior failed
+t2 -> t3: rewrite failed
+t3 -> t4: split failed
+
+t0 -> events.escalated
+t1 -> events.escalated
+t2 -> events.escalated
+t2 -> events.rewritten
+t3 -> events.split

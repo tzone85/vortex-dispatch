@@ -1,0 +1,38 @@
+@startuml sequence-merge
+title QA Pass → PR → Merge → Cleanup
+
+participant "QA" as QA
+participant "ReviewGate" as RG
+participant "Merger" as MR
+participant "Git Worktree" as WT
+participant "GitHub (gh)" as GH
+participant "Main Repo" as MN
+database "events.jsonl" as EV
+
+QA -> EV : STORY_QA_PASSED
+
+alt review_mode = manual
+    QA -> RG : await approval
+    RG --> QA : approved
+end
+
+QA -> MR : merge(story)
+MR -> WT : stripVXDArtifactsFromBranch\n(CLAUDE.md, .vxd-prompts, .serena)
+MR -> WT : git rebase origin/<base>
+MR -> WT : git push -u origin <branch>
+MR -> GH : gh pr create
+GH --> MR : PR URL (parse number)
+MR -> EV : PR_CREATED
+
+alt auto_merge && review_mode != manual
+    MR -> GH : gh pr merge --squash
+    GH --> MR : merged
+    MR -> EV : STORY_MERGED
+end
+
+MR -> MN : pullMainAfterMerge
+MN -> MN : git pull --ff-only
+MN -> MN : remove WAVE_CONTEXT.md, REQUIREMENT.md
+MR -> EV : STORY_COMPLETED
+
+@enduml

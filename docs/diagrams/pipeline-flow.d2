@@ -1,0 +1,80 @@
+direction: right
+
+title: Requirement → Stories → Merge Pipeline {
+  shape: text
+  style.font-size: 22
+  style.bold: true
+}
+
+req: vxd req\n"requirement" {
+  shape: oval
+}
+
+techlead: TechLead\ndecompose {
+  style.fill: "#fef3c7"
+}
+
+stories: Stories\n(Fibonacci 1,2,3,5,8) {
+  shape: cylinder
+}
+
+dispatch: Dispatcher\n(tier by role) {
+  style.fill: "#fef3c7"
+}
+
+worktree: Worktree per story\ngit worktree add {
+  shape: package
+}
+
+tmux: tmux session\nspawn agent {
+  shape: package
+}
+
+agent: Agent (Claude/Gemma)\nimplement {
+  style.fill: "#dcfce7"
+}
+
+monitor: Monitor\n10s poll {
+  shape: parallelogram
+}
+
+review: Code Review\nLLM diff analysis {
+  style.fill: "#fef3c7"
+}
+
+qa: QA\nbuild + test + criteria {
+  style.fill: "#fef3c7"
+}
+
+merge: Merger\nrebase → push → PR → squash-merge {
+  style.fill: "#fef3c7"
+}
+
+cleanup: stripVXDArtifacts\npullMainAfterMerge {
+  shape: parallelogram
+}
+
+done: Requirement complete {
+  shape: oval
+  style.fill: "#dcfce7"
+}
+
+escalate: Escalation chain\n(5 tiers) {
+  style.fill: "#fee2e2"
+}
+
+req -> techlead
+techlead -> stories
+stories -> dispatch
+dispatch -> worktree
+worktree -> tmux
+tmux -> agent
+agent -> monitor: STORY_COMPLETED
+monitor -> review
+review -> qa: pass
+review -> escalate: fail
+qa -> merge: pass
+qa -> escalate: fail
+merge -> cleanup
+cleanup -> done
+escalate -> dispatch: retry / re-plan

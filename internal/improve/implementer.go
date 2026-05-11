@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/tzone85/vortex-dispatch/internal/llm"
 )
 
 // ImplementResult holds the outcome of implementing a single finding.
@@ -88,7 +90,7 @@ Work in the current directory.`, finding.Title, finding.SourceURL, finding.Imple
 	cmd.Dir = impl.repoPath
 	// Unset ANTHROPIC_API_KEY so Claude uses subscription (free) instead of
 	// exhausted API credits. Unset CLAUDECODE to prevent nested-session errors.
-	cmd.Env = filterEnv(os.Environ(), "ANTHROPIC_API_KEY", "CLAUDECODE")
+	cmd.Env = llm.FilterClaudeEnv(os.Environ())
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		log.Printf("[implementer] claude failed for %q: %v\nOutput: %s", finding.Title, err, string(output))
@@ -227,21 +229,6 @@ func CheckSecrets(diff string) error {
 	return nil
 }
 
-// filterEnv returns a copy of environ with the named keys removed.
-func filterEnv(environ []string, exclude ...string) []string {
-	skip := make(map[string]bool, len(exclude))
-	for _, k := range exclude {
-		skip[k] = true
-	}
-	var out []string
-	for _, e := range environ {
-		if idx := strings.IndexByte(e, '='); idx > 0 && skip[e[:idx]] {
-			continue
-		}
-		out = append(out, e)
-	}
-	return out
-}
 
 func slugify(s string) string {
 	re := regexp.MustCompile(`[^a-zA-Z0-9]+`)

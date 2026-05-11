@@ -9,12 +9,12 @@ VXD models a full agile development team with specialized AI agent roles. Each r
                     │  Tech Lead   │  Requirement decomposition
                     │  (Opus)      │  Story planning + DAG
                     └──────┬───────┘
-                           │
+                           │ (also: Tier 3 re-plan on escalation)
               ┌────────────┼────────────┐
               ▼            ▼            ▼
        ┌──────────┐ ┌────────────┐ ┌────────┐
        │  Senior  │ │Intermediate│ │ Junior │  Implementation
-       │ (Sonnet) │ │  (Haiku)   │ │(Haiku) │  by complexity
+       │ (Sonnet) │ │  (Haiku)   │ │(Gemma) │  by complexity
        └────┬─────┘ └─────┬──────┘ └───┬────┘
             │             │             │
             ▼             ▼             ▼
@@ -22,10 +22,14 @@ VXD models a full agile development team with specialized AI agent roles. Each r
        │             QA (Sonnet)              │  Lint + Build + Test
        └──────────────────┬───────────────────┘
                           │
-                    ┌─────▼──────┐
-                    │ Supervisor │  Drift detection
-                    │  (Sonnet)  │  Reprioritization
-                    └────────────┘
+              ┌───────────┴───────────┐
+              ▼                       ▼
+       ┌──────────┐           ┌───────────────┐
+       │ Manager  │           │  Supervisor   │  Drift detection
+       │ (Sonnet) │           │   (Sonnet)    │  Reprioritization
+       │ Tier 2   │           └───────────────┘
+       │diagnosis │
+       └──────────┘
 ```
 
 ## Roles in Detail
@@ -114,6 +118,22 @@ VXD models a full agile development team with specialized AI agent roles. Each r
 
 **Model recommendation:** Sonnet — good reasoning at reasonable cost.
 
+### Manager
+
+**Responsibility:** Escalation Tier 2 diagnosis — when a story has failed at both the same-role retry (Tier 0) and Senior escalation (Tier 1) tiers, the Manager performs LLM-based root-cause analysis, optionally rewrites the story description and acceptance criteria (`STORY_REWRITTEN` event), and produces a revised implementation plan for the next attempt.
+
+**When active:** Triggered automatically by the escalation machine after `max_senior_retries` exhaustion. Not dispatched during normal execution.
+
+**Manager responsibilities:**
+1. Analyze the failure pattern across prior attempts
+2. Identify the root cause (bad story scope, missing context, dependency issue, etc.)
+3. Rewrite the story or break it into sub-stories if needed
+4. Emit `STORY_REWRITTEN` or hand off to Tech Lead for `STORY_SPLIT`
+
+**Execution mode:** API (direct LLM call, not a spawned CLI session)
+
+**Model recommendation:** Sonnet — balances diagnostic quality with cost. Configure under `models.manager` in `vxd.yaml`.
+
 ## Complexity Routing
 
 Stories are routed to roles based on their Fibonacci complexity score:
@@ -153,17 +173,33 @@ Scores are stored per-agent in the `agent_scores` SQLite table. Over time, this 
 
 ## Escalation Flow
 
-When an agent fails repeatedly, VXD escalates to a higher-tier agent:
+When an agent fails repeatedly, VXD escalates through a 5-tier chain:
 
 ```
-Junior fails (×2)  ──► Escalate to Intermediate
-Intermediate fails (×2)  ──► Escalate to Senior
-Senior fails (×2)  ──► ESCALATION_CREATED event (manual intervention needed)
+Tier 0: Same-role retry (up to max_retries_before_escalation)
+         ──► smart error analysis, fix suggestions injected into retry prompt
+Tier 1: Senior developer (up to max_senior_retries)
+         ──► more capable model handles the story
+Tier 2: Manager diagnosis (up to max_manager_attempts)
+         ──► LLM root-cause analysis, may emit STORY_REWRITTEN
+Tier 3: Tech Lead re-plan (1 attempt)
+         ──► decomposes story into child stories via STORY_SPLIT
+Tier 4: Pause
+         ──► human intervention required
 ```
 
-Escalations are tracked via `ESCALATION_CREATED` and `ESCALATION_RESOLVED` events and are visible in:
+Escalations are tracked via `STORY_ESCALATED` events and are visible in:
 - `vxd escalations` command
 - Dashboard Escalations panel
+
+The retry limits are configurable in `routing`:
+
+```yaml
+routing:
+  max_retries_before_escalation: 2   # Tier 0
+  max_senior_retries: 2              # Tier 1
+  max_manager_attempts: 2            # Tier 2
+```
 
 ## Prompt Context
 

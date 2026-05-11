@@ -26,7 +26,7 @@ func newReqCmd() *cobra.Command {
 		Long: `Decomposes a requirement into stories via the Tech Lead LLM and dispatches agents.
 
 When review_mode is "auto" (the default), planning is followed immediately by
-agent dispatch — one command, fully autonomous. Use --no-dispatch or set
+agent dispatch — one command, unattended. Use --no-dispatch or set
 review_mode to "manual" or "plan_only" to stop after planning.
 
 The requirement text can be provided as:
@@ -37,7 +37,7 @@ The requirement text can be provided as:
 		RunE: runReq,
 	}
 	cmd.Flags().StringP("file", "f", "", "read requirement from a file (use - for stdin)")
-	cmd.Flags().Bool("godmode", false, "skip permission prompts on LLM calls (fully autonomous)")
+	cmd.Flags().Bool("godmode", false, "skip per-tool permission prompts during agent execution (does NOT bypass review_mode plan gate or auto_merge PR gate — use review_mode=auto and auto_merge=true for fully unattended operation)")
 	cmd.Flags().Bool("dry-run", false, "Simulate LLM responses for pipeline testing (no API calls)")
 	cmd.Flags().Bool("no-dispatch", false, "stop after planning; do not auto-dispatch agents (plan-only mode)")
 	cmd.SilenceUsage = true

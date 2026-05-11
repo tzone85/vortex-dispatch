@@ -952,7 +952,7 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 	completed := make(map[string]bool)
 	allDone := true
 	for _, s := range stories {
-		if s.Status == "merged" || s.Status == "pr_submitted" || s.Status == "split" {
+		if IsStoryComplete(s.Status) {
 			completed[s.ID] = true
 		} else {
 			allDone = false
@@ -1080,7 +1080,7 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 		// Stall detection: check if we're stuck (stories exist but none are dispatchable)
 		pendingCount := 0
 		for _, s := range stories {
-			if s.Status != "merged" && s.Status != "split" && s.Status != "pr_submitted" {
+			if !IsStoryComplete(s.Status) {
 				pendingCount++
 			}
 		}
@@ -1456,6 +1456,22 @@ func FindDependents(stories []PlannedStory, storyID string) []string {
 		}
 	}
 	return deps
+}
+
+// IsStoryComplete reports whether a story status is terminal for DAG
+// dependency-resolution purposes. A story in one of these states is treated
+// as "done" when computing which downstream stories are ready to dispatch.
+//
+// "awaiting_approval" is included because the PR has been submitted and the
+// work is complete — only the human merge gate remains. Downstream stories can
+// proceed (each branches from main; rebases handle conflicts).
+func IsStoryComplete(status string) bool {
+	switch status {
+	case "merged", "pr_submitted", "split", "awaiting_approval":
+		return true
+	default:
+		return false
+	}
 }
 
 // simulateDryRunChanges writes a placeholder file and commits it so the

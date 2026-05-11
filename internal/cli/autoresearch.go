@@ -495,6 +495,3 @@ func defaultStateDir() string {
 	}
 	return filepath.Join(home, ".vxd")
 }
-
-// silence unused-import for build-time when context isn't needed yet.
-var _ = context.TODO

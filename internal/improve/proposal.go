@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/tzone85/vortex-dispatch/internal/llm"
 )
 
 // ProposalDrafter generates proposal drafts via Claude CLI.
@@ -100,7 +102,7 @@ func (d *ProposalDrafter) DraftProposal(ctx context.Context, opp Opportunity) (s
 	// errors when VXD is invoked inside Claude Code (ENV-2).
 	cmd := exec.CommandContext(ctx, d.claudePath, "-p", prompt, "--output-format", "text")
 	cmd.Dir = d.workDir
-	cmd.Env = filterEnv(os.Environ(), "ANTHROPIC_API_KEY", "CLAUDECODE")
+	cmd.Env = llm.FilterClaudeEnv(os.Environ())
 
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout

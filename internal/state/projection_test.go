@@ -342,3 +342,130 @@ func TestBackfillAcceptanceCriteria_Updates(t *testing.T) {
 		t.Error("expected non-empty acceptance criteria after backfill")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// State machine guard — STORY_STARTED for terminal stories
+// ---------------------------------------------------------------------------
+
+// TestProject_StoryStarted_IgnoredForTerminalStatuses verifies that a
+// STORY_STARTED event does not regress a story that is already in a terminal
+// state (merged, pr_submitted, awaiting_approval, split). This is
+// defense-in-depth: the auto-resume fix in PR #40 prevents the event from
+// being emitted, but the projection layer now also rejects such transitions so
+// that hand-edits or future bugs surface immediately rather than silently
+// corrupting state.
+func TestProject_StoryStarted_IgnoredForTerminalStatuses(t *testing.T) {
+	terminalStatuses := []struct {
+		name          string
+		setupEvent    EventType
+		setupPayload  map[string]any
+		expectedFinal string
+	}{
+		{
+			name:          "awaiting_approval",
+			setupEvent:    EventStoryAwaitingApproval,
+			expectedFinal: "awaiting_approval",
+		},
+		{
+			name:          "merged",
+			setupEvent:    EventStoryMerged,
+			expectedFinal: "merged",
+		},
+		{
+			name:          "pr_submitted",
+			setupEvent:    EventStoryPRCreated,
+			setupPayload:  map[string]any{"pr_number": 1, "pr_url": "https://github.com/test/repo/pull/1"},
+			expectedFinal: "pr_submitted",
+		},
+		{
+			name:          "split",
+			setupEvent:    EventStorySplit,
+			expectedFinal: "split",
+		},
+	}
+
+	for _, tc := range terminalStatuses {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			s, err := NewSQLiteStore(filepath.Join(dir, "test.db"))
+			if err != nil {
+				t.Fatalf("create store: %v", err)
+			}
+			defer s.Close()
+
+			reqID := "REQ-SM-" + tc.name
+			storyID := "S-SM-" + tc.name
+
+			// Setup: create requirement + story, then transition to terminal state.
+			s.Project(NewEvent(EventReqSubmitted, "", "", map[string]any{
+				"id": reqID, "title": "State machine guard test",
+			}))
+			s.Project(NewEvent(EventStoryCreated, "", storyID, map[string]any{
+				"id": storyID, "req_id": reqID, "title": "Guard test story", "complexity": 1,
+			}))
+
+			// Transition to terminal state.
+			pl := tc.setupPayload
+			if pl == nil {
+				pl = map[string]any{}
+			}
+			if err := s.Project(NewEvent(tc.setupEvent, "", storyID, pl)); err != nil {
+				t.Fatalf("setup terminal event %s: %v", tc.setupEvent, err)
+			}
+
+			before, err := s.GetStory(storyID)
+			if err != nil {
+				t.Fatalf("get story: %v", err)
+			}
+			if before.Status != tc.expectedFinal {
+				t.Fatalf("expected status %q after setup, got %q", tc.expectedFinal, before.Status)
+			}
+
+			// Now emit STORY_STARTED — it should be rejected, leaving status unchanged.
+			if err := s.Project(NewEvent(EventStoryStarted, "agent-x", storyID, map[string]any{})); err != nil {
+				t.Errorf("guardedStartStory returned unexpected error: %v", err)
+			}
+
+			after, err := s.GetStory(storyID)
+			if err != nil {
+				t.Fatalf("get story after guard: %v", err)
+			}
+			if after.Status != tc.expectedFinal {
+				t.Errorf("STORY_STARTED regressed status from %q to %q — guard did not fire",
+					tc.expectedFinal, after.Status)
+			}
+		})
+	}
+}
+
+// TestProject_StoryStarted_AllowedFromNonTerminalStatuses verifies that the
+// guard does not block the normal path: a story in draft/assigned transitions
+// to in_progress when STORY_STARTED is received.
+func TestProject_StoryStarted_AllowedFromNonTerminalStatuses(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewSQLiteStore(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer s.Close()
+
+	s.Project(NewEvent(EventReqSubmitted, "", "", map[string]any{
+		"id": "REQ-SM-NR1", "title": "Normal start",
+	}))
+	s.Project(NewEvent(EventStoryCreated, "", "S-SM-NR1", map[string]any{
+		"id": "S-SM-NR1", "req_id": "REQ-SM-NR1", "title": "Normal start story", "complexity": 1,
+	}))
+
+	// Story is in draft — STORY_STARTED should transition it to in_progress.
+	if err := s.Project(NewEvent(EventStoryStarted, "agent-1", "S-SM-NR1", map[string]any{})); err != nil {
+		t.Fatalf("Project STORY_STARTED: %v", err)
+	}
+
+	story, err := s.GetStory("S-SM-NR1")
+	if err != nil {
+		t.Fatalf("get story: %v", err)
+	}
+	if story.Status != "in_progress" {
+		t.Errorf("expected in_progress after STORY_STARTED from draft, got %q", story.Status)
+	}
+}

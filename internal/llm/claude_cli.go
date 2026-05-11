@@ -60,16 +60,10 @@ func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (
 
 	cmd := exec.CommandContext(ctx, c.cliPath, args...)
 	cmd.Stdin = strings.NewReader(prompt)
-	// Clear ANTHROPIC_API_KEY so Claude Code uses the user's subscription
-	// instead of a potentially expired/empty API key from the environment.
-	env := os.Environ()
-	filtered := make([]string, 0, len(env))
-	for _, e := range env {
-		if !strings.HasPrefix(e, "ANTHROPIC_API_KEY=") {
-			filtered = append(filtered, e)
-		}
-	}
-	cmd.Env = filtered
+	// Strip ANTHROPIC_API_KEY so Claude Code uses the user's Max subscription
+	// instead of a potentially expired/empty API key. Also strip CLAUDECODE to
+	// prevent nested-session errors when VXD is invoked inside Claude Code.
+	cmd.Env = FilterClaudeEnv(os.Environ())
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

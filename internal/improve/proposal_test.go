@@ -11,6 +11,51 @@ import (
 	"github.com/tzone85/vortex-dispatch/internal/improve"
 )
 
+// TestDraftProposal_StripsClaudeCode verifies that CLAUDECODE is removed from
+// the child process environment when DraftProposal spawns the claude CLI,
+// preventing nested-session errors (ENV-2 fix).
+func TestDraftProposal_StripsClaudeCode(t *testing.T) {
+	// Write a fake claude script that prints only the security-sensitive vars
+	// to stdout, so we can assert they are absent regardless of output length.
+	// We filter to just the two keys we care about to avoid sanitizeProposal
+	// truncating the output before those lines appear.
+	dir := t.TempDir()
+	fakeScript := `#!/bin/sh
+# Print only CLAUDECODE and ANTHROPIC_API_KEY lines from the environment.
+# If neither appears, print a safe marker so DraftProposal doesn't return
+# an empty-output error.
+/usr/bin/env | grep -E '^(CLAUDECODE|ANTHROPIC_API_KEY)=' || echo "SENTINEL_NO_SENSITIVE_KEYS_FOUND"
+`
+	scriptPath := filepath.Join(dir, "fake-claude")
+	if err := os.WriteFile(scriptPath, []byte(fakeScript), 0o755); err != nil {
+		t.Fatalf("write fake claude: %v", err)
+	}
+
+	t.Setenv("CLAUDECODE", "1")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-placeholder-for-test")
+
+	drafter := improve.NewProposalDrafter(scriptPath, dir)
+	opp := improve.Opportunity{
+		ID:      "opp-env-test-001",
+		Title:   "Test ENV strip",
+		Company: "TestCo",
+	}
+
+	result, err := drafter.DraftProposal(context.Background(), opp)
+	if err != nil {
+		t.Fatalf("DraftProposal: %v", err)
+	}
+
+	// The fake script outputs only the two sensitive keys (if present) or the
+	// sentinel. After the fix, neither key should appear in the child env.
+	if strings.Contains(result, "CLAUDECODE=") {
+		t.Errorf("CLAUDECODE must be stripped from child env, found in output: %q", result)
+	}
+	if strings.Contains(result, "ANTHROPIC_API_KEY=") {
+		t.Errorf("ANTHROPIC_API_KEY must be stripped from child env, found in output: %q", result)
+	}
+}
+
 func TestBuildProposalPrompt_IncludesOpportunityData(t *testing.T) {
 	opp := improve.Opportunity{
 		ID:      "opp-2026-04-09-001",

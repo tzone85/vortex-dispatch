@@ -121,10 +121,17 @@ billing:
 | `vxd agents` | List active agents |
 | `vxd events` | View event log |
 | `vxd escalations` | List escalation events |
-| `vxd config show\|validate` | View or validate configuration |
+| `vxd config show` | Pretty-print current configuration as YAML |
+| `vxd config validate` | Validate the current configuration file |
 | `vxd archive` | Archive completed requirements |
 | `vxd memory` | Launch memory dashboard |
 | `vxd opportunity` | Manage opportunity pipeline |
+| `vxd opportunity list` | Show opportunity pipeline sorted by rank (`--status`, `--limit`) |
+| `vxd opportunity propose <id>` | Draft a proposal for a specific opportunity |
+| `vxd opportunity status <id> <new-status>` | Update opportunity status |
+| `vxd opportunity won <id> <amount>` | Log revenue for a won opportunity |
+| `vxd opportunity sources` | Show discovered sources pending approval |
+| `vxd opportunity approve-source <url>` | Approve a discovered source for active scraping |
 | `vxd learn [path]` | Run repo analysis (`--force`, `--pass 1\|2\|3`, `--json`) |
 | `vxd backup` | Create tar.gz archive of project state (`--output DIR`) |
 | `vxd gc` | Garbage-collect branches + expired logs |

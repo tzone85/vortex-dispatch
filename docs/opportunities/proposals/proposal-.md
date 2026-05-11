@@ -1,17 +1,17 @@
 You are writing a freelance proposal for a client posting. This is a DRAFT that a human will review before sending.
 
 **Opportunity:**
-- Title: Fullstack Developer (US - ET)
-- Company: Chooose
-- Budget: 
-- Skills: api, azure, fullstack, python, react, saas, AI/ML, project management, documentation, Typescript , computer science, diversity, insurance
-- Description: The technical stack (Python, React, TypeScript, API, AI/ML) is perfectly aligned with VXD's ability to orchestrate agents across frontend, backend, and ML layers. Although no specific budget was provided, a US-based Fullstack role for a SaaS company typically falls within professional mid-to-high ranges. Win probability is tempered by high market competition for fullstack titles, but VXD's AI-augmented edge provides a strong differentiator for the AI/ML requirements.
+- Title: Operations software assistant
+- Company: Bulldog Digital Media
+- Budget: $12k - $19k (35 hrs/week, freelance)
+- Skills: security, seo, AI/ML
+- Description: The role focuses on AI/ML and operations software, which aligns perfectly with VXD's ability to deploy autonomous agents for automation. The budget is excellent, equating to $75-$118/hr. Win probability is moderate because the title 'assistant' can sometimes attract non-technical applicants, requiring VXD to clearly position itself as an automated software solution rather than a human virtual assistant.
 
 **Proposal Structure (follow this exactly):**
 1. Understanding - Restate the client's problem in their language
 2. Approach - Tech stack, phases, timeline, what makes us different
 3. Relevant Experience - Reference real software engineering experience, AI-augmented development capability
-4. Timeline & Budget - Position at 75th percentile, compete on quality not price. Minimum $50/hr equivalent.
+4. Timeline & Budget - Client's stated budget: $12k - $19k (35 hrs/week, freelance). Position at 75th percentile, compete on quality not price. Minimum $50/hr equivalent.
 5. Next Steps - Clear call to action, availability
 
 **Tone Instructions:**

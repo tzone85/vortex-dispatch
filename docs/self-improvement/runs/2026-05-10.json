@@ -1,0 +1,13 @@
+{
+  "run_id": "2026-05-10T04:10:19Z",
+  "started_at": "2026-05-10T06:10:19.134489+02:00",
+  "completed_at": "2026-05-10T10:39:11.830178+02:00",
+  "sources_scraped": 14,
+  "findings_total": 14,
+  "findings_relevant": 2,
+  "findings_analyzed": 2,
+  "prs_created": 0,
+  "prs_proposed": 2,
+  "errors": null,
+  "email_sent": true
+}

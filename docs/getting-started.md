@@ -2,6 +2,16 @@
 
 This guide walks you through installing VXD and running your first initialization.
 
+## Visual Overview
+
+For a quick architectural picture, see the rendered diagrams under [`docs/diagrams/`](diagrams/):
+
+- [Architecture overview](diagrams/arch-overview.svg) — services and event flow
+- [Pipeline flow](diagrams/pipeline-flow.svg) — requirement → stories → merge
+- [Sequence diagrams](diagrams/) — dispatch, escalation, merge, self-improve, autoresearch
+
+(Phase 5 of the 2026-05-11 codebase audit produces these.)
+
 ## Prerequisites
 
 Before installing VXD, ensure you have the following tools available:

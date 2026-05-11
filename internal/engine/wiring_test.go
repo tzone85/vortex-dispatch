@@ -1869,3 +1869,26 @@ func TestWiring_InformationalEvents_ProjectedWithoutError(t *testing.T) {
 		}
 	}
 }
+
+// ---- Finding #3: --godmode help text must not be misleading ----
+
+// TestWiring_GodmodeHelpText_NotMisleading asserts that neither req.go nor
+// resume.go still contains the old misleading "fully autonomous" help string
+// for --godmode. The correct help text explains that godmode only skips
+// per-tool permission prompts and does NOT bypass review_mode or auto_merge.
+func TestWiring_GodmodeHelpText_NotMisleading(t *testing.T) {
+	cliDir := filepath.Join("..", "..", "internal", "cli")
+	targets := []string{"req.go", "resume.go"}
+
+	const misleadingPhrase = "fully autonomous"
+
+	for _, fname := range targets {
+		raw, err := os.ReadFile(filepath.Join(cliDir, fname))
+		if err != nil {
+			t.Fatalf("read %s: %v", fname, err)
+		}
+		if strings.Contains(string(raw), misleadingPhrase) {
+			t.Errorf("WIRING FAILURE: %s still contains misleading godmode help text %q — update the flag description to clarify it only skips per-tool permission prompts", fname, misleadingPhrase)
+		}
+	}
+}

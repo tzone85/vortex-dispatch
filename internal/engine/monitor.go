@@ -1465,13 +1465,11 @@ func FindDependents(stories []PlannedStory, storyID string) []string {
 // "awaiting_approval" is included because the PR has been submitted and the
 // work is complete — only the human merge gate remains. Downstream stories can
 // proceed (each branches from main; rebases handle conflicts).
+//
+// The logic lives in state.IsStoryComplete to avoid import cycles in sqlite.go.
+// This forwarder preserves the engine.IsStoryComplete public API.
 func IsStoryComplete(status string) bool {
-	switch status {
-	case "merged", "pr_submitted", "split", "awaiting_approval":
-		return true
-	default:
-		return false
-	}
+	return state.IsStoryComplete(status)
 }
 
 // simulateDryRunChanges writes a placeholder file and commits it so the

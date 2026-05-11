@@ -4,12 +4,18 @@ import "time"
 
 // Requirement represents a high-level user requirement that gets broken into stories.
 type Requirement struct {
-	ID          string    `json:"id"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	Status      string    `json:"status"`
-	RepoPath    string    `json:"repo_path"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID                string    `json:"id"`
+	Title             string    `json:"title"`
+	Description       string    `json:"description"`
+	Status            string    `json:"status"`
+	RepoPath          string    `json:"repo_path"`
+	ReviewMode        string    `json:"review_mode,omitempty"`
+	EstimatedHoursLow float64   `json:"estimated_hours_low,omitempty"`
+	EstimatedHoursHigh float64  `json:"estimated_hours_high,omitempty"`
+	EstimatedCostLow  float64   `json:"estimated_cost_low,omitempty"`
+	EstimatedCostHigh float64   `json:"estimated_cost_high,omitempty"`
+	RecoveredAt       time.Time `json:"recovered_at,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
 }
 
 // ReqFilter specifies criteria for filtering requirements from the projection store.

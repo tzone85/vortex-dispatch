@@ -50,8 +50,10 @@ const (
 
 	// Supervisor events.
 	EventSupervisorCheck         EventType = "SUPERVISOR_CHECK"
-	EventSupervisorReprioritize  EventType = "SUPERVISOR_REPRIORITIZE"
 	EventSupervisorDriftDetected EventType = "SUPERVISOR_DRIFT_DETECTED"
+	// EventSupervisorReprioritize was defined but never emitted anywhere in the
+	// codebase and has been removed to prevent dead-code accumulation.
+	// See: Task 10, Wave B wiring audit (2026-05-11).
 
 	// Cleanup events.
 	EventWorktreePruned EventType = "WORKTREE_PRUNED"

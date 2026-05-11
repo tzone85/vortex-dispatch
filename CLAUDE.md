@@ -112,19 +112,26 @@ billing:
 | `vxd estimate "req"` | Cost estimation with `--quick`, `--json`, `--rate` |
 | `vxd report <req-id>` | Client delivery report (`--html`, `--internal`) |
 | `vxd preflight` | Run 12 pre-flight checks before dispatch |
-| `vxd approve/reject` | Human review gates for PRs |
+| `vxd approve <story-id>` | Approve a story PR for merge (`--all <req-id>` for batch) |
 | `vxd approve-plan` | Approve story plan before dispatch |
-| `vxd reject-plan` | Reject story plan |
-| `vxd review` | View PR diff and approve/reject |
-| `vxd reject` | Reject a story's PR |
+| `vxd reject-plan` | Reject a plan with feedback |
+| `vxd review <story-id>` | View PR diff before approving (`--open` to open in browser) |
+| `vxd reject <story-id>` | Reject a story's PR with feedback |
 | `vxd projects` | List all projects |
 | `vxd agents` | List active agents |
 | `vxd events` | View event log |
 | `vxd escalations` | List escalation events |
-| `vxd config show\|validate` | View or validate configuration |
+| `vxd config show` | Pretty-print current configuration as YAML |
+| `vxd config validate` | Validate the current configuration file |
 | `vxd archive` | Archive completed requirements |
 | `vxd memory` | Launch memory dashboard |
 | `vxd opportunity` | Manage opportunity pipeline |
+| `vxd opportunity list` | Show opportunity pipeline sorted by rank (`--status`, `--limit`) |
+| `vxd opportunity propose <id>` | Draft a proposal for a specific opportunity |
+| `vxd opportunity status <id> <new-status>` | Update opportunity status |
+| `vxd opportunity won <id> <amount>` | Log revenue for a won opportunity |
+| `vxd opportunity sources` | Show discovered sources pending approval |
+| `vxd opportunity approve-source <url>` | Approve a discovered source for active scraping |
 | `vxd learn [path]` | Run repo analysis (`--force`, `--pass 1\|2\|3`, `--json`) |
 | `vxd backup` | Create tar.gz archive of project state (`--output DIR`) |
 | `vxd gc` | Garbage-collect branches + expired logs |

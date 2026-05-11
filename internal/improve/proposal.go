@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/tzone85/vortex-dispatch/internal/llm"
 )
 
 // ProposalDrafter generates proposal drafts via Claude CLI.
@@ -95,18 +97,12 @@ func (d *ProposalDrafter) DraftProposal(ctx context.Context, opp Opportunity) (s
 		return "", fmt.Errorf("write prompt file: %w", err)
 	}
 
-	// Call Claude CLI. Strip ANTHROPIC_API_KEY so Claude uses Max subscription.
-	// Use --output-format text for clean output without JSON wrapping.
+	// Call Claude CLI. Strip ANTHROPIC_API_KEY so Claude uses Max subscription
+	// instead of API credits, and strip CLAUDECODE to prevent nested-session
+	// errors when VXD is invoked inside Claude Code (ENV-2).
 	cmd := exec.CommandContext(ctx, d.claudePath, "-p", prompt, "--output-format", "text")
 	cmd.Dir = d.workDir
-	env := os.Environ()
-	filtered := make([]string, 0, len(env))
-	for _, e := range env {
-		if !strings.HasPrefix(e, "ANTHROPIC_API_KEY=") {
-			filtered = append(filtered, e)
-		}
-	}
-	cmd.Env = filtered
+	cmd.Env = llm.FilterClaudeEnv(os.Environ())
 
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout

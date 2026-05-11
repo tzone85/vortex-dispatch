@@ -630,6 +630,63 @@ func newTestRegistry() (*runtime.Registry, error) {
 	return runtime.NewRegistry(map[string]config.RuntimeConfig{})
 }
 
+// TestIsStoryComplete_TerminalStatuses verifies that IsStoryComplete returns
+// true for all statuses that should be treated as terminal for DAG dependency
+// resolution, and false for non-terminal statuses.
+func TestIsStoryComplete_TerminalStatuses(t *testing.T) {
+	cases := []struct {
+		status string
+		want   bool
+	}{
+		{"merged", true},
+		{"pr_submitted", true},
+		{"split", true},
+		{"awaiting_approval", true}, // critical: must not re-dispatch
+		{"in_progress", false},
+		{"draft", false},
+		{"review", false},
+		{"qa", false},
+		{"", false},
+	}
+	for _, c := range cases {
+		got := engine.IsStoryComplete(c.status)
+		if got != c.want {
+			t.Errorf("IsStoryComplete(%q) = %v, want %v", c.status, got, c.want)
+		}
+	}
+}
+
+// TestAutoResume_AwaitingApprovalNotRedispatched verifies that stories in
+// "awaiting_approval" status are treated as complete for DAG purposes.
+// Without this fix, the monitor re-dispatches them on every wave because
+// their status is absent from the `completed` map.
+func TestAutoResume_AwaitingApprovalNotRedispatched(t *testing.T) {
+	// Verify that IsStoryComplete gates the completed map correctly.
+	// This mirrors the logic in dispatchNextWave's completed-set construction.
+	statuses := []struct {
+		status    string
+		wantInMap bool
+	}{
+		{"awaiting_approval", true},  // must be in completed — no re-dispatch
+		{"pr_submitted", true},
+		{"merged", true},
+		{"split", true},
+		{"draft", false},
+		{"in_progress", false},
+	}
+
+	for _, tc := range statuses {
+		completed := make(map[string]bool)
+		if engine.IsStoryComplete(tc.status) {
+			completed["s-001"] = true
+		}
+		if _, ok := completed["s-001"]; ok != tc.wantInMap {
+			t.Errorf("status %q: story in completed map = %v, want %v",
+				tc.status, ok, tc.wantInMap)
+		}
+	}
+}
+
 // newTestRegistryWithDone creates a registry with a "test-runtime" that has
 // detection patterns configured. When the session doesn't exist (no tmux),
 // DetectStatus returns StatusTerminated.

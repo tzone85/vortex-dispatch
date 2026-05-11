@@ -462,6 +462,101 @@ func TestRunResume_NoDependenciesMet(t *testing.T) {
 	}
 }
 
+// TestRunResume_AutoMode_SkipsPlanGate verifies that when review_mode is "auto"
+// (or unset with auto_merge: true, which resolves to "auto"), vxd resume does
+// NOT require a PLAN_APPROVED event before proceeding.
+//
+// Before the fix, the plan gate was unconditional and always blocked the resume
+// with "plan approval required" even when review_mode=auto.
+func TestRunResume_AutoMode_SkipsPlanGate(t *testing.T) {
+	dir, s := setupTestEnv(t)
+
+	// Default config has AutoMerge: true and ReviewMode: "" — resolves to "auto".
+	// We deliberately do NOT emit a PLAN_APPROVED event.
+	reqEvt := state.NewEvent(state.EventReqSubmitted, "", "", map[string]any{
+		"id":    "REQ-AUTOMODE1",
+		"title": "Auto Mode No Gate",
+	})
+	s.Events.Append(reqEvt)
+	s.Proj.Project(reqEvt)
+
+	s.Close()
+
+	orig, _ := os.Getwd()
+	os.Chdir(dir)
+	t.Cleanup(func() { os.Chdir(orig) })
+	t.Setenv("HOME", dir)
+
+	cmd := newResumeCmd()
+	cmd.PersistentFlags().String("config", filepath.Join(dir, "nonexistent.yaml"), "")
+	cmd.PersistentFlags().String("project", "test-project", "")
+	cmd.PersistentFlags().Bool("skip-preflight", true, "")
+	cmd.SetArgs([]string{"REQ-AUTOMODE1"})
+
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+
+	err := cmd.Execute()
+	// Must NOT fail with "plan approval required" — auto mode bypasses the gate.
+	if err != nil && strings.Contains(err.Error(), "plan approval required") {
+		t.Fatalf("review_mode=auto should not require plan approval, got: %v", err)
+	}
+	// The run should proceed past the gate (may fail later on "No stories found" or
+	// other reasons unrelated to the plan gate).
+	output := buf.String()
+	if strings.Contains(output, "plan approval required") || (err != nil && strings.Contains(err.Error(), "plan approval")) {
+		t.Errorf("auto mode should bypass plan gate, got output=%q err=%v", output, err)
+	}
+}
+
+// TestRunResume_ManualMode_RequiresPlanGate verifies that when review_mode is
+// explicitly set to "manual" (via a REVIEW_MODE_SET event), vxd resume does
+// require a PLAN_APPROVED event.
+func TestRunResume_ManualMode_RequiresPlanGate(t *testing.T) {
+	dir, s := setupTestEnv(t)
+
+	reqEvt := state.NewEvent(state.EventReqSubmitted, "", "", map[string]any{
+		"id":    "REQ-MANUALMODE1",
+		"title": "Manual Mode Gate",
+	})
+	s.Events.Append(reqEvt)
+	s.Proj.Project(reqEvt)
+
+	// Set mode to "manual" — plan approval should be required.
+	modeEvt := state.NewEvent(state.EventReviewModeSet, "system", "", map[string]any{
+		"req_id": "REQ-MANUALMODE1",
+		"mode":   "manual",
+	})
+	s.Events.Append(modeEvt)
+	s.Proj.Project(modeEvt)
+
+	s.Close()
+
+	orig, _ := os.Getwd()
+	os.Chdir(dir)
+	t.Cleanup(func() { os.Chdir(orig) })
+	t.Setenv("HOME", dir)
+
+	cmd := newResumeCmd()
+	cmd.PersistentFlags().String("config", filepath.Join(dir, "nonexistent.yaml"), "")
+	cmd.PersistentFlags().String("project", "test-project", "")
+	cmd.PersistentFlags().Bool("skip-preflight", true, "")
+	cmd.SetArgs([]string{"REQ-MANUALMODE1"})
+
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for manual mode without plan approval")
+	}
+	if !strings.Contains(err.Error(), "plan approval required") {
+		t.Errorf("error should mention plan approval: %v", err)
+	}
+}
+
 func TestRunResume_WithForceFlag(t *testing.T) {
 	dir, s := setupTestEnv(t)
 

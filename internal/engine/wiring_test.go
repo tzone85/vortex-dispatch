@@ -1766,14 +1766,32 @@ func TestWiring_RecoveryCompletedEvent_ProjectedWithoutError(t *testing.T) {
 	store, cleanup := newWiringStore(t)
 	defer cleanup()
 
+	// The projector stamps recovered_at on the most-recently active non-terminal
+	// requirement.  newWiringStore creates r-wiring with status='pending', which
+	// is not in the ('planned','paused','analyzed') filter.  Advance it first so
+	// there is a matching row.
+	if err := store.Project(state.NewEvent(state.EventReqPlanned, "system", "", map[string]any{
+		"id": "r-wiring",
+	})); err != nil {
+		t.Fatalf("setup: advance r-wiring to planned: %v", err)
+	}
+
 	evt := state.NewEvent(state.EventRecoveryCompleted, "system", "", map[string]any{
 		"issues_found": 2,
 	})
 	if err := store.Project(evt); err != nil {
 		t.Fatalf("WIRING FAILURE: RECOVERY_COMPLETED not handled by projector: %v", err)
 	}
-	// No structural assertion needed — this is an informational marker.
-	// The test verifies the event does NOT fall through to the default WARNING branch.
+
+	// Assert that recovered_at is now populated on the r-wiring row.
+	req, err := store.GetRequirement("r-wiring")
+	if err != nil {
+		t.Fatalf("get requirement after RECOVERY_COMPLETED: %v", err)
+	}
+	if req.RecoveredAt.IsZero() {
+		t.Errorf("WIRING FAILURE: RECOVERY_COMPLETED should stamp recovered_at on the requirement, but it is still zero. "+
+			"Check sqlite.go Project() and projectRecoveryCompleted — the status filter may not match.")
+	}
 }
 
 // ---- MEDIUM severity: informational events ----

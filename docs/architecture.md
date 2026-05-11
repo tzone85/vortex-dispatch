@@ -18,7 +18,9 @@ cmd/vxd/              Entry point — wires Cobra commands
 internal/
   agent/              Role definitions, complexity scoring, prompt templates
   artifact/           Artifact store for launch configs, diffs, traces
+  autoresearch/       Karpathy-style experiment harness: hypothesis loop, Bayesian posterior, program.md evolution
   cli/                Cobra command implementations (one file per command)
+  codegraph/          Blast-radius analysis via code-review-graph; degrades gracefully if binary absent
   config/             YAML config loading, validation, defaults
   dashboard/          Bubbletea TUI (single-pane layout, all sections visible)
   engine/             Core orchestration pipeline
@@ -57,6 +59,7 @@ internal/
   improve/            Self-improvement engine (research, analysis, implementation, revenue)
   llm/                LLM clients (Anthropic, OpenAI, Google AI, Claude CLI, Replay, Fallback)
   memory/             Memory dashboard, findings explorer, opportunity tracker, MemPalace integration
+  notify/             Outbound webhook notifications for SLA breaches, completions, and pipeline failures (Slack/Discord/generic)
   preflight/          Pre-flight validation (12 checks, 3 severity tiers)
   repolearn/          3-pass repo learning (static scan, git history, LLM deep analysis)
   runtime/            Adapter/Runner pattern with pluggable execution targets
@@ -69,6 +72,7 @@ internal/
     sanitize.go       Input validation for shell-facing values
     registry.go       Runtime registry (backward-compatible with old Runtime interface)
   scratchboard/       Shared memory across parallel agents
+  secrets/            Secret-store abstraction (env vars → Vault → other providers without code changes)
   state/              Event store + SQLite projections
   tmux/               Terminal session management
   web/                Web dashboard (WebSocket, embedded static files, command dispatch)
@@ -507,3 +511,24 @@ Key testing patterns:
 - **Interface-based mocks** for git and command execution
 - **Temp directories** for isolated file/SQLite stores
 - **Build tag `e2e`** separates E2E tests from unit tests
+
+## Diagrams
+
+Rendered diagrams live under `docs/diagrams/`:
+
+### High-Level Architecture
+
+- ![Architecture Overview](diagrams/arch-overview.svg) — `docs/diagrams/arch-overview.svg`
+- ![Pipeline Flow](diagrams/pipeline-flow.svg) — req → stories → merge
+- ![Escalation Tiers](diagrams/escalation-tiers.svg) — 5-tier escalation chain
+- ![Package Dependencies](diagrams/package-deps.svg) — Go package DAG
+
+### Sequence Diagrams
+
+- ![Dispatch](diagrams/sequence-dispatch.png) — requirement intake → story dispatch
+- ![Escalation](diagrams/sequence-escalation.png) — tier 0 → tier 4
+- ![Merge](diagrams/sequence-merge.png) — QA → PR → merge → cleanup
+- ![Self-Improve](diagrams/sequence-improve.png) — daily self-improvement cycle
+- ![Autoresearch](diagrams/sequence-autoresearch.png) — coordinator loop
+
+Regenerate D2/PlantUML diagrams via `./docs/diagrams/render.sh`. Regenerate the package-deps graph via `./docs/diagrams/gen-deps.sh`.

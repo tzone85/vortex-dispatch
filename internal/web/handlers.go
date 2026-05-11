@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"regexp"
 
+	"github.com/tzone85/vortex-dispatch/internal/runtime"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
 
@@ -270,6 +271,12 @@ func (s *Server) handleKill(payload json.RawMessage) WSResponse {
 	}
 	if sessionName == "" {
 		return WSResponse{Type: "command_result", Action: action, Success: false, Message: "agent not found or no session"}
+	}
+
+	// Validate the session name before passing it to tmux to prevent injection
+	// via a corrupted or adversarially crafted store entry (SH-2).
+	if err := runtime.ValidateSessionName(sessionName); err != nil {
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("invalid session name: %v", err)}
 	}
 
 	cmd := exec.Command("tmux", "kill-session", "-t", sessionName)

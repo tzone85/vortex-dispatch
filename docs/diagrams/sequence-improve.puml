@@ -1,0 +1,40 @@
+@startuml sequence-improve
+title Daily Self-Improvement Run
+
+participant "launchd (6am)" as CR
+participant "vxd improve" as IM
+participant "Researcher" as RS
+participant "Analyzer" as AZ
+participant "Triage" as TR
+participant "Implementer\n(Claude CLI)" as IP
+participant "Reviewer" as RV
+participant "Resend (email)" as RE
+participant "MemPalace" as MP
+database "runs/*.json" as RJ
+database "changelog.jsonl" as CL
+
+CR -> IM : daily trigger
+IM -> RS : research (tracked projects)
+RS --> IM : findings raw
+
+IM -> AZ : analyze findings
+AZ -> TR : triage actionability
+TR --> AZ : actionable + non-actionable
+
+loop per actionable finding
+    AZ -> IP : implement (--max-turns 25)
+    IP -> IP : claude CLI, edit files
+    IP --> AZ : diff + PR URL
+    AZ -> RV : self-review
+    RV --> AZ : approve / abort
+    AZ -> CL : append entry
+end
+
+AZ -> RJ : save run summary (pre-email)
+AZ -> RE : send digest email
+RE --> AZ : sent
+AZ -> RJ : save run summary (email_sent=true)
+
+AZ -> MP : index high-value findings\n(auto-mine wiring, commit 0ecf617)
+
+@enduml

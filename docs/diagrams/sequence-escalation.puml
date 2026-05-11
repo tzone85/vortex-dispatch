@@ -1,0 +1,50 @@
+@startuml sequence-escalation
+title Escalation Chain: Tier 0 → Tier 4
+
+participant "Monitor" as MN
+participant "Reviewer" as RV
+participant "QA" as QA
+participant "Escalation" as ES
+participant "Smart Retry" as SR
+participant "Senior" as SN
+participant "Manager" as MG
+participant "TechLead" as TL
+participant "Dispatcher" as DP
+database "events.jsonl" as EV
+
+MN -> RV : story finished
+RV -> QA : reviewed OK
+QA -> QA : build / test / criteria
+
+alt QA pass
+    QA -> EV : STORY_QA_PASSED
+else QA fail
+    QA -> ES : escalate(story, failure)
+    ES -> EV : STORY_ESCALATED (from=0)
+
+    ES -> SR : analyze error (8 categories)
+    SR --> ES : retry with fix hint
+    ES -> DP : redispatch tier 0
+    DP --> ES : still fails
+
+    ES -> SN : tier 1 — senior
+    SN --> ES : fails
+    ES -> EV : STORY_ESCALATED (from=1)
+
+    ES -> MG : tier 2 — diagnose
+    MG -> MG : rewrite story
+    MG -> EV : STORY_REWRITTEN
+    MG --> ES : retry rewritten
+    ES --> ES : fails
+
+    ES -> TL : tier 3 — re-plan
+    TL -> TL : split into smaller stories
+    TL -> EV : STORY_SPLIT
+    TL --> ES : children dispatched
+    ES --> ES : children fail
+
+    ES -> EV : STORY_PAUSED (tier 4)
+    ES -> EV : REQ_PAUSED
+end
+
+@enduml

@@ -131,6 +131,19 @@ func NewSQLiteStore(dsn string) (*SQLiteStore, error) {
 		db.Exec(m) // errors ignored for idempotency
 	}
 
+	// Migrate existing databases: add review/estimation/recovery columns to requirements.
+	requirementMigrations := []string{
+		"ALTER TABLE requirements ADD COLUMN review_mode TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE requirements ADD COLUMN estimated_hours_low REAL NOT NULL DEFAULT 0",
+		"ALTER TABLE requirements ADD COLUMN estimated_hours_high REAL NOT NULL DEFAULT 0",
+		"ALTER TABLE requirements ADD COLUMN estimated_cost_low REAL NOT NULL DEFAULT 0",
+		"ALTER TABLE requirements ADD COLUMN estimated_cost_high REAL NOT NULL DEFAULT 0",
+		"ALTER TABLE requirements ADD COLUMN recovered_at TIMESTAMP",
+	}
+	for _, m := range requirementMigrations {
+		db.Exec(m) // errors ignored for idempotency
+	}
+
 	indexStatements := []string{
 		`CREATE INDEX IF NOT EXISTS idx_stories_req_id ON stories(req_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_stories_status ON stories(status)`,
@@ -170,6 +183,14 @@ func (s *SQLiteStore) Project(evt Event) error {
 		return s.updateReqStatus(payload, "planned")
 	case EventReqCompleted:
 		return s.updateReqStatus(payload, "completed")
+	case EventReqEstimated:
+		return s.projectReqEstimated(payload)
+	case EventPlanRejected:
+		return s.updateReqStatusByReqID(payload, "plan_rejected")
+	case EventReviewModeSet:
+		return s.projectReviewModeSet(payload)
+	case EventRecoveryCompleted:
+		return s.projectRecoveryCompleted(evt)
 
 	case EventStoryCreated:
 		return s.projectStoryCreated(payload)
@@ -232,6 +253,17 @@ func (s *SQLiteStore) Project(evt Event) error {
 	case EventAgentCheckpoint, EventAgentResumed, EventAgentStuck, EventPlanApproved:
 		return nil // informational — no projection change
 
+	case EventBranchDeleted:
+		return nil // informational — no projection change needed
+	case EventGCCompleted:
+		return nil // informational — no projection change needed
+	case EventWorktreePruned:
+		return nil // informational — no projection change needed
+	case EventSupervisorCheck:
+		return nil // informational — no projection change needed
+	case EventSupervisorDriftDetected:
+		return nil // informational — no projection change needed
+
 	case EventBaselineMeasured,
 		EventExperimentProposed,
 		EventExperimentRunning,
@@ -252,19 +284,6 @@ func (s *SQLiteStore) Project(evt Event) error {
 		log.Printf("[projector] WARNING: unhandled event type %q (story=%s)", evt.Type, evt.StoryID)
 		return nil
 	}
-}
-
-// GetRequirement returns a single requirement by ID.
-func (s *SQLiteStore) GetRequirement(id string) (Requirement, error) {
-	var req Requirement
-	err := s.db.QueryRow(
-		`SELECT id, title, description, status, repo_path, created_at FROM requirements WHERE id = ?`,
-		id,
-	).Scan(&req.ID, &req.Title, &req.Description, &req.Status, &req.RepoPath, &req.CreatedAt)
-	if err != nil {
-		return Requirement{}, fmt.Errorf("get requirement %s: %w", id, err)
-	}
-	return req, nil
 }
 
 // GetStory returns a single story by ID.
@@ -348,48 +367,6 @@ func (s *SQLiteStore) ListStories(filter StoryFilter) ([]Story, error) {
 		stories = append(stories, story)
 	}
 	return stories, rows.Err()
-}
-
-// ListRequirements returns all requirements ordered by creation time.
-func (s *SQLiteStore) ListRequirements() ([]Requirement, error) {
-	return s.ListRequirementsFiltered(ReqFilter{})
-}
-
-// ListRequirementsFiltered returns requirements matching the given filter,
-// ordered by creation time.
-func (s *SQLiteStore) ListRequirementsFiltered(filter ReqFilter) ([]Requirement, error) {
-	query := `SELECT id, title, description, status, repo_path, created_at FROM requirements`
-	var conditions []string
-	var args []any
-
-	if filter.RepoPath != "" {
-		conditions = append(conditions, "repo_path = ?")
-		args = append(args, filter.RepoPath)
-	}
-	if filter.ExcludeArchived {
-		conditions = append(conditions, "status != 'archived'")
-	}
-
-	if len(conditions) > 0 {
-		query += " WHERE " + strings.Join(conditions, " AND ")
-	}
-	query += " ORDER BY created_at ASC"
-
-	rows, err := s.db.Query(query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list requirements: %w", err)
-	}
-	defer rows.Close()
-
-	var reqs []Requirement
-	for rows.Next() {
-		var req Requirement
-		if err := rows.Scan(&req.ID, &req.Title, &req.Description, &req.Status, &req.RepoPath, &req.CreatedAt); err != nil {
-			return nil, fmt.Errorf("scan requirement: %w", err)
-		}
-		reqs = append(reqs, req)
-	}
-	return reqs, rows.Err()
 }
 
 // AgentFilter specifies criteria for filtering agents.

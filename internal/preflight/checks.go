@@ -283,9 +283,39 @@ func CheckOllama() Result {
 		Message: fmt.Sprintf("Ollama installed, server running (v%s)", versionResp.Version)}
 }
 
+// CheckBinaryPath warns when the running vxd binary is outside ~/.local/bin/,
+// which means PATH order is wrong or a stale build exists at ~/go/bin/.
+// The check accepts an explicit executablePath so it can be unit-tested without
+// actually invoking os.Executable. Pass "" to use the real executable path.
+func CheckBinaryPath(executablePath string) Result {
+	var err error
+	if executablePath == "" {
+		executablePath, err = os.Executable()
+		if err != nil {
+			return Result{Name: "binary_path", Severity: SeverityWarning, Passed: true,
+				Message: "binary_path: could not determine executable path (non-fatal)"}
+		}
+		executablePath, _ = filepath.EvalSymlinks(executablePath)
+	}
+
+	canonical := filepath.Join(os.Getenv("HOME"), ".local", "bin")
+	if strings.HasPrefix(executablePath, canonical) {
+		return Result{Name: "binary_path", Severity: SeverityWarning, Passed: true,
+			Message: fmt.Sprintf("binary at correct location (%s)", executablePath)}
+	}
+
+	remediation := fmt.Sprintf("rm %s", executablePath)
+	return Result{Name: "binary_path", Severity: SeverityWarning, Passed: false,
+		Message: fmt.Sprintf(
+			"vxd is running from %s (expected %s) — you may be running a stale build. "+
+				"Fix: %s  OR  ensure %s appears before %s in your PATH",
+			executablePath, canonical, remediation, canonical, filepath.Dir(executablePath),
+		)}
+}
+
 // --- Check sets ---
 
-// DispatchChecks returns the 8 checks run before every dispatch operation.
+// DispatchChecks returns the 9 checks run before every dispatch operation.
 // These cover the minimum requirements for agents to function correctly.
 func DispatchChecks() []Check {
 	return []Check{
@@ -295,10 +325,12 @@ func DispatchChecks() []Check {
 	}
 }
 
-// AllChecks returns all 13 checks including informational ones shown by
+// AllChecks returns all 14 checks including informational ones shown by
 // `vxd preflight`.
 func AllChecks() []Check {
+	binaryCheck := func() Result { return CheckBinaryPath("") }
 	return append(DispatchChecks(),
+		binaryCheck,
 		CheckConfig, CheckProject, CheckStateDir, CheckBillingConfig, CheckOllama,
 	)
 }

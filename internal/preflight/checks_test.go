@@ -1,6 +1,8 @@
 package preflight_test
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/tzone85/vortex-dispatch/internal/preflight"
@@ -191,9 +193,41 @@ func TestDispatchChecks_Returns9(t *testing.T) {
 	}
 }
 
-func TestAllChecks_Returns14(t *testing.T) {
+func TestAllChecks_Returns15(t *testing.T) {
 	checks := preflight.AllChecks()
-	if len(checks) != 14 {
-		t.Fatalf("expected 14 total checks, got %d", len(checks))
+	if len(checks) != 15 {
+		t.Fatalf("expected 15 total checks, got %d", len(checks))
+	}
+}
+
+func TestCheckBinaryPath_WarnWhenOutsideLocalBin(t *testing.T) {
+	// Simulate binary being at ~/go/bin/vxd (common shadow location)
+	fakePath := "/Users/testuser/go/bin/vxd"
+	result := preflight.CheckBinaryPath(fakePath)
+
+	if result.Name != "binary_path" {
+		t.Fatalf("expected name 'binary_path', got %q", result.Name)
+	}
+	if result.Severity != preflight.SeverityWarning {
+		t.Fatal("expected SeverityWarning")
+	}
+	if result.Passed {
+		t.Fatal("expected Passed=false when binary is outside ~/.local/bin/")
+	}
+	if !strings.Contains(result.Message, fakePath) {
+		t.Fatalf("expected message to contain fake path %q, got: %s", fakePath, result.Message)
+	}
+	if !strings.Contains(result.Message, "rm "+fakePath) {
+		t.Fatalf("expected message to contain remediation 'rm %s', got: %s", fakePath, result.Message)
+	}
+}
+
+func TestCheckBinaryPath_PassWhenInLocalBin(t *testing.T) {
+	home := os.Getenv("HOME")
+	fakePath := home + "/.local/bin/vxd"
+	result := preflight.CheckBinaryPath(fakePath)
+
+	if !result.Passed {
+		t.Fatalf("expected Passed=true when binary is in ~/.local/bin/, got: %s", result.Message)
 	}
 }

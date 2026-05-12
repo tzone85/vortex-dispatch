@@ -1,7 +1,10 @@
 package engine
 
 import (
+	"bytes"
+	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -78,6 +81,61 @@ func TestEnsureGitignorePatterns_PartialExisting(t *testing.T) {
 	count := strings.Count(s, "CLAUDE.md")
 	if count != 1 {
 		t.Errorf("expected CLAUDE.md to appear once, appeared %d times", count)
+	}
+}
+
+// initBareGitRepo creates a minimal git repo in dir with one commit so that
+// stash and pull operations have a valid HEAD to work against.
+func initBareGitRepo(t *testing.T, dir string) {
+	t.Helper()
+	cmds := [][]string{
+		{"git", "init"},
+		{"git", "config", "user.email", "test@example.com"},
+		{"git", "config", "user.name", "Test"},
+		{"git", "commit", "--allow-empty", "-m", "initial"},
+	}
+	for _, args := range cmds {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git setup %v: %v\n%s", args, err, out)
+		}
+	}
+}
+
+func TestGitPullWithStash_DirtyTree_SkipsCleanly(t *testing.T) {
+	dir := t.TempDir()
+	initBareGitRepo(t, dir)
+
+	// Dirty the working tree with an untracked file.
+	dirtyFile := filepath.Join(dir, "dirty.txt")
+	if err := os.WriteFile(dirtyFile, []byte("uncommitted"), 0o644); err != nil {
+		t.Fatalf("write dirty file: %v", err)
+	}
+
+	// Capture log output to assert no "failed" message is emitted.
+	var logBuf bytes.Buffer
+	oldFlags := log.Flags()
+	log.SetFlags(0)
+	log.SetOutput(&logBuf)
+	t.Cleanup(func() {
+		log.SetOutput(os.Stderr)
+		log.SetFlags(oldFlags)
+	})
+
+	// No remote "origin" exists, so stash will succeed but pull will fail.
+	// The important assertion is that the log message does NOT contain "failed"
+	// and that the dirty file still exists (working tree preserved).
+	gitPullWithStash(dir, "main")
+
+	logOut := logBuf.String()
+	if strings.Contains(logOut, "failed") {
+		t.Errorf("expected no 'failed' in log output, got:\n%s", logOut)
+	}
+
+	// Dirty file should still be present (either via stash pop or skip).
+	if _, err := os.Stat(dirtyFile); os.IsNotExist(err) {
+		t.Error("expected dirty.txt to still exist after pull attempt")
 	}
 }
 

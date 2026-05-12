@@ -81,6 +81,8 @@ models:
 routing:
   junior_max_complexity: 3
   max_retries_before_escalation: 2
+monitor:
+  stuck_threshold_s: 600  # seconds before AGENT_STUCK fires (default 600 = 10 min)
 planning:
   max_story_complexity: 5
   design_approach: ddd-tdd  # ddd-tdd | tdd | standard
@@ -225,6 +227,13 @@ Every failure is a chance to make the system stronger:
 | Rule | NEVER reference VXD in NXD code | Keep in sync on core fixes |
 
 ## Critical Operational Knowledge
+
+### PATH Shadowing (Binary Location)
+- Canonical install location: `~/.local/bin/vxd` (always build with `go build -o ~/.local/bin/vxd ./cmd/vxd`)
+- `go build` default output is `~/go/bin/vxd` — if both dirs are on PATH, shell resolves whichever comes first
+- Preflight check `CheckBinaryPath` (WARNING severity) detects when vxd is NOT running from `~/.local/bin/`
+- **Symptom:** operator rebuilds but still runs old code; new features/fixes appear absent
+- **Fix:** ensure `~/.local/bin` precedes `~/go/bin` in PATH — or delete the shadow: `rm ~/go/bin/vxd`
 
 ### ANTHROPIC_API_KEY Conflict
 - When `ANTHROPIC_API_KEY` is set AND Claude CLI is installed, CLI uses API credits instead of Max subscription

@@ -1655,13 +1655,7 @@ func pullBaseAfterMerge(repoDir, baseBranch string) {
 		cmd := exec.Command("git", "rev-parse", "--verify", "refs/heads/"+branch)
 		cmd.Dir = repoDir
 		if err := cmd.Run(); err == nil {
-			pull := exec.Command("git", "pull", "--ff-only", "origin", branch)
-			pull.Dir = repoDir
-			if out, pullErr := pull.CombinedOutput(); pullErr != nil {
-				log.Printf("[auto-resume] git pull %s failed (non-fatal): %v\n%s", branch, pullErr, string(out))
-			} else {
-				log.Printf("[auto-resume] pulled latest %s into local checkout", branch)
-			}
+			gitPullWithStash(repoDir, branch)
 			return
 		}
 	}
@@ -1671,6 +1665,49 @@ func pullBaseAfterMerge(repoDir, baseBranch string) {
 // ensureGitignorePatterns appends VXD artifact patterns to .gitignore if
 // they are not already present, preventing CLAUDE.md, .vxd-prompts/,
 // .serena/, and other tool artifacts from being committed by agents.
+// gitPullWithStash performs a fast-forward pull of the given branch.
+// If the working tree is dirty it stashes first, pulls, then pops.
+// If the stash itself fails it skips the pull cleanly rather than logging
+// a noisy "failed" message that implies a real error.
+func gitPullWithStash(repoDir, branch string) {
+	// Check for dirty working tree.
+	statusOut, err := exec.Command("git", "status", "--porcelain").Output()
+	statusOut2 := ""
+	if err == nil {
+		statusOut2 = strings.TrimSpace(string(statusOut))
+	}
+	dirty := statusOut2 != ""
+
+	if dirty {
+		stash := exec.Command("git", "stash", "push", "-u", "-m", "vxd-pull-stash")
+		stash.Dir = repoDir
+		if stashErr := stash.Run(); stashErr != nil {
+			// Count dirty files for the log message.
+			dirtyCount := len(strings.Split(statusOut2, "\n"))
+			log.Printf("[auto-resume] working tree dirty (%d files) — skipping %s pull; manual: cd %s && git pull --ff-only origin %s",
+				dirtyCount, branch, repoDir, branch)
+			return
+		}
+		log.Printf("[auto-resume] stashed dirty working tree before pulling %s", branch)
+	}
+
+	pull := exec.Command("git", "pull", "--ff-only", "origin", branch)
+	pull.Dir = repoDir
+	if out, pullErr := pull.CombinedOutput(); pullErr != nil {
+		log.Printf("[auto-resume] pull %s non-fatal: %v — %s", branch, pullErr, strings.TrimSpace(string(out)))
+	} else {
+		log.Printf("[auto-resume] pulled latest %s into local checkout", branch)
+	}
+
+	if dirty {
+		pop := exec.Command("git", "stash", "pop")
+		pop.Dir = repoDir
+		if popErr := pop.Run(); popErr != nil {
+			log.Printf("[auto-resume] stash pop after pull: %v (manual: cd %s && git stash pop)", popErr, repoDir)
+		}
+	}
+}
+
 func ensureGitignorePatterns(worktreePath string) {
 	vxdPatterns := []string{
 		"CLAUDE.md",

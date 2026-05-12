@@ -222,6 +222,31 @@ func TestDefaultConfig_IncludesRuntimes(t *testing.T) {
 	}
 }
 
+func TestDefaultConfig_StuckThresholdIs600(t *testing.T) {
+	cfg := config.DefaultConfig()
+	const want = 600
+	if cfg.Monitor.StuckThresholdS != want {
+		t.Fatalf("expected default stuck_threshold_s=%d (10 min), got %d", want, cfg.Monitor.StuckThresholdS)
+	}
+}
+
+func TestDefaultConfig_StuckThresholdConfigurable(t *testing.T) {
+	// Verify the field can be overridden via YAML.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vxd.yaml")
+	yaml := "version: \"1.0\"\nmonitor:\n  stuck_threshold_s: 300\n"
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadFromFile(path)
+	if err != nil {
+		t.Fatalf("LoadFromFile: %v", err)
+	}
+	if cfg.Monitor.StuckThresholdS != 300 {
+		t.Fatalf("expected stuck_threshold_s=300 after override, got %d", cfg.Monitor.StuckThresholdS)
+	}
+}
+
 func TestDefaultConfig_IncludesPRTemplate(t *testing.T) {
 	cfg := config.DefaultConfig()
 

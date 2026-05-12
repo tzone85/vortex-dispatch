@@ -38,7 +38,7 @@ func DefaultConfig() Config {
 		},
 		Monitor: MonitorConfig{
 			PollIntervalMs:         10000,
-			StuckThresholdS:        120,
+			StuckThresholdS:        600, // 10 min — reduced false-alarm rate observed in live tests
 			ContextFreshnessTokens: 150000,
 		},
 		Cleanup: CleanupConfig{

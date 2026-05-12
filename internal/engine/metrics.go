@@ -49,6 +49,15 @@ type PipelineMetrics struct {
 	RequirementStats []RequirementStat
 }
 
+// StoryStat holds per-story timing shown in `vxd metrics`.
+type StoryStat struct {
+	StoryID    string
+	Title      string
+	Status     string
+	Complexity int
+	Duration   time.Duration // STORY_STARTED → STORY_COMPLETED (or last event)
+}
+
 // RequirementStat holds metrics for a single requirement.
 type RequirementStat struct {
 	ReqID           string
@@ -63,6 +72,7 @@ type RequirementStat struct {
 	ToolCalls       int
 	FileEdits       int
 	Errors          int
+	Stories         []StoryStat
 }
 
 // ComputeMetrics calculates pipeline metrics from the event store.
@@ -154,13 +164,21 @@ func ComputeMetrics(es state.EventStore, ps *state.SQLiteStore, limit int, logDi
 				m.StoriesPassed++
 			}
 
-			// Calculate story duration (created → merged)
-			storyEvents, _ := es.List(state.EventFilter{StoryID: story.ID})
-			if len(storyEvents) >= 2 {
-				duration := storyEvents[len(storyEvents)-1].Timestamp.Sub(storyEvents[0].Timestamp)
-				m.AvgTotalTime += duration
-				reqStat.TotalDuration += duration
+			// Calculate story duration from STORY_STARTED → STORY_COMPLETED.
+			// Falls back to first-event → last-event if those markers are missing.
+			storyStat := StoryStat{
+				StoryID:    story.ID,
+				Title:      story.Title,
+				Status:     story.Status,
+				Complexity: story.Complexity,
 			}
+			storyEvents, _ := es.List(state.EventFilter{StoryID: story.ID})
+			storyStat.Duration = storyDuration(storyEvents)
+			if storyStat.Duration > 0 {
+				m.AvgTotalTime += storyStat.Duration
+				reqStat.TotalDuration += storyStat.Duration
+			}
+			reqStat.Stories = append(reqStat.Stories, storyStat)
 		}
 
 		if reqStat.StoryCount > 0 {
@@ -267,10 +285,43 @@ func FormatMetrics(m PipelineMetrics) string {
 			b.WriteString(fmt.Sprintf("  [%s] %s\n", rs.Status, title))
 			b.WriteString(fmt.Sprintf("    Stories: %d | Merged: %d | First-pass: %.0f%% | Escalations: %d | SLA breaches: %d | Duration: %s\n",
 				rs.StoryCount, rs.MergedCount, rs.FirstPassRate, rs.EscalationCount, rs.SLABreaches, formatDuration(rs.TotalDuration)))
+			for _, ss := range rs.Stories {
+				stTitle := ss.Title
+				if len(stTitle) > 40 {
+					stTitle = stTitle[:40] + "..."
+				}
+				dur := ""
+				if ss.Duration > 0 {
+					dur = fmt.Sprintf(" [%s]", formatDuration(ss.Duration))
+				}
+				b.WriteString(fmt.Sprintf("      • [%s] (complexity %d)%s %s\n", ss.Status, ss.Complexity, dur, stTitle))
+			}
 		}
 	}
 
 	return b.String()
+}
+
+// storyDuration extracts the elapsed time for a story from its event stream.
+// It prefers the STORY_STARTED → STORY_COMPLETED window; if those are missing
+// it falls back to first-event → last-event.
+func storyDuration(events []state.Event) time.Duration {
+	var startedAt, completedAt time.Time
+	for _, e := range events {
+		if e.Type == state.EventStoryStarted && startedAt.IsZero() {
+			startedAt = e.Timestamp
+		}
+		if e.Type == state.EventStoryCompleted {
+			completedAt = e.Timestamp
+		}
+	}
+	if !startedAt.IsZero() && !completedAt.IsZero() {
+		return completedAt.Sub(startedAt)
+	}
+	if len(events) >= 2 {
+		return events[len(events)-1].Timestamp.Sub(events[0].Timestamp)
+	}
+	return 0
 }
 
 func formatDuration(d time.Duration) string {

@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tzone85/vortex-dispatch/internal/state"
 )
 
 func TestFormatDuration_Zero(t *testing.T) {
@@ -121,6 +123,73 @@ func TestFormatMetrics_LongTitleTruncation(t *testing.T) {
 	output := FormatMetrics(m)
 	if !strings.Contains(output, "...") {
 		t.Error("expected truncated title with ellipsis")
+	}
+}
+
+func TestStoryDuration_StartedToCompleted(t *testing.T) {
+	base := time.Date(2026, 5, 11, 10, 0, 0, 0, time.UTC)
+	events := []state.Event{
+		{Type: state.EventStoryCreated, Timestamp: base},
+		{Type: state.EventStoryStarted, Timestamp: base.Add(1 * time.Minute)},
+		{Type: state.EventStoryCompleted, Timestamp: base.Add(19 * time.Minute)},
+	}
+	got := storyDuration(events)
+	want := 18 * time.Minute
+	if got != want {
+		t.Errorf("expected %v, got %v", want, got)
+	}
+}
+
+func TestStoryDuration_FallbackToFirstLast(t *testing.T) {
+	base := time.Date(2026, 5, 11, 10, 0, 0, 0, time.UTC)
+	events := []state.Event{
+		{Type: state.EventStoryCreated, Timestamp: base},
+		{Type: state.EventStoryMerged, Timestamp: base.Add(5 * time.Minute)},
+	}
+	got := storyDuration(events)
+	want := 5 * time.Minute
+	if got != want {
+		t.Errorf("expected %v fallback duration, got %v", want, got)
+	}
+}
+
+func TestStoryDuration_ZeroWhenNoEvents(t *testing.T) {
+	got := storyDuration(nil)
+	if got != 0 {
+		t.Errorf("expected 0 for empty events, got %v", got)
+	}
+}
+
+func TestFormatMetrics_StoryDurationInOutput(t *testing.T) {
+	m := PipelineMetrics{
+		TotalRequirements:  1,
+		EscalationsPerTier: map[int]int{},
+		RequirementStats: []RequirementStat{
+			{
+				ReqID:    "r-001",
+				Title:    "Add user auth",
+				Status:   "completed",
+				Stories: []StoryStat{
+					{StoryID: "s-001", Title: "Implement login endpoint", Status: "merged", Complexity: 2, Duration: 18*time.Minute + 34*time.Second},
+					{StoryID: "s-002", Title: "Add JWT middleware", Status: "merged", Complexity: 3, Duration: 0},
+				},
+			},
+		},
+	}
+
+	output := FormatMetrics(m)
+	if !strings.Contains(output, "[18m 34s]") {
+		t.Errorf("expected story duration [18m 34s] in output, got:\n%s", output)
+	}
+	if !strings.Contains(output, "Implement login endpoint") {
+		t.Errorf("expected story title in output, got:\n%s", output)
+	}
+	// Zero duration stories should not show a duration bracket.
+	if strings.Contains(output, "[—]") {
+		t.Errorf("zero duration should not render em-dash bracket, got:\n%s", output)
+	}
+	if !strings.Contains(output, "complexity 2") {
+		t.Errorf("expected complexity in story line, got:\n%s", output)
 	}
 }
 

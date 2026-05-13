@@ -113,7 +113,7 @@ billing:
 | `vxd metrics` | Success rates, timing, escalations, SLA breaches per requirement |
 | `vxd estimate "req"` | Cost estimation with `--quick`, `--json`, `--rate` |
 | `vxd report <req-id>` | Client delivery report (`--html`, `--internal`) |
-| `vxd preflight` | Run 12 pre-flight checks before dispatch |
+| `vxd preflight` | Run 15 pre-flight checks before dispatch |
 | `vxd approve <story-id>` | Approve a story PR for merge (`--all <req-id>` for batch) |
 | `vxd approve-plan` | Approve story plan before dispatch |
 | `vxd reject-plan` | Reject a plan with feedback |
@@ -306,13 +306,26 @@ Every failure is a chance to make the system stronger:
 6. **CLAUDE.md overwritten after merge** → `stripVXDArtifactsFromBranch` should prevent this. If it still happens, check that the function runs before `rebaseAndMerge`. Verify with: `git log --oneline --diff-filter=M -- CLAUDE.md`
 7. **Code exists on GitHub but not locally** → `pullMainAfterMerge` should auto-pull. If it failed, check for dirty working tree or network issues. Manual fix: `git pull --ff-only origin main`
 
-## Pending Work (as of 2026-04-30)
+## Pending Work (as of 2026-05-13)
 1. ~~Port Docker/SSH runners to NXD~~ — DONE
 2. Fix GitHub Actions billing — account payment issue, CI slimmed to ubuntu-only
-3. ~~Mukuru-api pipeline~~ — DONE (7/7 merged, PRs #6-#12)
-4. ~~Mukuru-site pipeline~~ — DONE (7/7 merged, PRs #18-#24)
-5. ~~CashTask backend~~ — DONE (10/10 merged, PRs #1-#10)
-6. ~~Artifact protection~~ — DONE (stripVXDArtifactsFromBranch + pullMainAfterMerge + 16 tests)
-7. ~~Codex review fixes~~ — DONE (scoping, agent projection, handler errors, ergonomics)
-8. Post-merge rebase check — auto-detect and resolve conflicts on open PRs
-9. Re-planner guardrails — prevent hallucinated sub-stories during tier-3 splits
+3. ~~Mukuru-api / Mukuru-site / CashTask pipelines~~ — DONE
+4. ~~Artifact protection~~ — DONE (stripVXDArtifactsFromBranch + pullMainAfterMerge + 16 tests)
+5. ~~Codex review fixes~~ — DONE
+6. ~~Codebase audit + diagrams~~ — DONE (PR #39, 39 findings closed)
+7. ~~Auto-resume infinite loop on `awaiting_approval`~~ — DONE (PR #40, CRITICAL)
+8. ~~`review_mode: auto` ignored at plan gate~~ — DONE (PR #40, HIGH)
+9. ~~`vxd req` doesn't auto-dispatch~~ — DONE (PR #41 — now chains into resume when `review_mode=auto`)
+10. ~~`--godmode` flag help misleading~~ — DONE (PR #41)
+11. ~~State machine guard on `STORY_STARTED`~~ — DONE (PR #41 defense in depth)
+12. ~~`REQ_SUBMITTED` projection idempotency~~ — DONE (PR #41 — `INSERT OR IGNORE`)
+13. ~~PATH shadowing detection~~ — DONE (PR #42, new `CheckBinaryPath` preflight)
+14. ~~`pullMainAfterMerge` noisy on dirty trees~~ — DONE (PR #42, stash + pop or skip cleanly)
+15. ~~`AGENT_STUCK` threshold too aggressive~~ — DONE (PR #42, 120s → 600s default)
+16. ~~Per-story duration metric~~ — DONE (PR #42, `vxd metrics` shows `[Xm Ys]`)
+17. Post-merge rebase check — auto-detect and resolve conflicts on open PRs (open)
+18. Re-planner guardrails — prevent hallucinated sub-stories during tier-3 splits (open)
+19. `nhooyr.io/websocket → coder/websocket` migration (84 SA1019 deprecations) — open
+20. `monitor.go` 1806-line refactor (HIGH tech-debt finding from audit) — open
+21. Coverage roadmap: raise `cli` (65.6%), `config` (70.9%), `improve` (73%), `state` (78.2%) over 80% — open
+22. Self-improve source-quality gap — research scrapers fetch news, not code-actionable signals — feature request

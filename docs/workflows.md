@@ -56,7 +56,7 @@ Before the pipeline starts, VXD validates the execution environment.
 
 **Trigger:** Implicit before `vxd req` and `vxd resume`, or explicitly via `vxd preflight`
 
-Pre-flight runs 12 checks across 3 severity tiers:
+Pre-flight runs 15 checks across 3 severity tiers:
 
 | Tier | Behavior | Checks |
 |------|----------|--------|

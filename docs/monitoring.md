@@ -27,7 +27,7 @@ Every `poll_interval_ms` (default: 10 seconds), the Watchdog:
 ```yaml
 monitor:
   poll_interval_ms: 10000       # Check frequency
-  stuck_threshold_s: 120        # Seconds of unchanged output = stuck
+  stuck_threshold_s: 600        # Seconds of unchanged output before AGENT_STUCK fires (informational only — does not kill the agent)
   context_freshness_tokens: 150000  # Token limit warning
 ```
 

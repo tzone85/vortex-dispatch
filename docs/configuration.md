@@ -130,17 +130,17 @@ Controls the Watchdog that monitors running agents.
 ```yaml
 monitor:
   poll_interval_ms: 10000         # Check agent output every 10 seconds
-  stuck_threshold_s: 120          # Agent is "stuck" if output unchanged for 2 minutes
+  stuck_threshold_s: 600          # Agent is "stuck" if output unchanged for 10 minutes
   context_freshness_tokens: 150000 # Warn when context window approaches limit
 ```
 
 | Key | Default | Notes |
 |-----|---------|-------|
 | `poll_interval_ms` | `10000` | Lower values detect issues faster but increase overhead |
-| `stuck_threshold_s` | `120` | Increase for slow models or complex stories |
+| `stuck_threshold_s` | `600` | Lower for fast models, higher for deep-thinking models. AGENT_STUCK is informational only (does not kill the agent). |
 | `context_freshness_tokens` | `150000` | Triggers context refresh warning |
 
-**Tuning tip:** For fast models (Haiku, GPT-4o-mini), a `stuck_threshold_s` of 60-90s works well. For Opus on complex stories, 180-300s may be appropriate.
+**Tuning tip:** Default `600` (10 min) accommodates Sonnet/Opus on complex stories with long file reads. For fast models that should fail fast, lower to 120-180s.
 
 ### cleanup
 

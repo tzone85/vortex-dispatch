@@ -99,7 +99,7 @@ vhs docs/demo.tape
 | `vxd events [--type T] [--story S] [--limit N]` | List events from the event store, newest first |
 | `vxd dashboard` | Launch the live TUI dashboard |
 | `vxd dashboard --web [--port 8787]` | Launch the web dashboard (browser-based, default port 8787) |
-| `vxd preflight` | Run pre-flight environment checks (12 checks, 3 severity tiers) |
+| `vxd preflight` | Run pre-flight environment checks (15 checks, 3 severity tiers) |
 | `vxd estimate <requirement>` | Estimate cost (`--quick`, `--json`, `--rate`, `--save`) |
 | `vxd report <req-id>` | Generate client delivery report (`--html`, `--internal`, `--output`) |
 | `vxd metrics [--req ID]` | Show pipeline performance metrics with agent activity stats |
@@ -132,9 +132,9 @@ cat spec.md | vxd req -f -
 
 Using `--file` is recommended for complex requirements — write your full spec in a markdown file with acceptance criteria, constraints, and architecture notes, then hand it off to VXD.
 
-### Godmode (Autonomous Operation)
+### Godmode (Skip Per-Tool Permission Prompts)
 
-By default, VXD's LLM calls (planning, review, conflict resolution) may prompt for permission. Pass `--godmode` to run fully autonomously without approval prompts:
+`--godmode` skips per-tool permission prompts during agent execution. It does **NOT** bypass the `review_mode` plan gate or the `auto_merge` PR gate — for fully unattended operation, set `merge.review_mode: auto` (default) **and** `merge.auto_merge: true` in `vxd.yaml`. With those two plus `--godmode`, `vxd req` runs end-to-end from one command:
 
 ```bash
 # Submit a requirement in godmode
@@ -345,7 +345,7 @@ internal/
   improve/            Self-improvement engine (research, analysis, repo learning, revenue)
   llm/                LLM clients (Anthropic, OpenAI, Google AI, Claude CLI, Fallback)
   memory/             Memory dashboard + MemPalace integration
-  preflight/          Pre-flight validation (12 checks, 3 severity tiers)
+  preflight/          Pre-flight validation (15 checks, 3 severity tiers)
   repolearn/          3-pass repo learning (static, git history, LLM deep)
   runtime/            Adapter/Runner pattern (tmux, Docker, SSH)
   scratchboard/       Shared memory across parallel agents

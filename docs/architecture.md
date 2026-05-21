@@ -76,6 +76,15 @@ internal/
   state/              Event store + SQLite projections
   tmux/               Terminal session management
   web/                Web dashboard (WebSocket, embedded static files, command dispatch)
+  devdb/              [PLANNED 2026-05-21] Per-story ephemeral Postgres provider abstraction
+    provider.go       Provider interface (Create/Fork/Delete/List/Schema/Ping)
+    lifecycle.go      Lifecycle helper used by executor and QA
+    null/             null.Provider (default no-op, used in tests)
+    ghost/            ghost.Provider (VXD only — api.ghost.build HTTP client)
+    docker/           docker.Provider (VXD + NXD — local Postgres + template DBs)
+    envfile.go        .vxd-db/connect.env + README.md + psql.sh renderer
+    naming.go         vxd-<project>-<story-id-short> DB naming convention
+    recovery.go       Orphan-recovery on vxd resume
 migrations/           SQLite schema (7 tables)
 test/                 E2E tests
 ```

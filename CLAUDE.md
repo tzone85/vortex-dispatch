@@ -99,6 +99,17 @@ qa:
 billing:
   default_rate: 150.0
   currency: USD
+devdb:  # planned — design spec complete, impl in SP1–SP6 PRs
+  provider: null  # ghost | docker | null (default: null = disabled)
+  template: ""    # source DB to fork from (required when provider != null)
+  on_failure:
+    keep_db: false
+    retain_hours: 24
+  ghost:
+    api_key_env: GHOST_API_KEY
+  docker:
+    image: postgres:16
+    host_port_range: "5500-5599"
 ```
 
 ## CLI Commands
@@ -329,3 +340,14 @@ Every failure is a chance to make the system stronger:
 20. `monitor.go` 1806-line refactor (HIGH tech-debt finding from audit) — open
 21. Coverage roadmap: raise `cli` (65.6%), `config` (70.9%), `improve` (73%), `state` (78.2%) over 80% — open
 22. Self-improve source-quality gap — research scrapers fetch news, not code-actionable signals — feature request
+23. **Ephemeral DBs for agents** — ghost.build (cloud) + Docker (offline) per-story Postgres. Design specs at `docs/superpowers/specs/2026-05-21-ephemeral-dbs-master-design.md` + SP1–SP6 + test strategy. 6 PRs in VXD, mirror PRs in NXD (no Ghost provider), 3 test waves. NXD ships Docker only.
+
+## Ephemeral Databases (planned, design 2026-05-21)
+- **Spec dir:** `docs/superpowers/specs/2026-05-21-ephemeral-dbs-*.md` (master + 6 SPs + test strategy)
+- **New package:** `internal/devdb/` with `Provider` interface, `null/`, `ghost/`, `docker/` implementations
+- **New events:** `STORY_DB_CREATED`, `STORY_DB_FAILED`, `STORY_DB_DELETED` — MUST handle in `sqlite.go Project()` switch (add wiring tests on creation)
+- **New config block:** `devdb:` in vxd.yaml (provider, template, on_failure, ghost, docker)
+- **New CLI:** `vxd db list/connect/sql/schema/logs/delete/gc/template ...` — all land in SP6
+- **Worktree injection:** `.vxd-db/connect.env` (+ README.md, psql.sh, optional mcp.json) — add to `stripVXDArtifactsFromBranch`
+- **NXD parity:** Docker provider only; same `internal/devdb` interface; mirror events + CLI
+- **Tests:** Wave 1 per-SP, Wave 2 live VXD+Ghost, Wave 3 live NXD+Docker

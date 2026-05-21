@@ -262,6 +262,38 @@ Run `vxd init` to generate `vxd.yaml` with sensible defaults, then customize:
 | `secrets` | Secrets provider: `env` (default, reads from environment) or `vault` (HashiCorp Vault KV v2) | `provider: env`; Vault settings: `vault_mount: secret`, `vault_path: vxd` |
 | `notify` | Outbound Slack webhook URL and per-event triggers (`notify_on_sla`, `notify_on_complete`) | Disabled by default (empty `slack_webhook_url`) |
 | `autoresearch` | Per-repo Karpathy-style experiment loop: metric command, editable_paths allowlist, gate (`auto`/`winning`/`pr`), experiment budget, and Bayesian sampler | Disabled by default (`enabled: false`); requires `metric.command` and `editable_paths` when enabled |
+| `devdb` | Per-story ephemeral Postgres: backend (`ghost`/`docker`/`null`), template DB to fork from, on-failure retention policy, and provider-specific settings | Disabled by default (`provider: null`); requires `template` when enabled. See "Ephemeral Databases" section below. |
+
+## Ephemeral Databases (planned)
+
+> **Status:** Design spec complete (2026-05-21). See `docs/superpowers/specs/2026-05-21-ephemeral-dbs-master-design.md` and SP1–SP6 specs for the full plan. Implementation lands in subsequent PRs.
+
+Every story can get its own throwaway Postgres database, forked from a template, deleted when the story finishes. Inspired by [ghost.build](https://ghost.build) — "Postgres built for agents."
+
+**Two backends, one interface:**
+
+- **Ghost** — cloud Postgres at ghost.build (VXD only). Sub-second forks, MCP-native, 100h/month free.
+- **Docker** — local Postgres + template DBs (VXD + NXD). Fully offline.
+
+**Shines for:**
+
+- Per-story migration testing — fork prod snapshot, run migration, discard.
+- Schema-aware code generation — agent calls `devdb_schema` for exact table structure.
+- Destructive SQL testing — `DROP TABLE` freely; blast radius is one story.
+- Multi-agent experimentation — competing approaches each get their own fork.
+
+**Skip when:** pure-frontend stories, prod-touching ops, stories that finish in seconds.
+
+**Minimum config:**
+
+```yaml
+devdb:
+  provider: ghost           # or docker, or null
+  template: my-prod-snapshot
+  ghost: { api_key_env: GHOST_API_KEY }
+```
+
+Agents read `DATABASE_URL` from `.vxd-db/connect.env` (auto-injected into the worktree). Humans use `vxd db list/connect/logs/delete` plus the dashboard's per-story DB column.
 
 ## Architecture
 

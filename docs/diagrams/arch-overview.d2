@@ -75,6 +75,14 @@ dash: Dashboards {
   web: Web (WebSocket)
 }
 
+devdb: Ephemeral DBs (planned) {
+  style.fill: "#dcfce7"
+  lifecycle: Lifecycle\n(Provision/Release)
+  ghost: Ghost provider\n(cloud, VXD only)
+  docker: Docker provider\n(local, VXD+NXD)
+  null: Null provider\n(default)
+}
+
 user -> cli
 cli -> engine: req / status / approve
 cli -> dash
@@ -105,3 +113,11 @@ autoresearch -> state.events
 memory.automine <- engine: on STORY_COMPLETED
 
 dash -> state.sqlite: read
+
+engine.executor -> devdb.lifecycle: Provision (per story)
+engine.qa -> devdb.lifecycle: RefreshStoryDB (optional)
+engine.executor <- devdb.lifecycle: Release (on completion)
+devdb.lifecycle -> devdb.ghost
+devdb.lifecycle -> devdb.docker
+devdb.lifecycle -> devdb.null
+devdb -> state.events: STORY_DB_CREATED/DELETED/FAILED

@@ -1,0 +1,47 @@
+direction: right
+
+title: Ephemeral DB lifecycle per story (planned) {
+  shape: text
+  style.font-size: 24
+  style.bold: true
+}
+
+monitor: Monitor / Dispatcher
+executor: Executor
+lifecycle: devdb.Lifecycle
+provider: Provider\n(ghost \| docker)
+events: events.jsonl
+projection: sqlite\nstory_databases
+worktree: worktree/.vxd-db/
+agent: Agent\n(claude / codex / gemini)
+qa: QA pipeline
+
+monitor -> executor: dispatch story
+executor -> lifecycle: Provision(storyID, project, worktreeDir)
+lifecycle -> provider: Fork(template, name)
+provider -> lifecycle: "DB(id, dsn, ...)"
+lifecycle -> worktree: "write connect.env + README + psql.sh + mcp.json (opt)"
+lifecycle -> events: STORY_DB_CREATED
+events -> projection: row inserted
+
+executor -> agent: spawn (worktree has DATABASE_URL)
+agent -> worktree: reads DATABASE_URL
+agent -> provider: SQL (via DSN)
+
+agent -> executor: done
+executor -> qa: run criteria
+qa -> lifecycle: RefreshStoryDB (if fresh_fork_verification)
+lifecycle -> provider: Delete + Fork again
+qa -> agent: pass/fail
+
+executor -> lifecycle: Release(db, outcome)
+lifecycle -> provider: Delete (if not retained)
+lifecycle -> events: STORY_DB_DELETED
+events -> projection: status updated
+
+retain: On failure with keep_db=true {
+  style.fill: "#fde68a"
+  step: status: retained\n→ human postmortem\n→ manual delete via vxd db delete
+}
+
+executor -> retain: when story failed + KeepDB

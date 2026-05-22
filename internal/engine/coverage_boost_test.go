@@ -325,7 +325,7 @@ func TestRebaseWithResolution_NonConflictError(t *testing.T) {
 	runGitIn("add", ".")
 	runGitIn("commit", "-m", "init")
 
-	cr := NewConflictResolver(nil, "test-model", 4096, nil)
+	cr := NewConflictResolver(nil, "test-model", nil, "", 4096, nil, nil)
 
 	// Try to rebase onto a non-existent ref — should fail with non-conflict error.
 	err := cr.RebaseWithResolution(context.Background(), "s-test", dir, "nonexistent-ref")

@@ -2265,3 +2265,74 @@ func TestWiring_SLABreach_ReleasesDB(t *testing.T) {
 		t.Errorf("OutcomeFailed without KeepDBOnFail should delete; got %v", rp.deleted)
 	}
 }
+
+// --------------------------------------------------------------------------
+// Tech Lead Conflict Escalation — new event type wiring (2026-05-22)
+// --------------------------------------------------------------------------
+// These three tests verify that the new conflict-resolution event types are
+// handled in sqlite.go Project() and do NOT fall through to the WARNING
+// default case. Each test creates the event, projects it, and expects nil
+// (no error and no spurious projection side-effect).
+
+func TestWiring_StoryConflictBinary_ProjectsWithoutError(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	store, err := state.NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer store.Close()
+
+	evt := state.NewEvent(state.EventStoryConflictBinary, "conflict-resolver", "s-wiring-bin-1",
+		map[string]any{
+			"file":   "server",
+			"reason": "binary conflict: took --ours (story branch version)",
+		})
+
+	if err := store.Project(evt); err != nil {
+		t.Errorf("WIRING FAILURE: EventStoryConflictBinary returned error from Project(): %v\n"+
+			"Add 'case EventStoryConflictBinary' in sqlite.go Project() that returns nil.", err)
+	}
+}
+
+func TestWiring_StoryConflictBinaryRemoved_ProjectsWithoutError(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test2.db")
+	store, err := state.NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer store.Close()
+
+	evt := state.NewEvent(state.EventStoryConflictBinaryRemoved, "conflict-resolver", "s-wiring-bin-rm-1",
+		map[string]any{
+			"file":   "server",
+			"reason": "binary removed (oversized or compiled artifact)",
+		})
+
+	if err := store.Project(evt); err != nil {
+		t.Errorf("WIRING FAILURE: EventStoryConflictBinaryRemoved returned error from Project(): %v\n"+
+			"Add 'case EventStoryConflictBinaryRemoved' in sqlite.go Project() that returns nil.", err)
+	}
+}
+
+func TestWiring_StoryConflictEscalated_ProjectsWithoutError(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test3.db")
+	store, err := state.NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer store.Close()
+
+	evt := state.NewEvent(state.EventStoryConflictEscalated, "conflict-resolver", "s-wiring-esc-1",
+		map[string]any{
+			"file":    "cmd/server/main.go",
+			"outcome": "tech_lead_resolved",
+		})
+
+	if err := store.Project(evt); err != nil {
+		t.Errorf("WIRING FAILURE: EventStoryConflictEscalated returned error from Project(): %v\n"+
+			"Add 'case EventStoryConflictEscalated' in sqlite.go Project() that returns nil.", err)
+	}
+}

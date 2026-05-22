@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -9,12 +10,13 @@ import (
 	"strings"
 
 	"github.com/tzone85/vortex-dispatch/internal/agent"
-	"github.com/tzone85/vortex-dispatch/internal/sanitize"
 	"github.com/tzone85/vortex-dispatch/internal/artifact"
 	"github.com/tzone85/vortex-dispatch/internal/config"
+	"github.com/tzone85/vortex-dispatch/internal/devdb"
 	vxdgit "github.com/tzone85/vortex-dispatch/internal/git"
 	"github.com/tzone85/vortex-dispatch/internal/repolearn"
 	"github.com/tzone85/vortex-dispatch/internal/runtime"
+	"github.com/tzone85/vortex-dispatch/internal/sanitize"
 	"github.com/tzone85/vortex-dispatch/internal/scratchboard"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
@@ -36,6 +38,7 @@ type Executor struct {
 	artifactStore *artifact.Store
 	scratchboard  *scratchboard.Scratchboard
 	projectDir    string // path to project state dir (for loading RepoProfile)
+	lifecycle     *devdb.Lifecycle
 
 	// Adapter/Runner for decoupled execution. When both are set, spawn()
 	// uses Adapter.Prepare() + Runner.Run() instead of the monolithic
@@ -78,12 +81,29 @@ func (e *Executor) SetAdapterRunner(a *runtime.CLIAdapter, r runtime.Runner) {
 	e.runner = r
 }
 
+// SetDevDBLifecycle wires a devdb.Lifecycle into the executor so that every
+// story spawn provisions an ephemeral database after the worktree is created.
+// Pass nil to disable devdb provisioning (the default).
+func (e *Executor) SetDevDBLifecycle(lc *devdb.Lifecycle) {
+	e.lifecycle = lc
+}
+
+// HasDevDBLifecycle reports whether a devdb.Lifecycle has been configured.
+// Used by tests to verify the lifecycle field is set correctly.
+func (e *Executor) HasDevDBLifecycle() bool {
+	return e.lifecycle != nil
+}
+
 // SpawnResult holds the outcome of spawning an agent for one assignment.
 type SpawnResult struct {
 	Assignment   Assignment
 	WorktreePath string
 	RuntimeName  string
 	Error        error
+	// DB is the provisioned ephemeral database for this story.
+	// Zero-value means no database was provisioned (lifecycle not configured
+	// or provisioning failed with degraded fallback).
+	DB devdb.DB
 }
 
 // SpawnAll creates worktrees and launches tmux sessions for each assignment.
@@ -108,6 +128,24 @@ func (e *Executor) spawn(repoDir string, a Assignment, story PlannedStory) Spawn
 	if err := vxdgit.CreateWorktree(repoDir, worktreePath, a.Branch); err != nil {
 		result.Error = fmt.Errorf("create worktree for %s: %w", a.StoryID, err)
 		return result
+	}
+
+	// Provision ephemeral devdb for this story if a Lifecycle is configured.
+	// Runs after worktree creation so WriteEnvFiles has a real directory.
+	// Failure is non-fatal: a fallback notice is written and the spawn continues.
+	// TODO: thread a real ctx through spawn() once the signature is refactored.
+	if e.lifecycle != nil {
+		project := filepath.Base(e.projectDir)
+		if e.projectDir == "" || project == "." {
+			project = "default"
+		}
+		provisioned, err := e.lifecycle.Provision(context.Background(), a.StoryID, project, worktreePath)
+		if err != nil {
+			log.Printf("[executor] devdb provision failed for %s: %v", a.StoryID, err)
+			_ = devdb.WriteFallbackNotice(worktreePath, err)
+		} else {
+			result.DB = provisioned
+		}
 	}
 
 	// Note: CLAUDE.md is written by the runtime's Spawn() method (see

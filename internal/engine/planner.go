@@ -152,6 +152,16 @@ build/test/lint commands in acceptance criteria. Account for the detected
 architecture and conventions when planning stories.`, profileContext)
 	}
 
+	// Emit planning-started heartbeat so the operator sees progress while the
+	// Tech Lead LLM call runs (typically 2-3 minutes for complex requirements).
+	planningStarted := state.NewEvent(state.EventReqPlanningStarted, "tech-lead", "", map[string]any{
+		"req_id": reqID,
+		"model":  p.config.Models.TechLead.Model,
+	})
+	// Best-effort — failure here must not abort planning.
+	_ = p.eventStore.Append(planningStarted)
+	_ = p.projStore.Project(planningStarted)
+
 	// Call Tech Lead
 	resp, err := p.llmClient.Complete(ctx, llm.CompletionRequest{
 		Model:     p.config.Models.TechLead.Model,

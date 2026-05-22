@@ -508,3 +508,58 @@ func TestValidate_DevDB_DockerWithTemplate(t *testing.T) {
 		t.Errorf("docker + template should validate, got %v", err)
 	}
 }
+
+// TestSLAConfig_AcceptsStringKeys verifies that max_minutes_per_complexity
+// accepts both bare integer keys and YAML-quoted string keys without error.
+func TestSLAConfig_AcceptsStringKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vxd.yaml")
+
+	// Write config with quoted string keys (the "5": 60 form that breaks plain map[int]int).
+	os.WriteFile(path, []byte(`
+version: "1.0"
+workspace:
+  backend: sqlite
+  log_level: info
+sla:
+  max_minutes_per_complexity:
+    "1": 60
+    "3": 120
+    "5": 240
+`), 0644)
+
+	cfg, err := config.LoadFromFile(path)
+	if err != nil {
+		t.Fatalf("LoadFromFile with quoted string keys: %v", err)
+	}
+	if cfg.SLA.MaxMinutesPerComplexity[1] != 60 {
+		t.Errorf("expected [1]=60, got %d", cfg.SLA.MaxMinutesPerComplexity[1])
+	}
+	if cfg.SLA.MaxMinutesPerComplexity[5] != 240 {
+		t.Errorf("expected [5]=240, got %d", cfg.SLA.MaxMinutesPerComplexity[5])
+	}
+
+	// Also verify bare integer keys still work.
+	path2 := filepath.Join(dir, "vxd2.yaml")
+	os.WriteFile(path2, []byte(`
+version: "1.0"
+workspace:
+  backend: sqlite
+  log_level: info
+sla:
+  max_minutes_per_complexity:
+    1: 60
+    5: 240
+`), 0644)
+
+	cfg2, err := config.LoadFromFile(path2)
+	if err != nil {
+		t.Fatalf("LoadFromFile with bare int keys: %v", err)
+	}
+	if cfg2.SLA.MaxMinutesPerComplexity[1] != 60 {
+		t.Errorf("bare int key: expected [1]=60, got %d", cfg2.SLA.MaxMinutesPerComplexity[1])
+	}
+	if cfg2.SLA.MaxMinutesPerComplexity[5] != 240 {
+		t.Errorf("bare int key: expected [5]=240, got %d", cfg2.SLA.MaxMinutesPerComplexity[5])
+	}
+}

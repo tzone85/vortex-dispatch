@@ -314,6 +314,7 @@ type DevDBDockerConfig struct {
 	TemplateVolume string `yaml:"template_volume"` // default ~/.vxd/devdb-data
 	Network        string `yaml:"network"`         // default vxd-devdb
 	HostPortRange  string `yaml:"host_port_range"` // default 5500-5599
+	Host           string `yaml:"host"`            // default "localhost"; override for Colima/VM setups (e.g. "192.168.64.3")
 }
 
 // Validate checks that all configuration values are within allowed ranges.

@@ -24,7 +24,7 @@ func TestNewDBCmd_Structure(t *testing.T) {
 		}
 	}
 
-	expected := []string{"list", "connect", "sql", "schema", "delete", "gc", "ping"}
+	expected := []string{"list", "connect", "sql", "schema", "delete", "gc", "ping", "template"}
 	for _, name := range expected {
 		if !subNames[name] {
 			t.Errorf("subcommand %q not registered on 'vxd db'", name)
@@ -42,7 +42,7 @@ func TestDBCmd_Help_ContainsAllSubcommands(t *testing.T) {
 	_ = cmd.Execute()
 
 	output := buf.String()
-	for _, sub := range []string{"list", "connect", "sql", "schema", "delete", "gc", "ping"} {
+	for _, sub := range []string{"list", "connect", "sql", "schema", "delete", "gc", "ping", "template"} {
 		if !strings.Contains(output, sub) {
 			t.Errorf("expected %q in `vxd db --help` output:\n%s", sub, output)
 		}
@@ -168,5 +168,86 @@ func TestRootCmd_DBRegistered(t *testing.T) {
 	}
 	if !found {
 		t.Error("'db' subcommand not registered on rootCmd")
+	}
+}
+
+func TestDBTemplateCmd_HelpListsSubcommands(t *testing.T) {
+	cmd := newDBCmd()
+	cmd.SetArgs([]string{"template", "--help"})
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	_ = cmd.Execute()
+	s := buf.String()
+	for _, sub := range []string{"list", "create"} {
+		if !strings.Contains(s, sub) {
+			t.Errorf("expected %q in `vxd db template --help`, got:\n%s", sub, s)
+		}
+	}
+}
+
+func TestDBTemplateCreate_RequiresFromFlag(t *testing.T) {
+	cmd := newDBCmd()
+	cmd.SetArgs([]string{"template", "create", "my-template"})
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	err := cmd.Execute()
+	if err == nil {
+		t.Error("expected error when --from flag is missing")
+	}
+	if !strings.Contains(err.Error(), "--from") {
+		t.Errorf("expected error to mention --from, got: %v", err)
+	}
+}
+
+func TestNewDBTemplateCmd(t *testing.T) {
+	cmd := newDBTemplateCmd()
+	if cmd.Use != "template" {
+		t.Errorf("Use = %q, want template", cmd.Use)
+	}
+	if cmd.Short == "" {
+		t.Error("Short is empty")
+	}
+
+	subNames := make(map[string]bool)
+	for _, sub := range cmd.Commands() {
+		subNames[sub.Name()] = true
+	}
+
+	expected := []string{"list", "create"}
+	for _, name := range expected {
+		if !subNames[name] {
+			t.Errorf("subcommand %q not registered on 'vxd db template'", name)
+		}
+	}
+}
+
+func TestNewDBTemplateListCmd(t *testing.T) {
+	cmd := newDBTemplateListCmd()
+	if cmd.Use != "list" {
+		t.Errorf("Use = %q, want list", cmd.Use)
+	}
+	if cmd.Short == "" {
+		t.Error("Short is empty")
+	}
+}
+
+func TestNewDBTemplateCreateCmd(t *testing.T) {
+	cmd := newDBTemplateCreateCmd()
+	if cmd.Use != "create <name>" {
+		t.Errorf("Use = %q, want 'create <name>'", cmd.Use)
+	}
+	if cmd.Short == "" {
+		t.Error("Short is empty")
+	}
+	if err := cmd.Args(cmd, []string{}); err == nil {
+		t.Error("expected error with 0 args")
+	}
+	if err := cmd.Args(cmd, []string{"mytemplate"}); err != nil {
+		t.Errorf("expected 1 arg to be valid: %v", err)
+	}
+	if cmd.Flags().Lookup("from") == nil {
+		t.Error("flag 'from' not registered")
 	}
 }

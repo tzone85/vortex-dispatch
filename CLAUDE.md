@@ -110,6 +110,7 @@ devdb:  # planned — design spec complete, impl in SP1–SP6 PRs
   docker:
     image: postgres:16
     host_port_range: "5500-5599"
+    host: "localhost"  # set to VM IP for Colima/Lima setups (e.g. "192.168.64.3")
 ```
 
 ## CLI Commands

@@ -514,6 +514,7 @@ func newDevDBProvider(cfg config.Config) (devdb.Provider, error) {
 			TemplateVolume: cfg.DevDB.Docker.TemplateVolume,
 			Network:        cfg.DevDB.Docker.Network,
 			HostPortRange:  cfg.DevDB.Docker.HostPortRange,
+			Host:           cfg.DevDB.Docker.Host,
 		}), nil
 	case "ghost":
 		return nil, fmt.Errorf("devdb.provider 'ghost' is not yet implemented (SP2)")

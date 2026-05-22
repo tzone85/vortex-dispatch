@@ -155,6 +155,8 @@ Review the code for:
 5. Performance - any obvious issues?
 6. Blast radius - if blast radius analysis is provided above, check whether high-risk callers or dependents might break.
 %s
+**STRUCTURAL CHECK:** if the acceptance criteria or story description lists "Files expected" or names specific files that should be created (e.g. "styles.css", "api/routes.go"), verify each listed file is present in the diff AND contains meaningful content (not just a placeholder comment or empty skeleton). Flag mismatches as a critical issue even if the overall code appears to work — putting content in the wrong file violates the spec and causes maintenance problems.
+
 Respond with JSON:
 {
   "passed": true/false,

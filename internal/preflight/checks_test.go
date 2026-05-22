@@ -260,13 +260,15 @@ func TestCheckDevDBProviderReachable_Unknown(t *testing.T) {
 	}
 }
 
-func TestCheckDevDBProviderReachable_GhostPending(t *testing.T) {
+func TestCheckDevDBProviderReachable_GhostNoAPIKey(t *testing.T) {
+	// Without an API key in the environment the ghost check should fail
+	// CRITICAL (key resolution error), not block as "SP2 pending".
 	cfg := config.Config{}
 	cfg.DevDB.Provider = "ghost"
-	cfg.DevDB.Template = "x"
+	cfg.DevDB.Ghost.APIKeyEnv = "GHOST_API_KEY_PREFLIGHT_TEST_UNSET_XYZ"
 	r := preflight.CheckDevDBProviderReachable(cfg)
-	if r.Passed || r.Severity != preflight.SeverityWarning {
-		t.Errorf("ghost provider should be WARNING (SP2 pending): %+v", r)
+	if r.Passed || r.Severity != preflight.SeverityCritical {
+		t.Errorf("ghost provider with no API key should be CRITICAL+!Passed: %+v", r)
 	}
 }
 

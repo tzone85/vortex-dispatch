@@ -2,6 +2,7 @@ package cli
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -251,6 +252,46 @@ func TestBuildLLMClient_UnsupportedProvider2(t *testing.T) {
 	_, err := buildLLMClient("bedrock", nil)
 	if err == nil {
 		t.Fatal("expected error for unsupported provider")
+	}
+	// Error message should list accepted providers.
+	if !strings.Contains(err.Error(), "accepted:") {
+		t.Errorf("error should list accepted providers, got: %v", err)
+	}
+}
+
+func TestBuildLLMClient_AnthropicCliAlias_Underscore(t *testing.T) {
+	// anthropic_cli is an alias for cli/claude-cli.
+	client, err := buildLLMClient("anthropic_cli", nil)
+	if err != nil {
+		t.Fatalf("anthropic_cli alias should succeed, got: %v", err)
+	}
+	if client == nil {
+		t.Fatal("client is nil")
+	}
+}
+
+func TestBuildLLMClient_AnthropicCliAlias_Hyphen(t *testing.T) {
+	// anthropic-cli is an alias for cli/claude-cli.
+	client, err := buildLLMClient("anthropic-cli", nil)
+	if err != nil {
+		t.Fatalf("anthropic-cli alias should succeed, got: %v", err)
+	}
+	if client == nil {
+		t.Fatal("client is nil")
+	}
+}
+
+func TestBuildLLMClient_UnsupportedProvider_ListsAccepted(t *testing.T) {
+	_, err := buildLLMClient("azure", nil)
+	if err == nil {
+		t.Fatal("expected error for unsupported provider 'azure'")
+	}
+	if !strings.Contains(err.Error(), "accepted:") {
+		t.Errorf("error message should list accepted providers, got: %v", err)
+	}
+	// Should name at least one well-known provider.
+	if !strings.Contains(err.Error(), "anthropic") {
+		t.Errorf("error message should mention 'anthropic', got: %v", err)
 	}
 }
 

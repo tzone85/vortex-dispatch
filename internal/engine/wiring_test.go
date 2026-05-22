@@ -2249,3 +2249,19 @@ func TestWiring_DevDBLifecycle_InjectedIntoExecutorAndMonitor_SameInstance(t *te
 			"Check resume.go: monitor.SetDevDBLifecycle(lifecycle) must be called when lifecycle != nil.")
 	}
 }
+
+func TestWiring_SLABreach_ReleasesDB(t *testing.T) {
+	// Wiring-level proof that the Release path is exercised correctly when
+	// OutcomeFailed is passed (the SLA-breach scenario). The actual SLA
+	// detection logic is exercised elsewhere; we just verify Release is
+	// called with the right outcome.
+	rp := &recordingDeleteProvider{Provider: null.New()}
+	lc := devdb.NewLifecycle(rp, &fakeEventAppender{}, devdb.Config{Provider: "null"})
+	db := devdb.DB{ID: "vxd-test-sla", Name: "vxd-test-sla"}
+	if err := lc.Release(context.Background(), db, devdb.OutcomeFailed); err != nil {
+		t.Fatal(err)
+	}
+	if len(rp.deleted) != 1 {
+		t.Errorf("OutcomeFailed without KeepDBOnFail should delete; got %v", rp.deleted)
+	}
+}

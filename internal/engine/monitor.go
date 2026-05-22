@@ -484,6 +484,22 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 	storyID := ag.Assignment.StoryID
 	branch := ag.Assignment.Branch
 
+	// Release the story's devdb (if any) on every exit path. The success path
+	// overrides outcomeForRelease to OutcomeSuccess; pause paths set it to
+	// OutcomePaused. Anything that returns without updating it uses the default
+	// OutcomeFailed, so the DB is released (or retained per KeepDBOnFail) on
+	// every failing retry.
+	outcomeForRelease := devdb.OutcomeFailed
+	defer func() {
+		if m.lifecycle == nil || ag.DB.ID == "" {
+			return
+		}
+		if err := m.lifecycle.Release(context.Background(), ag.DB, outcomeForRelease); err != nil {
+			log.Printf("[pipeline] devdb release failed for %s (outcome=%s): %v (will GC later)",
+				storyID, outcomeForRelease.String(), err)
+		}
+	}()
+
 	log.Printf("[pipeline] starting post-execution for %s", storyID)
 
 	// Create a 5-minute timeout context for the entire pipeline
@@ -592,6 +608,7 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 			// the entire requirement to stop the infinite loop.
 			if llm.IsFatalAPIError(err) {
 				log.Printf("[pipeline] FATAL: non-retryable API error — pausing requirement for %s: %v", storyID, err)
+				outcomeForRelease = devdb.OutcomePaused
 				m.pauseRequirement(storyID, fmt.Sprintf("fatal API error: %v", err))
 				return
 			}
@@ -683,6 +700,7 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 						}
 						if llm.IsFatalAPIError(err) {
 							log.Printf("[pipeline] FATAL: non-retryable API error during PR creation for %s: %v", storyID, err)
+							outcomeForRelease = devdb.OutcomePaused
 							m.pauseRequirement(storyID, fmt.Sprintf("fatal API error during PR creation: %v", err))
 							return
 						}
@@ -723,6 +741,7 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 			// auth failure) must pause the requirement immediately.
 			if llm.IsFatalAPIError(err) {
 				log.Printf("[pipeline] FATAL: non-retryable API error during merge for %s: %v", storyID, err)
+				outcomeForRelease = devdb.OutcomePaused
 				m.pauseRequirement(storyID, fmt.Sprintf("fatal API error during merge: %v", err))
 				return
 			}
@@ -752,15 +771,10 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 				log.Printf("[pipeline] remote branch cleanup for %s: %v", storyID, err)
 			}
 
-			// Release the ephemeral devdb after the merge event has been
-			// projected (so the DB row is already marked merged before
-			// STORY_DB_DELETED fires). Only runs when both a lifecycle and a
-			// provisioned DB are present.
-			if m.lifecycle != nil && ag.DB.ID != "" {
-				if err := m.lifecycle.Release(context.Background(), ag.DB, devdb.OutcomeSuccess); err != nil {
-					log.Printf("[pipeline] devdb release failed for %s: %v (db will be GC'd later)", storyID, err)
-				}
-			}
+			// Signal the deferred Release at the top of this function to
+			// use OutcomeSuccess. The defer handles the actual Release call
+			// so we don't double-release here.
+			outcomeForRelease = devdb.OutcomeSuccess
 		}
 	}
 

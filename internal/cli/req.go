@@ -341,7 +341,7 @@ func buildLLMClient(provider string, schema *llm.ToolSchema, godmode ...bool) (l
 			return llm.NewFallbackClient(primary, fallback), nil
 		}
 		return primary, nil
-	case "cli", "claude-cli":
+	case "cli", "claude-cli", "anthropic_cli", "anthropic-cli":
 		c := llm.NewClaudeCLIClient()
 		if skipPerms {
 			c = c.WithSkipPermissions()
@@ -369,6 +369,6 @@ func buildLLMClient(provider string, schema *llm.ToolSchema, godmode ...bool) (l
 		}
 		return llm.NewRetryClient(llm.NewOpenAIClient(apiKey), 3), nil
 	default:
-		return nil, fmt.Errorf("unsupported LLM provider: %s", provider)
+		return nil, fmt.Errorf("unsupported LLM provider %q (accepted: anthropic, cli, claude-cli, anthropic-cli, anthropic_cli, google, openai)", provider)
 	}
 }

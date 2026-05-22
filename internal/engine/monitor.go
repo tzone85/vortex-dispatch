@@ -430,6 +430,15 @@ func (m *Monitor) checkSLA(ag ActiveAgent) {
 
 	// Optional auto-escalation (opt-in via config)
 	if m.config.SLA.AutoEscalate {
+		// Release current attempt's devdb before tier escalation.
+		// The next attempt will provision a fresh one; without this, orphans
+		// accumulate within a single requirement run.
+		if m.lifecycle != nil && ag.DB.ID != "" {
+			outcome := devdb.OutcomeFailed
+			if releaseErr := m.lifecycle.Release(context.Background(), ag.DB, outcome); releaseErr != nil {
+				log.Printf("[monitor] SLA-breach devdb release failed for %s: %v (will GC later)", storyID, releaseErr)
+			}
+		}
 		m.escalateOnSLABreach(storyID, ag.Assignment.AgentID, elapsed)
 	}
 }

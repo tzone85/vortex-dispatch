@@ -565,6 +565,7 @@ func TestProject_StoryDBFailed_InsertsRow(t *testing.T) {
 	defer s.Close()
 
 	data, _ := json.Marshal(map[string]any{
+		"db_id":    "abc-failed",
 		"db_name":  "vxd-test-s1",
 		"provider": "docker",
 		"error":    "docker daemon unreachable",

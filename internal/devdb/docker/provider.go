@@ -95,7 +95,7 @@ func (p *Provider) EnsureContainer(ctx context.Context) error {
 		return err
 	}
 
-	pw, err := p.LoadOrCreateAdminPassword(filepath.Dir(p.cfg.TemplateVolume))
+	pw, err := p.loadOrCreateAdminPassword(filepath.Dir(p.cfg.TemplateVolume))
 	if err != nil {
 		return err
 	}
@@ -257,7 +257,7 @@ func (p *Provider) List(ctx context.Context) ([]devdb.DB, error) {
 		return nil, err
 	}
 	defer pg.Close(ctx)
-	names, err := pg.ListDBsWithPrefix(ctx, "vxd-")
+	names, err := pg.ListDBsWithPrefix(ctx, devdb.PrefixVXD+"-")
 	if err != nil {
 		return nil, fmt.Errorf("docker list: %w", err)
 	}
@@ -279,10 +279,10 @@ func (p *Provider) Schema(ctx context.Context, dbID string) (string, error) {
 	return DumpSchema(ctx, pg)
 }
 
-// LoadOrCreateAdminPassword reads <storageDir>/devdb-admin.pw if present (mode 0600),
+// loadOrCreateAdminPassword reads <storageDir>/devdb-admin.pw if present (mode 0600),
 // otherwise generates a new 32-char hex password and writes it.
 // storageDir lets tests override the location (production uses Config.TemplateVolume's parent).
-func (p *Provider) LoadOrCreateAdminPassword(storageDir string) (string, error) {
+func (p *Provider) loadOrCreateAdminPassword(storageDir string) (string, error) {
 	path := filepath.Join(storageDir, "devdb-admin.pw")
 	if b, err := os.ReadFile(path); err == nil {
 		return string(b), nil

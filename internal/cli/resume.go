@@ -416,9 +416,27 @@ func runResume(cmd *cobra.Command, args []string) error {
 	}
 
 	// Enable LLM-powered conflict resolution during rebase.
+	// The Tech Lead client is used for escalated resolution (binary conflicts,
+	// senior failure, or conflicts spanning >3 files). It carries full requirement
+	// context (title, acceptance criteria, dependency DAG) to produce more accurate
+	// merges for integration-level conflicts.
 	if llmClient != nil {
 		seniorModel := s.Config.Models.Senior
-		conflictResolver := engine.NewConflictResolver(llmClient, seniorModel.Model, seniorModel.MaxTokens, s.Events)
+		var techLeadClient llm.Client
+		var techLeadModelName string
+		if !dryRun {
+			if tlc, tlErr := buildPlanningClient(s.Config.Models.TechLead.Provider, godmode); tlErr == nil {
+				techLeadClient = tlc
+				techLeadModelName = s.Config.Models.TechLead.Model
+			}
+		}
+		conflictResolver := engine.NewConflictResolver(
+			llmClient, seniorModel.Model,
+			techLeadClient, techLeadModelName,
+			seniorModel.MaxTokens,
+			s.Proj,
+			s.Events,
+		)
 		monitor.SetConflictResolver(conflictResolver)
 	}
 

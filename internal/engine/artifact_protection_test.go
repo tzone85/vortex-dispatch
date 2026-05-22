@@ -20,12 +20,19 @@ func initBareAndClone(t *testing.T, branch string) (string, string) {
 	// Create bare repo with explicit initial branch
 	run(t, "", "git", "init", "--bare", "--initial-branch="+branch, bare)
 
+	// Disable CRLF conversion on the bare repo so checked-out files always
+	// use LF regardless of the host machine's core.autocrlf setting.
+	run(t, "", "git", "-C", bare, "config", "core.autocrlf", "false")
+	run(t, "", "git", "-C", bare, "config", "core.eol", "lf")
+
 	// Clone it
 	run(t, "", "git", "clone", bare, clone)
 
-	// Configure user for commits
+	// Configure user for commits; disable CRLF conversion on the clone too.
 	run(t, clone, "git", "config", "user.email", "test@test.com")
 	run(t, clone, "git", "config", "user.name", "Test")
+	run(t, clone, "git", "config", "core.autocrlf", "false")
+	run(t, clone, "git", "config", "core.eol", "lf")
 
 	os.WriteFile(filepath.Join(clone, "README.md"), []byte("# Test\n"), 0644)
 	run(t, clone, "git", "add", "README.md")
@@ -451,6 +458,8 @@ func TestIntegration_FullPipelineArtifactProtection(t *testing.T) {
 	run(t, "", "git", "clone", bare, mergeClone)
 	run(t, mergeClone, "git", "config", "user.email", "test@test.com")
 	run(t, mergeClone, "git", "config", "user.name", "Test")
+	run(t, mergeClone, "git", "config", "core.autocrlf", "false")
+	run(t, mergeClone, "git", "config", "core.eol", "lf")
 	run(t, mergeClone, "git", "merge", "origin/vxd/s-001", "--no-edit")
 	run(t, mergeClone, "git", "push", "origin", "main")
 

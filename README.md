@@ -8,12 +8,7 @@
 
 ## Overview
 
-VXD is a Go CLI that orchestrates autonomous AI agents through the full software development lifecycle. Submit a natural-language requirement and VXD decomposes it into stories, assigns them to agents based on complexity, executes work in parallel waves, runs code review and QA, creates pull requests, and merges them -- all without human intervention.
-
-- **Event-sourced state management** with an append-only event log and SQLite materialized projections
-- **Full agile team hierarchy** -- Tech Lead, Senior, Intermediate, Junior, QA, Supervisor
-- **Pluggable AI runtimes** -- Claude Code, Codex, Gemini CLI (configured via YAML)
-- **Wave-based parallel execution** with topological dependency resolution
+VXD is a Go CLI that drives the AI coding tools you already use — Claude Code, Codex, Gemini CLI, or any CLI describable in YAML — through the full lifecycle of a software change. You submit a requirement in natural language; an LLM tech-lead breaks it into a dependency DAG of stories; the dispatcher assigns each story to an agent in its own git worktree; the pipeline runs LLM code review and declarative QA against the agent's output; passing stories get a squash-merge. Stories that touch a database can be given their own ephemeral Postgres — local Docker by default, ghost.build cloud as an option — so destructive SQL has a blast radius of exactly one story. When things go wrong, a five-tier escalation chain takes over before giving up: same-role retry with categorized error analysis, then a senior agent, then a manager diagnosing the failure pattern, then a tech-lead re-planning the story, finally a hard pause that asks for human intervention. State is event-sourced into an append-only log with SQLite projections, so the pipeline can crash, resume, replay, and emit a client delivery report from the same event history.
 
 ## Cost Model
 

@@ -325,6 +325,52 @@ func TestSetDAG_NilClearsDAG(t *testing.T) {
 	}
 }
 
+func TestBuildSnapshot_DBStatusesIncluded(t *testing.T) {
+	s := newTestServer(t)
+	reqID := seedRequirement(t, s)
+	storyID := seedStory(t, s, reqID)
+
+	// Emit a DB created event for the story.
+	dbEvt := state.NewEvent(state.EventStoryDBCreated, "system", storyID, map[string]any{
+		"db_id":    "db-001",
+		"db_name":  "vxd-test",
+		"provider": "docker",
+	})
+	if err := s.eventStore.Append(dbEvt); err != nil {
+		t.Fatalf("append db event: %v", err)
+	}
+	if err := s.projStore.Project(dbEvt); err != nil {
+		t.Fatalf("project db event: %v", err)
+	}
+
+	snap, err := s.BuildSnapshot()
+	if err != nil {
+		t.Fatalf("BuildSnapshot: %v", err)
+	}
+
+	if snap.DBStatuses == nil {
+		t.Fatal("expected DBStatuses to be populated")
+	}
+	if snap.DBStatuses[storyID] != "created" {
+		t.Errorf("expected story %q db_status=created, got %q", storyID, snap.DBStatuses[storyID])
+	}
+}
+
+func TestBuildSnapshot_DBStatuses_EmptyWhenNoDB(t *testing.T) {
+	s := newTestServer(t)
+	seedRequirement(t, s)
+
+	snap, err := s.BuildSnapshot()
+	if err != nil {
+		t.Fatalf("BuildSnapshot: %v", err)
+	}
+
+	// DBStatuses may be nil or empty when no DBs exist.
+	if len(snap.DBStatuses) != 0 {
+		t.Errorf("expected empty DBStatuses when no DBs, got %v", snap.DBStatuses)
+	}
+}
+
 // emitAndProject creates and projects an event.
 func emitAndProject(t *testing.T, s *Server, evtType state.EventType, agentID, storyID string, payload map[string]any) {
 	t.Helper()

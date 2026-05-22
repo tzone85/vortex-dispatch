@@ -167,3 +167,16 @@ func TestEventFilterAfter(t *testing.T) {
 		t.Errorf("expected 1 event after cutoff, got %d", count)
 	}
 }
+
+func TestEventTypes_NewDBValues(t *testing.T) {
+	cases := map[state.EventType]string{
+		state.EventStoryDBCreated: "STORY_DB_CREATED",
+		state.EventStoryDBFailed:  "STORY_DB_FAILED",
+		state.EventStoryDBDeleted: "STORY_DB_DELETED",
+	}
+	for et, want := range cases {
+		if string(et) != want {
+			t.Errorf("EventType %v has value %q, want %q", et, string(et), want)
+		}
+	}
+}

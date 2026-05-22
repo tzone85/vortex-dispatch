@@ -37,7 +37,8 @@ type Provider interface {
 
 // CreateOpts controls Provider.Create / Provider.Fork behaviour.
 type CreateOpts struct {
-	// Name is the canonical DB name. Must satisfy naming.IsValid.
+	// Name is the canonical DB name. Must be a valid Postgres identifier
+	// (validated by the naming package; see naming.IsValid).
 	Name string
 
 	// Labels are provider-specific metadata; e.g. story_id, requirement_id.

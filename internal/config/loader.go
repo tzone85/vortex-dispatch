@@ -111,7 +111,7 @@ func DefaultConfig() Config {
 			},
 		},
 		SLA: SLAConfig{
-			MaxMinutesPerComplexity: map[int]int{
+			MaxMinutesPerComplexity: IntKeyMap{
 				1:  60,   // 1hr
 				2:  120,  // 2hr
 				3:  240,  // 4hr

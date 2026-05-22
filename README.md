@@ -74,7 +74,7 @@ vhs docs/demo.tape
 - **Web dashboard** -- browser-based dashboard via `vxd dashboard --web` with real-time WebSocket updates and full control panel
 - **Multi-project isolation** -- per-project state under `~/.vxd/projects/<name>/`
 - **Tiered cleanup** -- worktree pruning, branch garbage collection with configurable retention
-- **Self-improvement engine** -- daily autonomous pipeline: research, analysis, implementation, PR, email report; weekly competitor repo clone+diff for pattern extraction
+- **Self-improvement engine** *(experimental — no actionable improvements produced to date; see CLAUDE.md for the honest assessment)* -- daily autonomous pipeline: research, analysis, implementation, PR, email report; weekly competitor repo clone+diff for pattern extraction
 - **Memory dashboard** -- browser-based timeline, findings explorer, and opportunities view with direct source/PR links
 - **Reputation scoring** -- per-agent performance tracking across assignments
 

@@ -18,6 +18,13 @@ func newImproveCmd() *cobra.Command {
 		Use:   "improve",
 		Short: "View self-improvement pipeline history",
 		Long:  "Browse improvements discovered, implemented, and proposed by the self-improvement engine.\nUse subcommands to view the changelog, run summaries, or drill into specific findings.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fmt.Fprintln(cmd.OutOrStdout(), `NOTE: The self-improvement pipeline is experimental.
+As of 2026-05-22, 0 actionable findings have been implemented (all 70+ findings
+to date have been ecosystem news rather than VXD-actionable improvements).
+Run "vxd improve runs" to see daily run history.`)
+			return cmd.Help()
+		},
 	}
 
 	cmd.AddCommand(newImproveLogCmd())

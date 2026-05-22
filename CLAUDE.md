@@ -284,6 +284,9 @@ Every failure is a chance to make the system stronger:
 - Graph stored in `.code-review-graph/graph.db` (SQLite)
 
 ### Self-Improvement Pipeline (vxd-improve)
+
+> **Experimental — 0 actionable findings to date (May 22, 2026).** The pipeline scrapes 14 industry sources daily and triages 70+ findings, but every finding so far has been ecosystem news (Claude/OpenAI releases, library updates) rather than VXD-actionable code improvements. Implementation phase has never fired. Email delivery has never succeeded (Resend 403 on domain validation). Code is retained because the scaffolding is interesting for future research, not because it currently produces working improvements. See `internal/improve/` to understand the current state.
+
 - `implementer.go` uses `--max-turns 25` for Claude CLI (was 1 — root cause of ALL aborted findings)
 - `filterEnv()` strips `ANTHROPIC_API_KEY` and `CLAUDECODE` from agent env
 - Triage includes `actionable` flag — non-actionable findings (competitor news, blog posts) skip implementation and log as "proposed"

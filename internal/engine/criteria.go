@@ -17,6 +17,11 @@ const (
 	CriterionFileContains      CriterionKind = "file_contains"
 	CriterionFileNotEmpty      CriterionKind = "file_not_empty"
 	CriterionExitCodeZero      CriterionKind = "exit_code_zero"
+
+	// SP5 — DB-touching criteria.
+	CriterionMigrationSucceeds CriterionKind = "migration_succeeds"
+	CriterionSchemaChanged     CriterionKind = "schema_changed"
+	CriterionSQLQueryReturns   CriterionKind = "sql_query_returns"
 )
 
 // Criterion is a single declarative success check.
@@ -25,6 +30,12 @@ type Criterion struct {
 	Value   string        `yaml:"value,omitempty" json:"value,omitempty"`     // for contains checks
 	Path    string        `yaml:"path,omitempty" json:"path,omitempty"`       // for file checks
 	Message string        `yaml:"message,omitempty" json:"message,omitempty"` // custom failure message
+
+	// SP5 additions — DB-touching criteria.
+	Command        string `yaml:"command,omitempty" json:"command,omitempty"`                     // migration_succeeds: shell command to run
+	SQL            string `yaml:"sql,omitempty" json:"sql,omitempty"`                             // sql_query_returns: query to execute
+	ExpectedRows   *int   `yaml:"expected_rows,omitempty" json:"expected_rows,omitempty"`          // sql_query_returns: optional exact row count
+	SchemaBaseline string `yaml:"schema_baseline,omitempty" json:"schema_baseline,omitempty"`     // schema_changed: path to baseline file
 }
 
 // CriterionResult holds the evaluation outcome of a single criterion.
@@ -139,6 +150,15 @@ func evaluateOne(c Criterion, workDir, output string) CriterionResult {
 			Passed:    true,
 			Detail:    "exit code check delegated to QA runner",
 		}
+
+	case CriterionMigrationSucceeds:
+		return evaluateMigrationSucceeds(c, workDir)
+
+	case CriterionSchemaChanged:
+		return evaluateSchemaChanged(c, workDir)
+
+	case CriterionSQLQueryReturns:
+		return evaluateSQLQueryReturns(c, workDir)
 
 	default:
 		return CriterionResult{

@@ -1680,18 +1680,29 @@ func pullBaseAfterMerge(repoDir, baseBranch string) {
 		return
 	}
 
-	// Clean up VXD artifacts from the repo root so evaluators and
-	// other tools don't see stale context from this pipeline run.
+	// Pre-clean VXD-only working-tree leftovers that would block ff-pull.
+	// These files may be untracked (written by VXD, never committed) or
+	// tracked+modified (e.g. from a prior partial run). Handle both cases:
+	//   git clean -f <file>  — removes untracked files
+	//   git checkout -- <f>  — discards tracked modifications (restores HEAD)
+	// Both commands are best-effort; errors are intentionally ignored.
 	for _, artifact := range []string{
 		"WAVE_CONTEXT.md",
 		"REQUIREMENT.md",
 		".vxd-fix-gaps.md",
 	} {
+		// Discard tracked modifications first (no-op if file is untracked).
+		checkoutCmd := exec.Command("git", "-C", repoDir, "checkout", "--", artifact)
+		_ = checkoutCmd.Run()
+		// Remove any remaining untracked copy.
+		cleanCmd := exec.Command("git", "-C", repoDir, "clean", "-f", artifact)
+		_ = cleanCmd.Run()
+		// Belt-and-suspenders: also remove from disk if both git ops were no-ops.
 		p := filepath.Join(repoDir, artifact)
 		if _, err := os.Stat(p); err == nil {
 			os.Remove(p)
-			log.Printf("[auto-resume] cleaned up %s from repo root", artifact)
 		}
+		log.Printf("[auto-resume] pre-cleaned %s from repo root (best-effort)", artifact)
 	}
 
 	// Ensure gitignore covers VXD artifacts for the main repo (not just worktrees).

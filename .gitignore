@@ -39,6 +39,7 @@ Thumbs.db
 # Generated artifacts
 docs/demo.gif
 **/firebase-debug.log
+.firecrawl/
 
 # Config (local copy, not the example)
 vxd.yaml

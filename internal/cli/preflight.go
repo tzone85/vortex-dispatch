@@ -23,7 +23,10 @@ func newPreflightCmd() *cobra.Command {
 func runPreflight(cmd *cobra.Command, _ []string) error {
 	jsonOutput, _ := cmd.Flags().GetBool("json")
 
-	report := preflight.RunAll(preflight.AllChecks())
+	cfgPath, _ := cmd.Flags().GetString("config")
+	cfg, _ := loadConfig(cfgPath) // best-effort; falls back to defaults on error
+
+	report := preflight.RunAll(preflight.AllChecksWithConfig(cfg))
 
 	if jsonOutput {
 		data, err := json.MarshalIndent(report, "", "  ")
@@ -48,7 +51,11 @@ func runDispatchPreflight(cmd *cobra.Command) error {
 	if skip {
 		return nil
 	}
-	report := preflight.RunAll(preflight.DispatchChecks())
+
+	cfgPath, _ := cmd.Flags().GetString("config")
+	cfg, _ := loadConfig(cfgPath) // best-effort; falls back to defaults on error
+
+	report := preflight.RunAll(preflight.DispatchChecksWithConfig(cfg))
 	if report.HasCritical {
 		preflight.FormatCompact(cmd.ErrOrStderr(), report)
 		return fmt.Errorf("aborting: critical pre-flight issues")

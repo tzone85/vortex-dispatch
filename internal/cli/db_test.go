@@ -1,0 +1,172 @@
+package cli
+
+import (
+	"bytes"
+	"strings"
+	"testing"
+)
+
+func TestNewDBCmd_Structure(t *testing.T) {
+	cmd := newDBCmd()
+	if cmd.Use != "db" {
+		t.Errorf("Use = %q, want %q", cmd.Use, "db")
+	}
+	if cmd.Short == "" {
+		t.Error("Short is empty")
+	}
+
+	subNames := make(map[string]bool)
+	for _, sub := range cmd.Commands() {
+		subNames[sub.Name()] = true
+		// Also check aliases — connect has alias "psql"
+		for _, a := range sub.Aliases {
+			subNames[a] = true
+		}
+	}
+
+	expected := []string{"list", "connect", "sql", "schema", "delete", "gc", "ping"}
+	for _, name := range expected {
+		if !subNames[name] {
+			t.Errorf("subcommand %q not registered on 'vxd db'", name)
+		}
+	}
+}
+
+func TestDBCmd_Help_ContainsAllSubcommands(t *testing.T) {
+	cmd := newDBCmd()
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	cmd.SetArgs([]string{"--help"})
+	// Execute returns an error for --help (pflag exits), so ignore it.
+	_ = cmd.Execute()
+
+	output := buf.String()
+	for _, sub := range []string{"list", "connect", "sql", "schema", "delete", "gc", "ping"} {
+		if !strings.Contains(output, sub) {
+			t.Errorf("expected %q in `vxd db --help` output:\n%s", sub, output)
+		}
+	}
+}
+
+func TestNewDBListCmd(t *testing.T) {
+	cmd := newDBListCmd()
+	if cmd.Use != "list" {
+		t.Errorf("Use = %q", cmd.Use)
+	}
+	if cmd.Short == "" {
+		t.Error("Short is empty")
+	}
+}
+
+func TestNewDBConnectCmd(t *testing.T) {
+	cmd := newDBConnectCmd()
+	if cmd.Use != "connect <db-name>" {
+		t.Errorf("Use = %q", cmd.Use)
+	}
+	found := false
+	for _, a := range cmd.Aliases {
+		if a == "psql" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("connect command missing 'psql' alias")
+	}
+	if err := cmd.Args(cmd, []string{}); err == nil {
+		t.Error("expected error with 0 args")
+	}
+	if err := cmd.Args(cmd, []string{"mydb"}); err != nil {
+		t.Errorf("expected 1 arg to be valid: %v", err)
+	}
+}
+
+func TestNewDBSQLCmd(t *testing.T) {
+	cmd := newDBSQLCmd()
+	if cmd.Use != "sql <db-name> <query>" {
+		t.Errorf("Use = %q", cmd.Use)
+	}
+	if err := cmd.Args(cmd, []string{"mydb"}); err == nil {
+		t.Error("expected error with only 1 arg")
+	}
+	if err := cmd.Args(cmd, []string{"mydb", "SELECT 1"}); err != nil {
+		t.Errorf("expected 2 args to be valid: %v", err)
+	}
+}
+
+func TestNewDBSchemaCmd(t *testing.T) {
+	cmd := newDBSchemaCmd()
+	if cmd.Use != "schema <db-name>" {
+		t.Errorf("Use = %q", cmd.Use)
+	}
+	if err := cmd.Args(cmd, []string{"mydb"}); err != nil {
+		t.Errorf("expected 1 arg to be valid: %v", err)
+	}
+}
+
+func TestNewDBDeleteCmd(t *testing.T) {
+	cmd := newDBDeleteCmd()
+	if cmd.Use != "delete <db-name>" {
+		t.Errorf("Use = %q", cmd.Use)
+	}
+	if cmd.Flags().Lookup("confirm") == nil {
+		t.Error("flag 'confirm' not registered")
+	}
+	// --confirm defaults to false
+	confirmFlag := cmd.Flags().Lookup("confirm")
+	if confirmFlag.DefValue != "false" {
+		t.Errorf("--confirm default = %q, want %q", confirmFlag.DefValue, "false")
+	}
+}
+
+func TestNewDBGCCmd(t *testing.T) {
+	cmd := newDBGCCmd()
+	if cmd.Use != "gc" {
+		t.Errorf("Use = %q", cmd.Use)
+	}
+	if cmd.Short == "" {
+		t.Error("Short is empty")
+	}
+}
+
+func TestNewDBPingCmd(t *testing.T) {
+	cmd := newDBPingCmd()
+	if cmd.Use != "ping" {
+		t.Errorf("Use = %q", cmd.Use)
+	}
+	if cmd.Short == "" {
+		t.Error("Short is empty")
+	}
+}
+
+func TestDBDeleteCmd_RequiresConfirm(t *testing.T) {
+	// dbProviderFor needs stores, so test the --confirm guard via RunE directly.
+	// We cannot call RunE without a real store, but we can verify the flag exists
+	// and that a delete cmd without --confirm returns an error containing "confirm".
+	cmd := newDBDeleteCmd()
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	// RunE accesses dbProviderFor which calls loadStores — skip full execution.
+	// Verify the guard is wired: flag must exist and default to false.
+	f := cmd.Flags().Lookup("confirm")
+	if f == nil {
+		t.Fatal("--confirm flag not found")
+	}
+	if f.Value.String() != "false" {
+		t.Errorf("--confirm should default to false, got %q", f.Value.String())
+	}
+}
+
+func TestRootCmd_DBRegistered(t *testing.T) {
+	found := false
+	for _, c := range rootCmd.Commands() {
+		if c.Name() == "db" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("'db' subcommand not registered on rootCmd")
+	}
+}

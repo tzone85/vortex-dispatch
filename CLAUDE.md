@@ -156,6 +156,14 @@ devdb:  # planned — design spec complete, impl in SP1–SP6 PRs
 | `vxd autoresearch status [<repo>]` | Show wins, losses, Bayes posterior, budget |
 | `vxd autoresearch hypotheses <repo>` | List top wins and recent losses with diff hashes |
 | `vxd autoresearch evolve <repo>` | Manually trigger `program.md` evolution PR (always human-gated) |
+| `vxd db` | Manage ephemeral story databases (devdb). Provider set via `devdb.provider` in vxd.yaml. |
+| `vxd db list` | List all DBs known to the devdb provider |
+| `vxd db connect <db-name>` | Print psql connect command + DSN for a DB (alias: `psql`) |
+| `vxd db sql <db-name> "<query>"` | Run a one-shot SQL query against a DB |
+| `vxd db schema <db-name>` | Print agent-friendly schema dump for a DB |
+| `vxd db delete <db-name>` | Delete a DB permanently (requires `--confirm`) |
+| `vxd db gc` | Run orphan recovery — scan for stale DBs and release old ones |
+| `vxd db ping` | Verify the devdb provider is reachable |
 
 ## Documentation Requirements (MANDATORY)
 

@@ -80,6 +80,12 @@ const (
 	EventStoryConflictBinaryRemoved EventType = "STORY_CONFLICT_BINARY_REMOVED" // oversized/compiled binary removed from branch
 	EventStoryConflictEscalated     EventType = "STORY_CONFLICT_ESCALATED"      // conflict escalated to Tech Lead
 
+	// Post-merge integration build events.
+	EventStoryIntegrationFailed EventType = "STORY_INTEGRATION_FAILED" // main branch failed to build after merge
+
+	// Planning lifecycle events.
+	EventReqPlanningStarted EventType = "REQ_PLANNING_STARTED" // Tech Lead LLM call about to begin
+
 	// Autoresearch harness events. See docs/superpowers/specs/2026-05-02-autoresearch-harness-design.md.
 	EventBaselineMeasured    EventType = "BASELINE_MEASURED"
 	EventExperimentProposed  EventType = "EXPERIMENT_PROPOSED"

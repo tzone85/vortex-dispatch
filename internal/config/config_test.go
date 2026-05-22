@@ -469,3 +469,42 @@ func TestValidation_ReviewMode_ValidValues(t *testing.T) {
 		}
 	}
 }
+
+func TestValidate_DevDB_NullByDefault(t *testing.T) {
+	cfg := config.DefaultConfig()
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("default config (devdb null) should validate, got %v", err)
+	}
+}
+
+func TestValidate_DevDB_GhostRequiresTemplate(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.DevDB = config.DevDBConfig{Provider: "ghost"}
+	if err := cfg.Validate(); err == nil {
+		t.Error("provider=ghost without template should fail validation")
+	}
+}
+
+func TestValidate_DevDB_DockerRequiresTemplate(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.DevDB = config.DevDBConfig{Provider: "docker"}
+	if err := cfg.Validate(); err == nil {
+		t.Error("provider=docker without template should fail validation")
+	}
+}
+
+func TestValidate_DevDB_UnknownProvider(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.DevDB = config.DevDBConfig{Provider: "potato", Template: "x"}
+	if err := cfg.Validate(); err == nil {
+		t.Error("unknown provider should fail validation")
+	}
+}
+
+func TestValidate_DevDB_DockerWithTemplate(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.DevDB = config.DevDBConfig{Provider: "docker", Template: "tpl"}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("docker + template should validate, got %v", err)
+	}
+}

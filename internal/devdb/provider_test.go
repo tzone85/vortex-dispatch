@@ -3,7 +3,6 @@ package devdb_test
 import (
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/tzone85/vortex-dispatch/internal/devdb"
 )
@@ -42,7 +41,7 @@ func TestErrors_AreDistinct(t *testing.T) {
 	}
 }
 
-func TestErrors_WrappingPreserved(t *testing.T) {
+func TestErrors_IsPreserved(t *testing.T) {
 	wrapped := errors.New("inner: " + devdb.ErrNotFound.Error())
 	combined := errors.Join(wrapped, devdb.ErrNotFound)
 	if !errors.Is(combined, devdb.ErrNotFound) {
@@ -62,5 +61,4 @@ func TestCreateOpts_DefaultsAreZero(t *testing.T) {
 	if o.ReadOnly || o.WaitReady || o.WaitTimeout != 0 {
 		t.Errorf("zero-value CreateOpts should have zero defaults, got %+v", o)
 	}
-	_ = time.Now()
 }

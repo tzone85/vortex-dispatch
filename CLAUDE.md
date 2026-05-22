@@ -164,6 +164,9 @@ devdb:  # planned — design spec complete, impl in SP1–SP6 PRs
 | `vxd db delete <db-name>` | Delete a DB permanently (requires `--confirm`) |
 | `vxd db gc` | Run orphan recovery — scan for stale DBs and release old ones |
 | `vxd db ping` | Verify the devdb provider is reachable |
+| `vxd db template list` | List template databases (docker provider only) |
+| `vxd template create <name> --from <path>` | Create a template from a SQL dump file |
+| `vxd template list` | List template databases |
 
 ## Documentation Requirements (MANDATORY)
 

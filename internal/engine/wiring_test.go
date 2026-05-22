@@ -2067,3 +2067,41 @@ func TestWiring_SpawnResult_DBFieldExists(t *testing.T) {
 		t.Errorf("WIRING FAILURE: zero-value SpawnResult.DB.Name should be empty, got %q", r.DB.Name)
 	}
 }
+
+// --------------------------------------------------------------------------
+// SP4-2: Monitor devdb.Lifecycle injection wiring tests
+// --------------------------------------------------------------------------
+
+// TestWiring_Monitor_SetDevDBLifecycle_Stores verifies that a freshly created
+// Monitor has no lifecycle configured, and that SetDevDBLifecycle stores it so
+// HasDevDBLifecycle returns true.
+func TestWiring_Monitor_SetDevDBLifecycle_Stores(t *testing.T) {
+	es, ps, cleanup := newTestStores(t)
+	defer cleanup()
+
+	cfg := config.DefaultConfig()
+	watchdog := engine.NewWatchdog(engine.WatchdogConfig{StuckThresholdS: 120}, es)
+	m := engine.NewMonitor(nil, watchdog, nil, nil, nil, cfg, es, ps)
+
+	if m.HasDevDBLifecycle() {
+		t.Error("WIRING FAILURE: freshly created Monitor should have no devdb lifecycle configured")
+	}
+
+	lc := devdb.NewLifecycle(null.New(), &fakeEventAppender{}, devdb.Config{Provider: "null"})
+	m.SetDevDBLifecycle(lc)
+
+	if !m.HasDevDBLifecycle() {
+		t.Error("WIRING FAILURE: after SetDevDBLifecycle, Monitor.HasDevDBLifecycle should be true.\n" +
+			"Check that monitor.go stores the lifecycle pointer in the lifecycle field.")
+	}
+}
+
+// TestWiring_ActiveAgent_DBField confirms at compile time that ActiveAgent
+// carries a DB field of type devdb.DB so the monitor can pass it to Release.
+func TestWiring_ActiveAgent_DBField(t *testing.T) {
+	var ag engine.ActiveAgent
+	_ = ag.DB // compile-time: field must exist on ActiveAgent
+	if ag.DB.ID != "" {
+		t.Errorf("WIRING FAILURE: zero-value ActiveAgent.DB.ID should be empty, got %q", ag.DB.ID)
+	}
+}

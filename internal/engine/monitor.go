@@ -14,6 +14,7 @@ import (
 	"github.com/tzone85/vortex-dispatch/internal/artifact"
 	"github.com/tzone85/vortex-dispatch/internal/codegraph"
 	"github.com/tzone85/vortex-dispatch/internal/config"
+	"github.com/tzone85/vortex-dispatch/internal/devdb"
 	vxdgit "github.com/tzone85/vortex-dispatch/internal/git"
 	"github.com/tzone85/vortex-dispatch/internal/graph"
 	"github.com/tzone85/vortex-dispatch/internal/llm"
@@ -96,6 +97,10 @@ type Monitor struct {
 	// notifier sends webhook notifications on SLA breaches and other
 	// significant events. Defaults to NoopNotifier if not set.
 	notifier notify.Notifier
+
+	// lifecycle is the devdb.Lifecycle used to release ephemeral databases
+	// after a successful merge. Nil means devdb is not enabled on the monitor.
+	lifecycle *devdb.Lifecycle
 }
 
 // SetNotifier configures the outbound webhook notifier (Slack, Discord, etc.).
@@ -189,6 +194,19 @@ func (m *Monitor) SetCheckpointPath(path string) {
 // Planner's RePlan method.
 func (m *Monitor) SetPlanner(p *Planner) {
 	m.planner = p
+}
+
+// SetDevDBLifecycle wires a devdb.Lifecycle into the monitor so that it can
+// release ephemeral databases after a successful merge. Pass nil to disable
+// (the default).
+func (m *Monitor) SetDevDBLifecycle(lc *devdb.Lifecycle) {
+	m.lifecycle = lc
+}
+
+// HasDevDBLifecycle reports whether a devdb.Lifecycle has been configured.
+// Used by tests to verify the lifecycle field is set correctly.
+func (m *Monitor) HasDevDBLifecycle() bool {
+	return m.lifecycle != nil
 }
 
 // RunContext carries the state needed for auto-resume across waves.
@@ -733,6 +751,16 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 			if err := vxdgit.DeleteRemoteBranch(repoDir, branch); err != nil {
 				log.Printf("[pipeline] remote branch cleanup for %s: %v", storyID, err)
 			}
+
+			// Release the ephemeral devdb after the merge event has been
+			// projected (so the DB row is already marked merged before
+			// STORY_DB_DELETED fires). Only runs when both a lifecycle and a
+			// provisioned DB are present.
+			if m.lifecycle != nil && ag.DB.ID != "" {
+				if err := m.lifecycle.Release(context.Background(), ag.DB, devdb.OutcomeSuccess); err != nil {
+					log.Printf("[pipeline] devdb release failed for %s: %v (db will be GC'd later)", storyID, err)
+				}
+			}
 		}
 	}
 
@@ -1133,6 +1161,7 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 			Assignment:   r.Assignment,
 			WorktreePath: r.WorktreePath,
 			RuntimeName:  r.RuntimeName,
+			DB:           r.DB,
 		})
 	}
 

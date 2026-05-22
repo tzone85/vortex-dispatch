@@ -26,6 +26,11 @@ type ActiveAgent struct {
 	Assignment   Assignment
 	WorktreePath string
 	RuntimeName  string
+	// DB is the ephemeral database provisioned for this story.
+	// Zero-value means no database was provisioned (lifecycle not configured
+	// or provisioning failed). Used by the monitor to release the DB after
+	// a successful merge.
+	DB devdb.DB
 }
 
 // Executor spawns agents for dispatched assignments by creating git worktrees,
@@ -92,6 +97,12 @@ func (e *Executor) SetDevDBLifecycle(lc *devdb.Lifecycle) {
 // Used by tests to verify the lifecycle field is set correctly.
 func (e *Executor) HasDevDBLifecycle() bool {
 	return e.lifecycle != nil
+}
+
+// GetDevDBLifecycle returns the configured devdb.Lifecycle, or nil if none.
+// Used by the Monitor to release ephemeral DBs after a successful merge.
+func (e *Executor) GetDevDBLifecycle() *devdb.Lifecycle {
+	return e.lifecycle
 }
 
 // SpawnResult holds the outcome of spawning an agent for one assignment.

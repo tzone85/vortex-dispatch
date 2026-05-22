@@ -75,6 +75,11 @@ const (
 	EventStoryReset        EventType = "STORY_RESET"
 	EventRecoveryCompleted EventType = "RECOVERY_COMPLETED"
 
+	// Conflict resolution events.
+	EventStoryConflictBinary        EventType = "STORY_CONFLICT_BINARY"         // binary file handled without LLM
+	EventStoryConflictBinaryRemoved EventType = "STORY_CONFLICT_BINARY_REMOVED" // oversized/compiled binary removed from branch
+	EventStoryConflictEscalated     EventType = "STORY_CONFLICT_ESCALATED"      // conflict escalated to Tech Lead
+
 	// Autoresearch harness events. See docs/superpowers/specs/2026-05-02-autoresearch-harness-design.md.
 	EventBaselineMeasured    EventType = "BASELINE_MEASURED"
 	EventExperimentProposed  EventType = "EXPERIMENT_PROPOSED"

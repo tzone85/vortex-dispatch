@@ -50,6 +50,10 @@ func (m *MockProjectionStore) ListStories(filter state.StoryFilter) ([]state.Sto
 	return nil, nil
 }
 
+func (m *MockProjectionStore) ListStoryDeps(reqID string) ([]state.StoryDep, error) {
+	return nil, nil
+}
+
 func (m *MockProjectionStore) Close() error {
 	return nil
 }

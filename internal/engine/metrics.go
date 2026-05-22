@@ -73,6 +73,7 @@ type RequirementStat struct {
 	FileEdits       int
 	Errors          int
 	Stories         []StoryStat
+	DBMetrics       state.StoryDBMetrics
 }
 
 // ComputeMetrics calculates pipeline metrics from the event store.
@@ -193,6 +194,9 @@ func ComputeMetrics(es state.EventStore, ps *state.SQLiteStore, limit int, logDi
 			reqStat.FirstPassRate = float64(passed) / float64(reqStat.StoryCount) * 100
 		}
 
+		dbm, _ := ps.StoryDBMetricsByReq(req.ID)
+		reqStat.DBMetrics = dbm
+
 		m.RequirementStats = append(m.RequirementStats, reqStat)
 	}
 
@@ -295,6 +299,17 @@ func FormatMetrics(m PipelineMetrics) string {
 					dur = fmt.Sprintf(" [%s]", formatDuration(ss.Duration))
 				}
 				b.WriteString(fmt.Sprintf("      • [%s] (complexity %d)%s %s\n", ss.Status, ss.Complexity, dur, stTitle))
+			}
+			if rs.DBMetrics.TotalDBs > 0 {
+				b.WriteString("    Databases:\n")
+				b.WriteString(fmt.Sprintf("      Total: %d (active: %d, deleted: %d, retained: %d, failed: %d)\n",
+					rs.DBMetrics.TotalDBs, rs.DBMetrics.ActiveDBs, rs.DBMetrics.DeletedDBs,
+					rs.DBMetrics.RetainedDBs, rs.DBMetrics.FailedDBs))
+				hours := rs.DBMetrics.TotalDurationSec / 3600.0
+				b.WriteString(fmt.Sprintf("      DB-hours: %.2f\n", hours))
+				if rs.DBMetrics.Provider != "" {
+					b.WriteString(fmt.Sprintf("      Provider: %s\n", rs.DBMetrics.Provider))
+				}
 			}
 		}
 	}

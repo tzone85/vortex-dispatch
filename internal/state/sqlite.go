@@ -813,6 +813,58 @@ func (s *SQLiteStore) projectStoryDBDeleted(evt Event, payload map[string]any) e
 	return err
 }
 
+// StoryDBMetrics holds aggregated devdb stats for a single requirement.
+type StoryDBMetrics struct {
+	ReqID            string
+	TotalDBs         int
+	DeletedDBs       int
+	RetainedDBs      int
+	FailedDBs        int
+	ActiveDBs        int
+	TotalDurationSec float64 // sum of duration_seconds for deleted/retained DBs
+	Provider         string  // last seen provider name (informational)
+}
+
+// StoryDBMetricsByReq returns aggregated DB metrics for the given requirement.
+// It joins story_databases via the stories table to filter by req_id.
+func (s *SQLiteStore) StoryDBMetricsByReq(reqID string) (StoryDBMetrics, error) {
+	m := StoryDBMetrics{ReqID: reqID}
+	rows, err := s.db.Query(`
+		SELECT sd.status, COALESCE(sd.duration_seconds, 0), COALESCE(sd.provider, '')
+		FROM story_databases sd
+		JOIN stories st ON st.id = sd.story_id
+		WHERE st.req_id = ?
+	`, reqID)
+	if err != nil {
+		return m, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var status, provider string
+		var dur float64
+		if err := rows.Scan(&status, &dur, &provider); err != nil {
+			return m, err
+		}
+		m.TotalDBs++
+		switch status {
+		case "deleted":
+			m.DeletedDBs++
+			m.TotalDurationSec += dur
+		case "retained":
+			m.RetainedDBs++
+			m.TotalDurationSec += dur
+		case "failed":
+			m.FailedDBs++
+		case "created":
+			m.ActiveDBs++
+		}
+		if provider != "" {
+			m.Provider = provider
+		}
+	}
+	return m, rows.Err()
+}
+
 // --- payload extraction helpers ---
 
 func payloadStr(m map[string]any, key string) string {

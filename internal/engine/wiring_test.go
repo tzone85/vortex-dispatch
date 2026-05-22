@@ -2192,3 +2192,60 @@ func TestWiring_PostExecution_ReleaseOutcomeIsPaused_KeepsDB(t *testing.T) {
 		t.Errorf("WIRING FAILURE: OutcomePaused with KeepDBOnFail=true must NOT delete; got %d Delete calls, want 0", len(rp.deleted))
 	}
 }
+
+// --------------------------------------------------------------------------
+// SP4-6: newDevDBLifecycle construction and injection contract
+// --------------------------------------------------------------------------
+
+// TestWiring_NewDevDBLifecycle_NullProviderReturnsNonNil verifies that
+// devdb.NewLifecycle itself never returns nil when given valid arguments —
+// even when provider="null". This guards against callers accidentally
+// testing `lc == nil` after NewLifecycle and discarding a valid lifecycle.
+// The CLI layer is responsible for skipping NewLifecycle entirely when the
+// provider is "" or "null"; that caller-side contract is documented and
+// enforced by the function signature.
+func TestWiring_NewDevDBLifecycle_NullProviderReturnsNonNil(t *testing.T) {
+	lc := devdb.NewLifecycle(null.New(), &fakeEventAppender{}, devdb.Config{Provider: "null"})
+	if lc == nil {
+		t.Fatal("WIRING FAILURE: devdb.NewLifecycle should never return nil when given valid args")
+	}
+	if lc.Provider() == nil {
+		t.Error("WIRING FAILURE: Lifecycle.Provider() should expose the underlying provider (never nil after construction)")
+	}
+}
+
+// TestWiring_DevDBLifecycle_InjectedIntoExecutorAndMonitor_SameInstance verifies
+// that when a Lifecycle is created once and injected into both Executor and
+// Monitor, both components report HasDevDBLifecycle() == true. This mirrors the
+// startup wiring in internal/cli/resume.go: one Lifecycle, two recipients.
+func TestWiring_DevDBLifecycle_InjectedIntoExecutorAndMonitor_SameInstance(t *testing.T) {
+	es, ps, cleanup := newTestStores(t)
+	defer cleanup()
+
+	cfg := config.DefaultConfig()
+	e := engine.NewExecutor(nil, cfg, es, ps)
+	watchdog := engine.NewWatchdog(engine.WatchdogConfig{StuckThresholdS: 120}, es)
+	m := engine.NewMonitor(nil, watchdog, nil, nil, nil, cfg, es, ps)
+
+	// Precondition: neither has a lifecycle yet.
+	if e.HasDevDBLifecycle() {
+		t.Fatal("WIRING FAILURE: precondition failed — Executor already has lifecycle before test")
+	}
+	if m.HasDevDBLifecycle() {
+		t.Fatal("WIRING FAILURE: precondition failed — Monitor already has lifecycle before test")
+	}
+
+	// Create one lifecycle and inject into both (the SP4-6 startup pattern).
+	lc := devdb.NewLifecycle(null.New(), &fakeEventAppender{}, devdb.Config{Provider: "null"})
+	e.SetDevDBLifecycle(lc)
+	m.SetDevDBLifecycle(lc)
+
+	if !e.HasDevDBLifecycle() {
+		t.Error("WIRING FAILURE: Executor.HasDevDBLifecycle should be true after injection.\n" +
+			"Check resume.go: executor.SetDevDBLifecycle(lifecycle) must be called when lifecycle != nil.")
+	}
+	if !m.HasDevDBLifecycle() {
+		t.Error("WIRING FAILURE: Monitor.HasDevDBLifecycle should be true after injection.\n" +
+			"Check resume.go: monitor.SetDevDBLifecycle(lifecycle) must be called when lifecycle != nil.")
+	}
+}

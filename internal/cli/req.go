@@ -8,7 +8,9 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -40,7 +42,36 @@ The requirement text can be provided as:
 	cmd.Flags().Bool("godmode", false, "skip per-tool permission prompts during agent execution (does NOT bypass review_mode plan gate or auto_merge PR gate — use review_mode=auto and auto_merge=true for fully unattended operation)")
 	cmd.Flags().Bool("dry-run", false, "Simulate LLM responses for pipeline testing (no API calls)")
 	cmd.Flags().Bool("no-dispatch", false, "stop after planning; do not auto-dispatch agents (plan-only mode)")
+	cmd.Flags().Bool("background", false, "self-daemonize after planning: fork a detached child process and exit; tail logs with 'vxd logs <req-id>'")
 	cmd.SilenceUsage = true
+	return cmd
+}
+
+// forkReqDaemon forks a detached child process that runs `vxd resume <reqID>`.
+// The child is placed in its own process group (Setsid) so that macOS
+// app-nap and parent-shell teardown cannot kill it.
+//
+// stdout+stderr of the child are redirected to logPath.
+// The function returns the child PID (or -1 on error).
+//
+// This is a pure construction function — it does NOT exec. Tests can call it
+// without side effects by inspecting the returned Cmd instead of running it.
+func forkReqDaemon(self, reqID, logPath string, extraArgs []string) *exec.Cmd {
+	// Build the child argv: vxd resume <reqID> [extraArgs...]
+	argv := append([]string{"resume", reqID}, extraArgs...)
+	cmd := exec.Command(self, argv...)
+
+	// Detach from the current process group.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+
+	// Redirect stdin from /dev/null, stdout+stderr to the log file.
+	// The file is opened lazily by exec.Cmd on Start().
+	cmd.Stdin = nil // will be set to /dev/null by the OS when Setsid=true
+	cmd.Dir = "."  // inherit cwd
+
+	// We set log file via ExtraFiles + dup trick, but the simpler approach
+	// is to open the file in the parent and pass it as stdout/stderr.
+	// We do that in the caller (runReq) because we need the project dir.
 	return cmd
 }
 
@@ -125,7 +156,8 @@ func runReq(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Fprintf(out, "Planning requirement: %s\n", requirement)
-	fmt.Fprintf(out, "Requirement ID: %s\n\n", reqID)
+	fmt.Fprintf(out, "Requirement ID: %s\n", reqID)
+	fmt.Fprintf(out, "Planning... (this may take 2-3 minutes for complex requirements)\n\n")
 
 	result, err := planner.Plan(ctx, reqID, requirement, repoPath)
 	if err != nil {
@@ -162,6 +194,63 @@ func runReq(cmd *cobra.Command, args []string) error {
 	if effectiveMode != "auto" {
 		fmt.Fprintf(out, "review_mode=%s: run 'vxd approve-plan %s' then 'vxd resume %s' to start.\n",
 			effectiveMode, reqID, reqID)
+		return nil
+	}
+
+	// --background: self-daemonize by forking a detached child that runs
+	// `vxd resume <reqID>`. The parent prints the PID and log path, then exits 0.
+	// This prevents macOS app-nap and parent-shell teardown from killing the run.
+	background, _ := cmd.Flags().GetBool("background")
+	if background {
+		logDir := filepath.Join(s.ProjectDir, "logs")
+		if err := os.MkdirAll(logDir, 0o755); err != nil {
+			return fmt.Errorf("create log dir: %w", err)
+		}
+		lp := reqLogPath(s.ProjectDir, reqID)
+
+		self, err := os.Executable()
+		if err != nil {
+			return fmt.Errorf("resolve self path: %w", err)
+		}
+
+		// Carry forward --godmode and --dry-run to the child.
+		var childExtra []string
+		if godmode {
+			childExtra = append(childExtra, "--godmode")
+		}
+		if dryRun {
+			childExtra = append(childExtra, "--dry-run")
+		}
+
+		child := forkReqDaemon(self, reqID, lp, childExtra)
+
+		// Open log file and attach to child's stdout+stderr.
+		lf, err := os.OpenFile(lp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+		if err != nil {
+			return fmt.Errorf("open log file: %w", err)
+		}
+		child.Stdout = lf
+		child.Stderr = lf
+
+		devNull, err := os.Open(os.DevNull)
+		if err != nil {
+			lf.Close()
+			return fmt.Errorf("open /dev/null: %w", err)
+		}
+		child.Stdin = devNull
+
+		if err := child.Start(); err != nil {
+			lf.Close()
+			devNull.Close()
+			return fmt.Errorf("fork daemon: %w", err)
+		}
+		// Close our copies of the file handles; child has its own fd via Start().
+		lf.Close()
+		devNull.Close()
+
+		fmt.Fprintf(out, "Requirement %s dispatched (daemon pid %d).\n", reqID, child.Process.Pid)
+		fmt.Fprintf(out, "Tail logs: vxd logs %s\n", reqID)
+		fmt.Fprintf(out, "Log file:  %s\n", lp)
 		return nil
 	}
 

@@ -166,6 +166,49 @@ func TestRunReq_NoDispatch_SkipsAutoDispatch(t *testing.T) {
 	}
 }
 
+// TestForkReqDaemon_CommandLineInvocation verifies that forkReqDaemon produces
+// the expected Cmd without actually forking a process.
+func TestForkReqDaemon_CommandLineInvocation(t *testing.T) {
+	const self = "/usr/local/bin/vxd"
+	const reqID = "01JV7REQID0000000000001"
+	const logPath = "/tmp/test.log"
+
+	cmd := forkReqDaemon(self, reqID, logPath, []string{"--godmode"})
+	if cmd == nil {
+		t.Fatal("forkReqDaemon returned nil")
+	}
+
+	args := cmd.Args
+	if len(args) < 3 {
+		t.Fatalf("expected at least 3 args, got %v", args)
+	}
+	if args[0] != self {
+		t.Errorf("args[0] = %q, want %q", args[0], self)
+	}
+	if args[1] != "resume" {
+		t.Errorf("args[1] = %q, want 'resume'", args[1])
+	}
+	if args[2] != reqID {
+		t.Errorf("args[2] = %q, want %q", args[2], reqID)
+	}
+
+	found := false
+	for _, a := range args {
+		if a == "--godmode" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("--godmode not forwarded to child args: %v", args)
+	}
+
+	// SysProcAttr must be set so the child detaches from the parent session.
+	if cmd.SysProcAttr == nil {
+		t.Error("SysProcAttr is nil — daemon won't detach from parent process group")
+	}
+}
+
 // TestRunReq_ManualReviewMode_SkipsAutoDispatch verifies that a non-auto
 // review_mode (manual or plan_only) causes runReq to stop after planning
 // and print approval guidance instead of dispatching.

@@ -261,7 +261,7 @@ Run `vxd init` to generate `vxd.yaml` with sensible defaults, then customize:
 
 ## Ephemeral Databases
 
-> **Status:** SP1+SP3+SP4+SP5+SP6 shipped on `main` (2026-05-22). Docker provider + per-story DB lifecycle + QA migration gate + `vxd db` CLI all functional. SP2 (Ghost cloud provider) pending. SP6-C (dashboard column) and SP6-D (metrics DB section) deferred.
+> **Status:** All sub-projects shipped on `main` (2026-05-22): SP1+SP3+SP4+SP5+SP6 (Docker provider, executor wiring, QA migration gate, `vxd db` CLI, dashboard DB column, metrics DB section) + SP2 (Ghost cloud provider). NXD mirror (Docker-only) also complete.
 
 Every story can get its own throwaway Postgres database, forked from a template, deleted when the story finishes. Inspired by [ghost.build](https://ghost.build) — "Postgres built for agents."
 

@@ -183,6 +183,83 @@ func TestRenderHeader(t *testing.T) {
 	}
 }
 
+// TestDBStatusGlyph verifies all dbStatusGlyph return values.
+func TestDBStatusGlyph(t *testing.T) {
+	tests := []struct {
+		status string
+		want   string
+	}{
+		{"created", "✓"},
+		{"failed", "✗"},
+		{"retained", "R"},
+		{"deleted", ""},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := dbStatusGlyph(tt.status)
+		if got != tt.want {
+			t.Errorf("dbStatusGlyph(%q) = %q, want %q", tt.status, got, tt.want)
+		}
+	}
+}
+
+// TestRenderStories_DBColumn verifies the DB column appears in the rendered output.
+func TestRenderStories_DBColumn(t *testing.T) {
+	m := Model{
+		width:  120,
+		height: 40,
+		stories: []state.Story{
+			{ID: "s-active", Title: "Active DB story", Status: "in_progress", Complexity: 3},
+			{ID: "s-failed", Title: "Failed DB story", Status: "in_progress", Complexity: 2},
+			{ID: "s-none", Title: "No DB story", Status: "draft", Complexity: 1},
+		},
+		dbStatuses: map[string]string{
+			"s-active": "created",
+			"s-failed": "failed",
+		},
+	}
+	result := m.renderStories(120, 15)
+	if !strings.Contains(result, "DB") {
+		t.Error("column header 'DB' should appear")
+	}
+	if !strings.Contains(result, "✓") {
+		t.Error("active DB should show ✓")
+	}
+	if !strings.Contains(result, "✗") {
+		t.Error("failed DB should show ✗")
+	}
+}
+
+// TestRenderStories_DBColumn_Retained verifies retained DB indicator.
+func TestRenderStories_DBColumn_Retained(t *testing.T) {
+	m := Model{
+		width:  120,
+		height: 40,
+		stories: []state.Story{
+			{ID: "s-ret", Title: "Retained DB story", Status: "merged", Complexity: 3},
+		},
+		dbStatuses: map[string]string{
+			"s-ret": "retained",
+		},
+	}
+	result := m.renderStories(120, 15)
+	if !strings.Contains(result, "R") {
+		t.Error("retained DB should show R")
+	}
+}
+
+// TestApplyData_PreservesDBStatuses verifies dbStatuses is preserved in applyData.
+func TestApplyData_PreservesDBStatuses(t *testing.T) {
+	original := Model{version: "1.0", width: 100, height: 30}
+	d := dataMsg{
+		dbStatuses: map[string]string{"s-1": "created"},
+	}
+	updated := original.applyData(d)
+	if updated.dbStatuses["s-1"] != "created" {
+		t.Errorf("dbStatuses not preserved: got %v", updated.dbStatuses)
+	}
+}
+
 // TestRenderStatusBar_Format verifies the status bar structure.
 func TestRenderStatusBar_Format(t *testing.T) {
 	m := Model{version: "0.1.0", width: 80}

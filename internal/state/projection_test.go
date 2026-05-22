@@ -674,3 +674,155 @@ func TestStoryDBMetricsByReq_AggregatesAcrossStories(t *testing.T) {
 		t.Errorf("Provider = %q, want docker", m.Provider)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// StoryDBStatusByReq / StoryDBStatusAll
+// ---------------------------------------------------------------------------
+
+func TestStoryDBStatusByReq_Empty(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewSQLiteStore(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	statuses, err := s.StoryDBStatusByReq("nonexistent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 0 {
+		t.Errorf("expected empty map for unknown req, got %v", statuses)
+	}
+}
+
+func TestStoryDBStatusByReq_ActiveDB(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewSQLiteStore(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	s.Project(NewEvent(EventReqSubmitted, "", "", map[string]any{"id": "r1", "title": "test req"}))
+	s.Project(NewEvent(EventStoryCreated, "", "s1", map[string]any{"id": "s1", "req_id": "r1", "title": "story 1", "complexity": 3}))
+
+	s.Project(Event{
+		Type:    EventStoryDBCreated,
+		StoryID: "s1",
+		Payload: mustJSONBytes(t, map[string]any{"db_id": "db1", "db_name": "vxd-r-s1", "provider": "docker"}),
+	})
+
+	statuses, err := s.StoryDBStatusByReq("r1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if statuses["s1"] != "created" {
+		t.Errorf("expected s1=created, got %q", statuses["s1"])
+	}
+}
+
+func TestStoryDBStatusByReq_IsolatesReqs(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewSQLiteStore(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	// Two requirements, each with one story with a DB.
+	for _, id := range []string{"r1", "r2"} {
+		s.Project(NewEvent(EventReqSubmitted, "", "", map[string]any{"id": id, "title": "req " + id}))
+		storyID := "s-" + id
+		s.Project(NewEvent(EventStoryCreated, "", storyID, map[string]any{
+			"id": storyID, "req_id": id, "title": "story", "complexity": 2,
+		}))
+		s.Project(Event{
+			Type:    EventStoryDBCreated,
+			StoryID: storyID,
+			Payload: mustJSONBytes(t, map[string]any{"db_id": "db-" + id, "db_name": "vxd", "provider": "docker"}),
+		})
+	}
+
+	statuses, err := s.StoryDBStatusByReq("r1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := statuses["s-r2"]; ok {
+		t.Error("r2 story should not appear in r1 statuses")
+	}
+	if statuses["s-r1"] != "created" {
+		t.Errorf("expected s-r1=created, got %q", statuses["s-r1"])
+	}
+}
+
+func TestStoryDBStatusAll_Empty(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewSQLiteStore(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	statuses, err := s.StoryDBStatusAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 0 {
+		t.Errorf("expected empty map, got %v", statuses)
+	}
+}
+
+func TestStoryDBStatusAll_MultipleStatuses(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewSQLiteStore(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	s.Project(NewEvent(EventReqSubmitted, "", "", map[string]any{"id": "r1", "title": "req"}))
+	for _, id := range []string{"s1", "s2", "s3"} {
+		s.Project(NewEvent(EventStoryCreated, "", id, map[string]any{
+			"id": id, "req_id": "r1", "title": "story " + id, "complexity": 1,
+		}))
+	}
+
+	// s1: created (active)
+	s.Project(Event{
+		Type:    EventStoryDBCreated,
+		StoryID: "s1",
+		Payload: mustJSONBytes(t, map[string]any{"db_id": "db1", "db_name": "vxd-s1", "provider": "docker"}),
+	})
+	// s2: failed
+	s.Project(Event{
+		Type:    EventStoryDBFailed,
+		StoryID: "s2",
+		Payload: mustJSONBytes(t, map[string]any{"db_id": "db2", "db_name": "vxd-s2", "provider": "docker", "error": "crash"}),
+	})
+	// s3: created then deleted (retained)
+	s.Project(Event{
+		Type:    EventStoryDBCreated,
+		StoryID: "s3",
+		Payload: mustJSONBytes(t, map[string]any{"db_id": "db3", "db_name": "vxd-s3", "provider": "docker"}),
+	})
+	s.Project(Event{
+		Type:    EventStoryDBDeleted,
+		StoryID: "s3",
+		Payload: mustJSONBytes(t, map[string]any{"db_id": "db3", "duration_seconds": 120.0, "status": "retained"}),
+	})
+
+	statuses, err := s.StoryDBStatusAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if statuses["s1"] != "created" {
+		t.Errorf("s1: want created, got %q", statuses["s1"])
+	}
+	if statuses["s2"] != "failed" {
+		t.Errorf("s2: want failed, got %q", statuses["s2"])
+	}
+	if statuses["s3"] != "retained" {
+		t.Errorf("s3: want retained, got %q", statuses["s3"])
+	}
+}

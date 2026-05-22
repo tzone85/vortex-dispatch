@@ -179,7 +179,24 @@ function renderPipeline(p) {
   document.getElementById("progress-text").textContent = pct + "% complete";
 }
 
+/** Return a single-character DB status indicator for a story.
+ * Each return value is a fixed literal (not user data) — safe for esc() passthrough.
+ * "\u2713" active, "\u2717" failed, "R" retained, "" otherwise.
+ */
+function dbStatusGlyph(status) {
+  switch (status) {
+    case "created":  return "\u2713"; // ✓
+    case "failed":   return "\u2717"; // ✗
+    case "retained": return "R";
+    default:         return "";
+  }
+}
+
 function renderStories(stories) {
+  // db_statuses is a server-supplied map of story_id -> status string.
+  // All values are passed through esc() before being placed in innerHTML.
+  const dbStatuses = (currentState && currentState.db_statuses) || {};
+
   const sorted = [...stories].sort((a, b) => {
     const va = a[sortField] != null ? a[sortField] : "";
     const vb = b[sortField] != null ? b[sortField] : "";
@@ -192,7 +209,7 @@ function renderStories(stories) {
   const tbody = document.querySelector("#stories-table tbody");
   if (!sorted.length) {
     tbody.innerHTML =
-      '<tr><td colspan="6" class="muted">No stories \u2014 run \'vxd plan\' to create a requirement</td></tr>';
+      '<tr><td colspan="7" class="muted">No stories \u2014 run \'vxd plan\' to create a requirement</td></tr>';
     return;
   }
   // All values routed through esc().
@@ -205,6 +222,7 @@ function renderStories(stories) {
           : s.status || "",
       );
       const storyId = esc(s.id);
+      const dbGlyph = esc(dbStatusGlyph(dbStatuses[s.id]));
       return (
         "<tr>" +
         "<td>" +
@@ -222,18 +240,21 @@ function renderStories(stories) {
         (s.escalation_tier || 0) +
         "</td>" +
         "<td>" +
+        dbGlyph +
+        "</td>" +
+        "<td>" +
         esc(s.title) +
         "</td>" +
         "<td>" +
         '<button class="btn-action" title="Retry"' +
         " onclick=\"sendCommand('retry_story', {story_id:'" +
         storyId +
-        "'})\">" +
+        "'})\">"+
         "&#x21BB;</button>" +
         '<button class="btn-action" title="Escalate"' +
         " onclick=\"sendCommand('escalate_story', {story_id:'" +
         storyId +
-        "'})\">" +
+        "'})\">"+
         "&#x2191;</button>" +
         '<button class="btn-action" title="Reassign"' +
         " onclick=\"confirmAction('Reassign " +

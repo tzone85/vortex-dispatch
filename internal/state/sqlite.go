@@ -865,6 +865,56 @@ func (s *SQLiteStore) StoryDBMetricsByReq(reqID string) (StoryDBMetrics, error) 
 	return m, rows.Err()
 }
 
+// StoryDBStatusByReq returns a map of story_id -> current db status for the
+// given requirement. Story IDs missing from the map have no DB. Status values:
+// "created" (active), "failed", "deleted", "retained".
+func (s *SQLiteStore) StoryDBStatusByReq(reqID string) (map[string]string, error) {
+	out := make(map[string]string)
+	rows, err := s.db.Query(`
+		SELECT sd.story_id, sd.status
+		FROM story_databases sd
+		JOIN stories st ON st.id = sd.story_id
+		WHERE st.req_id = ?
+	`, reqID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var sid, st string
+		if err := rows.Scan(&sid, &st); err != nil {
+			return nil, err
+		}
+		// If multiple rows per story (rare), the latest non-deleted wins.
+		if existing, ok := out[sid]; ok && existing != "deleted" {
+			continue
+		}
+		out[sid] = st
+	}
+	return out, rows.Err()
+}
+
+// StoryDBStatusAll returns the same map but unscoped to a requirement.
+func (s *SQLiteStore) StoryDBStatusAll() (map[string]string, error) {
+	out := make(map[string]string)
+	rows, err := s.db.Query(`SELECT story_id, status FROM story_databases`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var sid, st string
+		if err := rows.Scan(&sid, &st); err != nil {
+			return nil, err
+		}
+		if existing, ok := out[sid]; ok && existing != "deleted" {
+			continue
+		}
+		out[sid] = st
+	}
+	return out, rows.Err()
+}
+
 // --- payload extraction helpers ---
 
 func payloadStr(m map[string]any, key string) string {

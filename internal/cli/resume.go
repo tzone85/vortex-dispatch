@@ -269,6 +269,16 @@ func runResume(cmd *cobra.Command, args []string) error {
 	// Wire project directory for RepoProfile loading (repo learning system).
 	executor.SetProjectDir(s.ProjectDir)
 
+	// Wire devdb lifecycle (no-op when devdb.provider is absent or "null").
+	// The SAME instance is injected into both Executor and Monitor so that
+	// Provision (in Executor) and Release (in Monitor) share config state.
+	lifecycle := newDevDBLifecycle(runtimeCfg, s.Events)
+	if lifecycle != nil {
+		executor.SetDevDBLifecycle(lifecycle)
+		log.Printf("[startup] devdb enabled: provider=%s template=%s",
+			runtimeCfg.DevDB.Provider, runtimeCfg.DevDB.Template)
+	}
+
 	// Enable Adapter/Runner execution path for decoupled command building.
 	// Prefer "claude-code" runtime; fall back to first available.
 	// Go map iteration is non-deterministic, so explicit preference is needed.
@@ -379,6 +389,9 @@ func runResume(cmd *cobra.Command, args []string) error {
 	if artStore != nil {
 		monitor.SetArtifactStore(artStore)
 	}
+	if lifecycle != nil {
+		monitor.SetDevDBLifecycle(lifecycle)
+	}
 
 	// Wire webhook notifier (Phase 2). Slack disabled if URL not configured.
 	if s.Config.Notify.SlackWebhookURL != "" && s.Config.Notify.NotifyOnSLA {
@@ -465,6 +478,27 @@ func runResume(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// newDevDBLifecycle constructs a Lifecycle from the resolved config and event
+// store. Returns nil when devdb is disabled (provider="" or "null") so callers
+// can guard injection with a simple nil check. Errors are logged and treated as
+// "disabled" so dispatch is not blocked by devdb misconfiguration.
+func newDevDBLifecycle(cfg config.Config, events state.EventStore) *devdb.Lifecycle {
+	if cfg.DevDB.Provider == "" || cfg.DevDB.Provider == "null" {
+		return nil
+	}
+	p, err := newDevDBProvider(cfg)
+	if err != nil {
+		log.Printf("[startup] devdb disabled: %v", err)
+		return nil
+	}
+	return devdb.NewLifecycle(p, events, devdb.Config{
+		Provider:     cfg.DevDB.Provider,
+		Template:     cfg.DevDB.Template,
+		KeepDBOnFail: cfg.DevDB.OnFailure.KeepDB,
+		RetainHours:  time.Duration(cfg.DevDB.OnFailure.RetainHours) * time.Hour,
+	})
 }
 
 // newDevDBProvider returns a Provider for the configured devdb backend,

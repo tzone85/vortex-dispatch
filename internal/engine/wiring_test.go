@@ -1962,3 +1962,64 @@ func TestWiring_ReqSubmitted_UniquePerReqID(t *testing.T) {
 		t.Errorf("WIRING FAILURE: second REQ_SUBMITTED projection for same id returned error %v — projectReqSubmitted must use INSERT OR IGNORE", err)
 	}
 }
+
+// ---- HIGH severity: EventStoryDBCreated ----
+
+func TestWiring_StoryDBCreated_UpdatesProjection(t *testing.T) {
+	store, cleanup := newWiringStore(t)
+	defer cleanup()
+
+	evt := state.NewEvent(state.EventStoryDBCreated, "executor", "s-wiring", map[string]any{
+		"db_id":    "abc",
+		"db_name":  "vxd-test-s-wiring",
+		"provider": "docker",
+		"template": "tpl",
+	})
+	if err := store.Project(evt); err != nil {
+		t.Fatalf("WIRING FAILURE: STORY_DB_CREATED not handled by projector: %v. "+
+			"Check sqlite.go Project() — case may be missing or falling through to default.", err)
+	}
+}
+
+// ---- HIGH severity: EventStoryDBFailed ----
+
+func TestWiring_StoryDBFailed_UpdatesProjection(t *testing.T) {
+	store, cleanup := newWiringStore(t)
+	defer cleanup()
+
+	evt := state.NewEvent(state.EventStoryDBFailed, "executor", "s-wiring", map[string]any{
+		"db_name":  "vxd-test-s-wiring",
+		"provider": "docker",
+		"error":    "docker daemon unreachable",
+	})
+	if err := store.Project(evt); err != nil {
+		t.Fatalf("WIRING FAILURE: STORY_DB_FAILED not handled by projector: %v. "+
+			"Check sqlite.go Project() — case may be missing or falling through to default.", err)
+	}
+}
+
+// ---- HIGH severity: EventStoryDBDeleted ----
+
+func TestWiring_StoryDBDeleted_UpdatesProjection(t *testing.T) {
+	store, cleanup := newWiringStore(t)
+	defer cleanup()
+
+	// Insert a created row first so the UPDATE has a row to hit.
+	created := state.NewEvent(state.EventStoryDBCreated, "executor", "s-wiring", map[string]any{
+		"db_id":   "abc",
+		"db_name": "vxd-test-s-wiring",
+	})
+	if err := store.Project(created); err != nil {
+		t.Fatalf("setup: STORY_DB_CREATED projection failed: %v", err)
+	}
+
+	deleted := state.NewEvent(state.EventStoryDBDeleted, "executor", "s-wiring", map[string]any{
+		"db_id":            "abc",
+		"duration_seconds": 7.0,
+		"status":           "deleted",
+	})
+	if err := store.Project(deleted); err != nil {
+		t.Fatalf("WIRING FAILURE: STORY_DB_DELETED not handled by projector: %v. "+
+			"Check sqlite.go Project() — case may be missing or falling through to default.", err)
+	}
+}

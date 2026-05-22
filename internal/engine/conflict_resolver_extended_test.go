@@ -21,7 +21,7 @@ func TestResolveFile_SuccessfulResolution(t *testing.T) {
 		Content: resolvedContent,
 	})
 
-	cr := NewConflictResolver(replayClient, "test-model", 4096, nil)
+	cr := NewConflictResolver(replayClient, "test-model", nil, "", 4096, nil, nil)
 
 	conflicted := "package main\n<<<<<<< HEAD\nfunc main() { fmt.Println(\"from HEAD\") }\n=======\nfunc main() { fmt.Println(\"from branch\") }\n>>>>>>> feature/branch\n"
 
@@ -47,7 +47,7 @@ func main() { return }
 		Content: badResolution,
 	})
 
-	cr := NewConflictResolver(replayClient, "test-model", 4096, nil)
+	cr := NewConflictResolver(replayClient, "test-model", nil, "", 4096, nil, nil)
 
 	_, err := cr.resolveFile(context.Background(), "main.go", "conflicted content")
 	if err == nil {
@@ -62,7 +62,7 @@ func TestResolveFile_LLMError(t *testing.T) {
 	// ReplayClient with no responses will return an error.
 	replayClient := llm.NewReplayClient() // zero responses
 
-	cr := NewConflictResolver(replayClient, "test-model", 4096, nil)
+	cr := NewConflictResolver(replayClient, "test-model", nil, "", 4096, nil, nil)
 
 	_, err := cr.resolveFile(context.Background(), "main.go", "conflicted")
 	if err == nil {
@@ -76,7 +76,7 @@ func TestResolveFile_StripsMarkdownFences(t *testing.T) {
 		Content: "```go\npackage main\n\nfunc main() {}\n```",
 	})
 
-	cr := NewConflictResolver(replayClient, "test-model", 4096, nil)
+	cr := NewConflictResolver(replayClient, "test-model", nil, "", 4096, nil, nil)
 
 	got, err := cr.resolveFile(context.Background(), "main.go", "conflicted")
 	if err != nil {
@@ -95,7 +95,7 @@ func TestResolveFile_FatalAPIError(t *testing.T) {
 	fatalErr := &llm.APIError{StatusCode: 401, Message: "unauthorized"}
 	errorClient := &errorLLMClient{err: fatalErr}
 
-	cr := NewConflictResolver(errorClient, "test-model", 4096, nil)
+	cr := NewConflictResolver(errorClient, "test-model", nil, "", 4096, nil, nil)
 
 	_, err := cr.resolveFile(context.Background(), "main.go", "conflicted")
 	if err == nil {
@@ -125,7 +125,7 @@ func TestRebaseWithResolution_CleanRebase(t *testing.T) {
 	replayClient := llm.NewReplayClient() // should not be called for clean rebase
 	es := newEventStoreForTest(t)
 
-	cr := NewConflictResolver(replayClient, "test-model", 4096, es)
+	cr := NewConflictResolver(replayClient, "test-model", nil, "", 4096, nil, es)
 
 	err := cr.RebaseWithResolution(context.Background(), "s-clean", worktreeDir, "origin/main")
 	if err != nil {
@@ -157,7 +157,7 @@ func Feature() {
 	}
 	defer es.Close()
 
-	cr := NewConflictResolver(replayClient, "test-model", 4096, es)
+	cr := NewConflictResolver(replayClient, "test-model", nil, "", 4096, nil, es)
 
 	err = cr.RebaseWithResolution(context.Background(), "s-conflict", worktreeDir, "origin/main")
 	if err != nil {
@@ -177,7 +177,7 @@ func TestRebaseWithResolution_LLMFailure_AbortsRebase(t *testing.T) {
 	// LLM fails on the first call.
 	replayClient := llm.NewReplayClient() // no responses -> error
 
-	cr := NewConflictResolver(replayClient, "test-model", 4096, nil)
+	cr := NewConflictResolver(replayClient, "test-model", nil, "", 4096, nil, nil)
 
 	err := cr.RebaseWithResolution(context.Background(), "s-llm-fail", worktreeDir, "origin/main")
 	if err == nil {
@@ -281,7 +281,7 @@ func TestRebaseWithResolution_MaxRoundsExhausted(t *testing.T) {
 		llm.CompletionResponse{Content: "package main\n\nfunc Feature() { /* round 2 */ }\n"},
 	)
 
-	cr := NewConflictResolver(badClient, "test-model", 4096, nil)
+	cr := NewConflictResolver(badClient, "test-model", nil, "", 4096, nil, nil)
 	cr.maxRounds = 1 // Only allow 1 round before giving up.
 
 	err := cr.RebaseWithResolution(context.Background(), "s-exhaust", worktreeDir, "origin/main")
@@ -297,7 +297,7 @@ func TestRebaseWithResolution_MaxRoundsExhausted(t *testing.T) {
 // TestNewConflictResolver_DefaultValues verifies the constructor sets proper defaults.
 func TestNewConflictResolver_Defaults(t *testing.T) {
 	es := newEventStoreForTest(t)
-	cr := NewConflictResolver(nil, "claude-sonnet-4-20250514", 8192, es)
+	cr := NewConflictResolver(nil, "claude-sonnet-4-20250514", nil, "", 8192, nil, es)
 
 	if cr.model != "claude-sonnet-4-20250514" {
 		t.Errorf("expected model claude-sonnet-4-20250514, got %q", cr.model)
@@ -319,7 +319,7 @@ func TestResolveFile_EmptyContent(t *testing.T) {
 		Content: "",
 	})
 
-	cr := NewConflictResolver(replayClient, "test-model", 4096, nil)
+	cr := NewConflictResolver(replayClient, "test-model", nil, "", 4096, nil, nil)
 
 	got, err := cr.resolveFile(context.Background(), "empty.go", "")
 	if err != nil {
@@ -374,7 +374,7 @@ func TestResolveFile_NonFatalAPIError(t *testing.T) {
 	rateErr := &llm.APIError{StatusCode: 429, Message: "rate limited"}
 	errorClient := &errorLLMClient{err: rateErr}
 
-	cr := NewConflictResolver(errorClient, "test-model", 4096, nil)
+	cr := NewConflictResolver(errorClient, "test-model", nil, "", 4096, nil, nil)
 
 	_, err := cr.resolveFile(context.Background(), "main.go", "conflicted")
 	if err == nil {
@@ -391,7 +391,7 @@ func TestResolveFile_GenericError(t *testing.T) {
 	genericErr := fmt.Errorf("network timeout")
 	errorClient := &errorLLMClient{err: genericErr}
 
-	cr := NewConflictResolver(errorClient, "test-model", 4096, nil)
+	cr := NewConflictResolver(errorClient, "test-model", nil, "", 4096, nil, nil)
 
 	_, err := cr.resolveFile(context.Background(), "main.go", "conflicted")
 	if err == nil {
@@ -399,5 +399,201 @@ func TestResolveFile_GenericError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "network timeout") {
 		t.Errorf("expected original error message, got: %v", err)
+	}
+}
+
+// --------------------------------------------------------------------------
+// Tech Lead escalation tests
+// --------------------------------------------------------------------------
+
+// TestResolveFile_TechLeadEscalation_WhenSeniorFails verifies that when the
+// senior LLM fails, the resolver escalates to the Tech Lead and uses its result.
+func TestResolveFile_TechLeadEscalation_WhenSeniorFails(t *testing.T) {
+	resolvedContent := "package main\n\nfunc main() { /* tech lead resolved */ }\n"
+
+	// Senior client has no responses → will fail.
+	seniorClient := llm.NewReplayClient() // zero responses
+	// Tech Lead client returns the resolved content.
+	techLeadClient := llm.NewReplayClient(llm.CompletionResponse{Content: resolvedContent})
+
+	es := newEventStoreForTest(t)
+	cr := NewConflictResolver(seniorClient, "senior-model", techLeadClient, "tl-model", 4096, nil, es)
+
+	// Use the real rebase test setup so we can exercise the full RebaseWithResolution path.
+	_, worktreeDir := setupDivergentRepos(t, true)
+
+	err := cr.RebaseWithResolution(context.Background(), "s-tl-escalate", worktreeDir, "origin/main")
+	if err != nil {
+		t.Fatalf("expected Tech Lead to resolve conflict, got: %v", err)
+	}
+
+	// Verify escalation event was emitted.
+	events, _ := es.List(state.EventFilter{Type: state.EventStoryConflictEscalated, StoryID: "s-tl-escalate"})
+	if len(events) == 0 {
+		t.Error("expected STORY_CONFLICT_ESCALATED event to be emitted when senior fails")
+	}
+}
+
+// TestResolveFile_TechLeadEscalation_WhenManyFiles verifies that conflicts
+// spanning >3 files always escalate to Tech Lead even if senior would succeed.
+func TestResolveFile_TechLeadEscalation_WhenManyFiles(t *testing.T) {
+	resolved := "package main\n\nfunc F() {}\n"
+
+	// Senior client returns valid content (no conflict markers).
+	seniorClient := llm.NewReplayClient(
+		llm.CompletionResponse{Content: resolved},
+		llm.CompletionResponse{Content: resolved},
+		llm.CompletionResponse{Content: resolved},
+		llm.CompletionResponse{Content: resolved},
+	)
+	// Tech Lead returns valid content too.
+	techLeadClient := llm.NewReplayClient(
+		llm.CompletionResponse{Content: resolved},
+		llm.CompletionResponse{Content: resolved},
+		llm.CompletionResponse{Content: resolved},
+		llm.CompletionResponse{Content: resolved},
+	)
+
+	cr := NewConflictResolver(seniorClient, "senior-model", techLeadClient, "tl-model", 4096, nil, nil)
+
+	// The >3-file threshold is checked in RebaseWithResolution. We test it indirectly
+	// through the needsTechLead flag: set up 4 conflicted files in a real repo.
+	bareDir := filepath.Join(t.TempDir(), "remote.git")
+	if err := exec.Command("git", "init", "--bare", bareDir).Run(); err != nil {
+		t.Fatalf("init bare: %v", err)
+	}
+
+	cloneDir := filepath.Join(t.TempDir(), "clone")
+	if err := exec.Command("git", "clone", bareDir, cloneDir).Run(); err != nil {
+		t.Fatalf("clone: %v", err)
+	}
+
+	runGit := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = cloneDir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v (%s)", args, err, out)
+		}
+	}
+
+	runGit("config", "user.email", "test@test.com")
+	runGit("config", "user.name", "Test")
+
+	// Create 4 shared files in an initial commit.
+	for i, name := range []string{"a.go", "b.go", "c.go", "d.go"} {
+		_ = i
+		os.WriteFile(filepath.Join(cloneDir, name), []byte("package main\n"), 0o644)
+	}
+	runGit("add", ".")
+	runGit("commit", "-m", "init")
+	runGit("push", "origin", "main")
+
+	// Modify all 4 files on main.
+	for _, name := range []string{"a.go", "b.go", "c.go", "d.go"} {
+		os.WriteFile(filepath.Join(cloneDir, name), []byte("package main\n\n// main version\n"), 0o644)
+	}
+	runGit("add", ".")
+	runGit("commit", "-m", "main update")
+	runGit("push", "origin", "main")
+
+	// Feature branch from before the main update, also modifies all 4 files.
+	runGit("checkout", "-b", "feature", "HEAD~1")
+	for _, name := range []string{"a.go", "b.go", "c.go", "d.go"} {
+		os.WriteFile(filepath.Join(cloneDir, name), []byte("package main\n\n// feature version\n"), 0o644)
+	}
+	runGit("add", ".")
+	runGit("commit", "-m", "feature update")
+	runGit("fetch", "origin", "main")
+
+	err := cr.RebaseWithResolution(context.Background(), "s-many-files", cloneDir, "origin/main")
+	// Either senior or tech lead resolves it — we just want no panic and no error.
+	if err != nil {
+		t.Logf("RebaseWithResolution error (acceptable in test git setup): %v", err)
+	}
+	// The important invariant is that Tech Lead was asked (its client was called).
+	if techLeadClient.CallCount() == 0 {
+		t.Error("expected Tech Lead client to be called when conflict spans >3 files")
+	}
+}
+
+// TestBinaryConflict_NoLLMCall verifies that binary files are NOT sent to either
+// the senior or Tech Lead LLM — the httptest-style assertion is that neither
+// client's Complete() is called.
+func TestBinaryConflict_NoLLMCall(t *testing.T) {
+	// Create a real conflicting repo with a binary file.
+	bareDir := filepath.Join(t.TempDir(), "remote.git")
+	if err := exec.Command("git", "init", "--bare", bareDir).Run(); err != nil {
+		t.Fatalf("init bare: %v", err)
+	}
+	cloneDir := filepath.Join(t.TempDir(), "clone")
+	if err := exec.Command("git", "clone", bareDir, cloneDir).Run(); err != nil {
+		t.Fatalf("clone: %v", err)
+	}
+
+	runGit := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = cloneDir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v (%s)", args, err, out)
+		}
+	}
+	runGit("config", "user.email", "test@test.com")
+	runGit("config", "user.name", "Test")
+
+	// Initial commit: binary file + README.
+	binData := []byte{0x7F, 'E', 'L', 'F', 0x00, 0x01, 0x02, 0x03}
+	os.WriteFile(filepath.Join(cloneDir, "server"), binData, 0o755)
+	os.WriteFile(filepath.Join(cloneDir, "README.md"), []byte("# project\n"), 0o644)
+	runGit("add", ".")
+	runGit("commit", "-m", "init")
+	runGit("push", "origin", "main")
+
+	// Main modifies the binary.
+	os.WriteFile(filepath.Join(cloneDir, "server"), append(binData, 0xFF), 0o755)
+	runGit("add", ".")
+	runGit("commit", "-m", "update server binary on main")
+	runGit("push", "origin", "main")
+
+	// Feature branch: different binary (starts from before main's update).
+	runGit("checkout", "-b", "feature", "HEAD~1")
+	os.WriteFile(filepath.Join(cloneDir, "server"), append(binData, 0xAA, 0xBB), 0o755)
+	runGit("add", ".")
+	runGit("commit", "-m", "update server binary on feature")
+	runGit("fetch", "origin", "main")
+
+	// Both LLM clients should NEVER be called for a binary conflict.
+	seniorClient := llm.NewReplayClient() // zero responses — will error if called
+	techLeadClient := llm.NewReplayClient()
+
+	es := newEventStoreForTest(t)
+	cr := NewConflictResolver(seniorClient, "senior-model", techLeadClient, "tl-model", 4096, nil, es)
+
+	err := cr.RebaseWithResolution(context.Background(), "s-binary-noLLM", cloneDir, "origin/main")
+	if err != nil {
+		t.Logf("RebaseWithResolution returned error (expected for compiled binary removal): %v", err)
+	}
+
+	if seniorClient.CallCount() > 0 {
+		t.Errorf("ASSERTION FAILURE: senior LLM was called %d time(s) for a binary file — expected 0 calls",
+			seniorClient.CallCount())
+	}
+	if techLeadClient.CallCount() > 0 {
+		t.Errorf("ASSERTION FAILURE: Tech Lead LLM was called %d time(s) for a binary file — expected 0 calls",
+			techLeadClient.CallCount())
+	}
+
+	// Verify a binary event was emitted.
+	binaryEvents, _ := es.List(state.EventFilter{StoryID: "s-binary-noLLM"})
+	hasBinaryEvent := false
+	for _, evt := range binaryEvents {
+		if evt.Type == state.EventStoryConflictBinary || evt.Type == state.EventStoryConflictBinaryRemoved {
+			hasBinaryEvent = true
+			break
+		}
+	}
+	if !hasBinaryEvent {
+		t.Error("expected STORY_CONFLICT_BINARY or STORY_CONFLICT_BINARY_REMOVED event to be emitted")
 	}
 }

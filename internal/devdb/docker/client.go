@@ -8,6 +8,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/tzone85/vortex-dispatch/internal/devdb"
@@ -28,8 +30,11 @@ type Client struct {
 	baseURL    string
 }
 
-// NewClient returns a ready-to-use Docker client. If cfg.BaseURL is empty
-// we dial the default Unix socket.
+// NewClient returns a ready-to-use Docker client.
+// Dial selection (in priority order):
+//   1. cfg.BaseURL (explicit override; used by tests).
+//   2. DOCKER_HOST env: unix://... dials the unix socket; tcp:// or http(s):// is used directly.
+//   3. Fallback: /var/run/docker.sock.
 func NewClient(cfg ClientConfig) *Client {
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 30 * time.Second
@@ -37,11 +42,26 @@ func NewClient(cfg ClientConfig) *Client {
 	transport := &http.Transport{}
 	baseURL := cfg.BaseURL
 	if baseURL == "" {
-		transport.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
-			d := net.Dialer{}
-			return d.DialContext(ctx, "unix", "/var/run/docker.sock")
+		host := os.Getenv("DOCKER_HOST")
+		switch {
+		case strings.HasPrefix(host, "unix://"):
+			sock := strings.TrimPrefix(host, "unix://")
+			transport.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
+				d := net.Dialer{}
+				return d.DialContext(ctx, "unix", sock)
+			}
+			baseURL = "http://docker"
+		case strings.HasPrefix(host, "tcp://"):
+			baseURL = strings.Replace(host, "tcp://", "http://", 1)
+		case strings.HasPrefix(host, "http://"), strings.HasPrefix(host, "https://"):
+			baseURL = host
+		default:
+			transport.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
+				d := net.Dialer{}
+				return d.DialContext(ctx, "unix", "/var/run/docker.sock")
+			}
+			baseURL = "http://docker"
 		}
-		baseURL = "http://docker"
 	}
 	return &Client{
 		httpClient: &http.Client{Transport: transport, Timeout: cfg.Timeout},

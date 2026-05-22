@@ -54,7 +54,7 @@ func (l *Lifecycle) Provider() Provider { return l.provider }
 // into worktreeDir, and emits STORY_DB_CREATED. On failure emits
 // STORY_DB_FAILED and returns the wrapped error.
 func (l *Lifecycle) Provision(ctx context.Context, storyID, project, worktreeDir string) (DB, error) {
-	name := FormatDBName("vxd", project, storyID)
+	name := FormatDBName(PrefixVXD, project, storyID)
 
 	var (
 		db  DB
@@ -139,6 +139,7 @@ func (l *Lifecycle) emitCreated(storyID string, db DB) {
 
 func (l *Lifecycle) emitFailed(storyID, name, errMsg string) {
 	payload := map[string]any{
+		"db_id":    name,
 		"db_name":  name,
 		"provider": l.provider.Name(),
 		"error":    errMsg,

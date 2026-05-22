@@ -69,6 +69,17 @@ Tier 4: Pause (human intervention required)
 | `internal/memory/` | Memory dashboard + MemPalace integration |
 | `internal/repolearn/` | Repo Learning System: 3-pass analysis (static, git history, LLM) of tracked repos |
 
+### Tech-Lead Conflict Escalation
+
+`internal/engine/conflict_resolver.go` uses a 3-tier strategy during rebase:
+
+1. **Binary detection** (`internal/git/conflict.go`): `IsBinaryConflict` runs `git diff --numstat HEAD -- <file>`; if the output is `-\t-\t<path>`, the file is binary. `SniffBinary` is the fallback (null-byte check in first 8 KB) for newly-added unmerged files not yet in HEAD. Binary files are NEVER sent to an LLM.
+2. **Binary policy**: Compiled/oversized files (`server`, `main`, `*.exe`, >500 KB) are removed via `git rm` and emit `STORY_CONFLICT_BINARY_REMOVED`. Smaller binaries are resolved with `git checkout --ours` (story branch version wins) and emit `STORY_CONFLICT_BINARY`.
+3. **Senior fast-path**: Text conflicts are sent to the Senior model. If the resolved content still contains `<<<<<<<` markers, the result is discarded and the Tech Lead is tried.
+4. **Tech Lead escalation**: Triggered when (a) the Senior fails, (b) resolved content still has conflict markers, or (c) the conflict spans >3 files (integration-level). The Tech Lead prompt includes the requirement title/text, story acceptance criteria, `depends_on` story titles, sibling story titles, and the last 3 `git log` subjects for the file. Emits `STORY_CONFLICT_ESCALATED`.
+
+`NewConflictResolver` signature: `(senior llm.Client, seniorModel string, techLead llm.Client, techLeadModel string, maxTokens int, projStore state.ProjectionStore, es state.EventStore)`. Pass `nil, ""` for `techLead/techLeadModel` to disable escalation (senior-only mode, used in tests).
+
 ### Config (vxd.yaml)
 ```yaml
 workspace:

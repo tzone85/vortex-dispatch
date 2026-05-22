@@ -65,7 +65,7 @@ vhs docs/demo.tape
 - **Senior code review** -- automated review via LLM with approve/request-changes verdicts
 - **Automated QA pipeline** -- lint, build, and test with declarative success criteria (6 kinds)
 - **Auto-merge with PR creation** -- stories flow from code to merged PR hands-free
-- **LLM-powered conflict resolution** -- rebase conflicts auto-resolved via Senior model instead of blocking
+- **LLM-powered conflict resolution** -- rebase conflicts auto-resolved; binary files handled without LLM (deterministic policy); complex/multi-file conflicts escalate to Tech Lead with full requirement DAG context
 - **Client delivery reports** -- markdown and HTML reports with effort summary, timeline, and agent performance
 - **Pipeline metrics** -- success rates, timing, escalations, and trace-based agent activity stats
 - **Repo learning** -- 3-pass analysis (static scan, git history, LLM deep analysis) builds persistent profiles for agents
@@ -447,7 +447,7 @@ merge:
   base_branch: main
 ```
 
-In auto-merge mode, VXD rebases each story onto main before merging, resolving conflicts via the LLM-powered ConflictResolver. Without auto-merge, PRs are created but must be rebased and merged manually or via `vxd approve`.
+In auto-merge mode, VXD rebases each story onto main before merging, resolving conflicts via the LLM-powered ConflictResolver. The resolver applies a 3-tier strategy: (1) binary files (Mach-O, ELF, `*.exe`, `server`, `main`) are handled deterministically without an LLM call — oversized or compiled artifacts are removed via `git rm`, others are resolved with `git checkout --ours`; (2) text conflicts are attempted by the Senior model; (3) if the Senior fails, the resolved content still contains conflict markers, or the conflict spans more than 3 files, the Tech Lead is invoked with the full requirement text, story acceptance criteria, and dependency DAG context. Without auto-merge, PRs are created but must be rebased and merged manually or via `vxd approve`.
 
 ### Merging open PRs in order
 

@@ -1,8 +1,10 @@
 package state
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // ---------------------------------------------------------------------------
@@ -467,5 +469,121 @@ func TestProject_StoryStarted_AllowedFromNonTerminalStatuses(t *testing.T) {
 	}
 	if story.Status != "in_progress" {
 		t.Errorf("expected in_progress after STORY_STARTED from draft, got %q", story.Status)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// story_databases projection tests
+// ---------------------------------------------------------------------------
+
+func TestProject_StoryDBCreated_InsertsRow(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewSQLiteStore(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer s.Close()
+
+	data, _ := json.Marshal(map[string]any{
+		"db_id":            "abc123",
+		"db_name":          "vxd-test-s1",
+		"provider":         "docker",
+		"template":         "tpl",
+		"conn_string_hash": "sha256:deadbeef",
+	})
+	evt := Event{
+		Type:      EventStoryDBCreated,
+		StoryID:   "s1",
+		Timestamp: time.Now(),
+		Payload:   data,
+	}
+	if err := s.Project(evt); err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	var status string
+	if err := s.db.QueryRow(
+		`SELECT status FROM story_databases WHERE story_id='s1' AND db_id='abc123'`,
+	).Scan(&status); err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if status != "created" {
+		t.Errorf("status = %q, want created", status)
+	}
+}
+
+func TestProject_StoryDBDeleted_UpdatesRow(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewSQLiteStore(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer s.Close()
+
+	createdData, _ := json.Marshal(map[string]any{
+		"db_id":   "abc123",
+		"db_name": "vxd-test-s1",
+	})
+	if err := s.Project(Event{
+		Type:      EventStoryDBCreated,
+		StoryID:   "s1",
+		Timestamp: time.Now(),
+		Payload:   createdData,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	deletedData, _ := json.Marshal(map[string]any{
+		"db_id":            "abc123",
+		"duration_seconds": 12.5,
+		"status":           "deleted",
+	})
+	if err := s.Project(Event{
+		Type:      EventStoryDBDeleted,
+		StoryID:   "s1",
+		Timestamp: time.Now(),
+		Payload:   deletedData,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var status string
+	if err := s.db.QueryRow(
+		`SELECT status FROM story_databases WHERE db_id='abc123'`,
+	).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "deleted" {
+		t.Errorf("status = %q, want deleted", status)
+	}
+}
+
+func TestProject_StoryDBFailed_InsertsRow(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewSQLiteStore(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer s.Close()
+
+	data, _ := json.Marshal(map[string]any{
+		"db_name":  "vxd-test-s1",
+		"provider": "docker",
+		"error":    "docker daemon unreachable",
+	})
+	if err := s.Project(Event{
+		Type:      EventStoryDBFailed,
+		StoryID:   "s1",
+		Timestamp: time.Now(),
+		Payload:   data,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var status string
+	if err := s.db.QueryRow(
+		`SELECT status FROM story_databases WHERE story_id='s1'`,
+	).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "failed" {
+		t.Errorf("status = %q, want failed", status)
 	}
 }

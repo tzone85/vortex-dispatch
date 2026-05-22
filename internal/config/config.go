@@ -21,6 +21,7 @@ type Config struct {
 	Secrets      SecretsConfig            `yaml:"secrets"`
 	Notify       NotifyConfig             `yaml:"notify,omitempty"`
 	Autoresearch AutoresearchConfig       `yaml:"autoresearch,omitempty"`
+	DevDB        DevDBConfig              `yaml:"devdb,omitempty"`
 }
 
 // SecretsConfig configures the secrets provider.
@@ -284,6 +285,37 @@ var validDesignApproaches = map[string]bool{
 	"standard": true,
 }
 
+// DevDBConfig configures per-story ephemeral databases (planned 2026-05-21).
+// Provider == "" or "null" disables the feature; agents do not get DBs.
+type DevDBConfig struct {
+	Provider  string             `yaml:"provider"`  // "ghost" | "docker" | "null"
+	Template  string             `yaml:"template"`  // source DB name for forks
+	OnFailure DevDBFailurePolicy `yaml:"on_failure"`
+	Ghost     DevDBGhostConfig   `yaml:"ghost"`
+	Docker    DevDBDockerConfig  `yaml:"docker"`
+}
+
+// DevDBFailurePolicy controls behaviour when a story finishes with an error.
+type DevDBFailurePolicy struct {
+	KeepDB      bool `yaml:"keep_db"`
+	RetainHours int  `yaml:"retain_hours"` // default 24
+}
+
+// DevDBGhostConfig configures the Ghost (cloud) provider.
+type DevDBGhostConfig struct {
+	APIKeyEnv string `yaml:"api_key_env"` // default GHOST_API_KEY
+	SpaceID   string `yaml:"space_id"`
+}
+
+// DevDBDockerConfig configures the Docker (local) provider.
+type DevDBDockerConfig struct {
+	Image          string `yaml:"image"`           // default postgres:16
+	ContainerName  string `yaml:"container_name"`  // default vxd-devdb-pg16
+	TemplateVolume string `yaml:"template_volume"` // default ~/.vxd/devdb-data
+	Network        string `yaml:"network"`         // default vxd-devdb
+	HostPortRange  string `yaml:"host_port_range"` // default 5500-5599
+}
+
 // Validate checks that all configuration values are within allowed ranges.
 // It returns an error describing the first invalid value found.
 func (c Config) Validate() error {
@@ -392,6 +424,10 @@ func (c Config) Validate() error {
 		return err
 	}
 
+	if err := validateDevDB(c.DevDB); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -436,4 +472,23 @@ func (a AutoresearchConfig) validate() error {
 		return fmt.Errorf("autoresearch.bayes.prior_alpha and prior_beta must be >= 0")
 	}
 	return nil
+}
+
+func validateDevDB(c DevDBConfig) error {
+	switch c.Provider {
+	case "", "null":
+		return nil
+	case "ghost":
+		if c.Template == "" {
+			return fmt.Errorf("devdb.template required for ghost provider")
+		}
+		return nil
+	case "docker":
+		if c.Template == "" {
+			return fmt.Errorf("devdb.template required for docker provider")
+		}
+		return nil
+	default:
+		return fmt.Errorf("devdb.provider must be ghost|docker|null, got %q", c.Provider)
+	}
 }

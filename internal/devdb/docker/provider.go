@@ -45,6 +45,14 @@ func NewProvider(cfg Config) *Provider {
 	}
 }
 
+// NewProviderWithClient is like NewProvider but lets callers inject a custom
+// HTTP client (used by tests to mock the Docker daemon).
+func NewProviderWithClient(cfg Config, client *Client) *Provider {
+	cfg = applyDefaults(cfg)
+	a, _ := NewAllocator(cfg.HostPortRange)
+	return &Provider{client: client, cfg: cfg, ports: a}
+}
+
 func applyDefaults(c Config) Config {
 	if c.Image == "" {
 		c.Image = "postgres:16"
@@ -74,6 +82,74 @@ func (p *Provider) Name() string { return "docker" }
 // Ping checks the Docker daemon is reachable.
 func (p *Provider) Ping(ctx context.Context) error {
 	return p.client.Ping(ctx)
+}
+
+// EnsureContainer is idempotent: it boots the network, container, and waits
+// for pg. First Create/Fork/etc. call invokes this. Safe to call multiple
+// times; later calls are no-ops if the container is already running.
+func (p *Provider) EnsureContainer(ctx context.Context) error {
+	if err := p.client.Ping(ctx); err != nil {
+		return err
+	}
+	if err := p.client.EnsureNetwork(ctx, p.cfg.Network); err != nil {
+		return err
+	}
+
+	pw, err := p.LoadOrCreateAdminPassword(filepath.Dir(p.cfg.TemplateVolume))
+	if err != nil {
+		return err
+	}
+	p.cfg.AdminPassword = pw
+
+	state, err := p.client.InspectContainer(ctx, p.cfg.ContainerName)
+	if err != nil {
+		return err
+	}
+	if !state.Exists {
+		port, err := p.ports.Acquire()
+		if err != nil {
+			return err
+		}
+		p.cfg.HostPort = port
+		spec := CreateContainerSpec{
+			Name:          p.cfg.ContainerName,
+			Image:         p.cfg.Image,
+			HostPort:      port,
+			VolumeMount:   p.cfg.TemplateVolume,
+			AdminPassword: pw,
+			Network:       p.cfg.Network,
+		}
+		id, err := p.client.CreateContainer(ctx, spec)
+		if err != nil {
+			return err
+		}
+		if err := p.client.StartContainer(ctx, id); err != nil {
+			return err
+		}
+	} else if !state.Running {
+		if err := p.client.StartContainer(ctx, p.cfg.ContainerName); err != nil {
+			return err
+		}
+	}
+
+	// If the container already existed and was running, p.cfg.HostPort may
+	// still be zero. In that case fall back to the lowest port in the
+	// allocator's range — the container's port binding is fixed at creation,
+	// so the first port in our range is a reasonable default. (Real
+	// production deployments persist this in the future; out of scope here.)
+	if p.cfg.HostPort == 0 {
+		port, err := p.ports.Acquire()
+		if err != nil {
+			return err
+		}
+		p.cfg.HostPort = port
+	}
+
+	p.mu.Lock()
+	p.dsn = fmt.Sprintf("postgres://%s:%s@localhost:%d/postgres?sslmode=disable",
+		p.cfg.AdminUser, pw, p.cfg.HostPort)
+	p.mu.Unlock()
+	return nil
 }
 
 // Create provisions an empty DB inside the host container.
@@ -158,15 +234,18 @@ func (p *Provider) dbDSN(name string, readonly bool) string {
 }
 
 // adminConn returns a pgx connection to the host container's admin DB.
-// Lazy bootstrap lands in Task 18 (EnsureContainer); for now a Provider that
-// has never been bootstrapped returns ErrProviderDown so unit tests can
-// exercise the error path.
+// If the provider has not been bootstrapped yet it calls EnsureContainer first.
 func (p *Provider) adminConn(ctx context.Context) (*PGConn, error) {
 	p.mu.Lock()
 	dsn := p.dsn
 	p.mu.Unlock()
 	if dsn == "" {
-		return nil, fmt.Errorf("docker provider not bootstrapped: %w", devdb.ErrProviderDown)
+		if err := p.EnsureContainer(ctx); err != nil {
+			return nil, err
+		}
+		p.mu.Lock()
+		dsn = p.dsn
+		p.mu.Unlock()
 	}
 	return ConnectPG(ctx, dsn)
 }

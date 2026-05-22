@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tzone85/vortex-dispatch/internal/config"
 	"github.com/tzone85/vortex-dispatch/internal/preflight"
 )
 
@@ -229,5 +230,92 @@ func TestCheckBinaryPath_PassWhenInLocalBin(t *testing.T) {
 
 	if !result.Passed {
 		t.Fatalf("expected Passed=true when binary is in ~/.local/bin/, got: %s", result.Message)
+	}
+}
+
+func TestCheckDevDBProviderReachable_Null(t *testing.T) {
+	cfg := config.Config{}
+	cfg.DevDB.Provider = "null"
+	r := preflight.CheckDevDBProviderReachable(cfg)
+	if !r.Passed || r.Severity != preflight.SeverityInfo {
+		t.Errorf("null provider should pass with INFO: %+v", r)
+	}
+}
+
+func TestCheckDevDBProviderReachable_Empty(t *testing.T) {
+	cfg := config.Config{}
+	// Provider is "" (zero value)
+	r := preflight.CheckDevDBProviderReachable(cfg)
+	if !r.Passed || r.Severity != preflight.SeverityInfo {
+		t.Errorf("empty provider should pass with INFO: %+v", r)
+	}
+}
+
+func TestCheckDevDBProviderReachable_Unknown(t *testing.T) {
+	cfg := config.Config{}
+	cfg.DevDB.Provider = "potato"
+	r := preflight.CheckDevDBProviderReachable(cfg)
+	if r.Passed || r.Severity != preflight.SeverityCritical {
+		t.Errorf("unknown provider should be CRITICAL fail: %+v", r)
+	}
+}
+
+func TestCheckDevDBProviderReachable_GhostPending(t *testing.T) {
+	cfg := config.Config{}
+	cfg.DevDB.Provider = "ghost"
+	cfg.DevDB.Template = "x"
+	r := preflight.CheckDevDBProviderReachable(cfg)
+	if r.Passed || r.Severity != preflight.SeverityWarning {
+		t.Errorf("ghost provider should be WARNING (SP2 pending): %+v", r)
+	}
+}
+
+func TestCheckDevDBTemplateExists_NullProvider(t *testing.T) {
+	cfg := config.Config{}
+	cfg.DevDB.Provider = "null"
+	cfg.DevDB.Template = "x"
+	r := preflight.CheckDevDBTemplateExists(cfg)
+	if !r.Passed || r.Severity != preflight.SeverityInfo {
+		t.Errorf("null provider template-check should pass with INFO: %+v", r)
+	}
+}
+
+func TestCheckDevDBTemplateExists_EmptyTemplate(t *testing.T) {
+	cfg := config.Config{}
+	cfg.DevDB.Provider = "docker"
+	// Template empty
+	r := preflight.CheckDevDBTemplateExists(cfg)
+	if !r.Passed || r.Severity != preflight.SeverityInfo {
+		t.Errorf("empty template should pass with INFO: %+v", r)
+	}
+}
+
+func TestCheckDevDBTemplateExists_GhostProviderSkipped(t *testing.T) {
+	cfg := config.Config{}
+	cfg.DevDB.Provider = "ghost"
+	cfg.DevDB.Template = "mytemplate"
+	r := preflight.CheckDevDBTemplateExists(cfg)
+	if !r.Passed || r.Severity != preflight.SeverityInfo {
+		t.Errorf("ghost provider template-check should be skipped with INFO: %+v", r)
+	}
+}
+
+func TestDispatchChecksWithConfig_AddsTwoDevDBChecks(t *testing.T) {
+	cfg := config.Config{}
+	cfg.DevDB.Provider = "null"
+	base := len(preflight.DispatchChecks())
+	full := len(preflight.DispatchChecksWithConfig(cfg))
+	if full != base+2 {
+		t.Errorf("DispatchChecksWithConfig should add 2 checks, got %d vs base %d", full, base)
+	}
+}
+
+func TestAllChecksWithConfig_AddsTwoDevDBChecks(t *testing.T) {
+	cfg := config.Config{}
+	cfg.DevDB.Provider = "null"
+	base := len(preflight.AllChecks())
+	full := len(preflight.AllChecksWithConfig(cfg))
+	if full != base+2 {
+		t.Errorf("AllChecksWithConfig should add 2 checks, got %d vs base %d", full, base)
 	}
 }

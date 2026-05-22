@@ -1,6 +1,7 @@
 package preflight
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/tzone85/vortex-dispatch/internal/config"
+	"github.com/tzone85/vortex-dispatch/internal/devdb/docker"
 	"github.com/tzone85/vortex-dispatch/internal/engine"
 )
 
@@ -333,6 +335,100 @@ func AllChecks() []Check {
 		binaryCheck,
 		CheckConfig, CheckProject, CheckStateDir, CheckBillingConfig, CheckOllama,
 	)
+}
+
+// CheckDevDBProviderReachable verifies the configured devdb provider is reachable.
+// Skipped (INFO) when provider is "" or "null".
+func CheckDevDBProviderReachable(cfg config.Config) Result {
+	name := "devdb-provider"
+	switch cfg.DevDB.Provider {
+	case "", "null":
+		return Result{Name: name, Severity: SeverityInfo, Passed: true,
+			Message: "devdb disabled (provider=null) — story DBs not provisioned"}
+	case "docker":
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		p := docker.NewProvider(docker.Config{
+			Image:          cfg.DevDB.Docker.Image,
+			ContainerName:  cfg.DevDB.Docker.ContainerName,
+			TemplateVolume: cfg.DevDB.Docker.TemplateVolume,
+			Network:        cfg.DevDB.Docker.Network,
+			HostPortRange:  cfg.DevDB.Docker.HostPortRange,
+		})
+		if err := p.Ping(ctx); err != nil {
+			return Result{Name: name, Severity: SeverityCritical, Passed: false,
+				Message: fmt.Sprintf("devdb docker provider unreachable: %v", err)}
+		}
+		return Result{Name: name, Severity: SeverityInfo, Passed: true,
+			Message: "devdb docker provider reachable"}
+	case "ghost":
+		return Result{Name: name, Severity: SeverityWarning, Passed: false,
+			Message: "devdb provider 'ghost' not yet implemented (SP2 pending)"}
+	default:
+		return Result{Name: name, Severity: SeverityCritical, Passed: false,
+			Message: fmt.Sprintf("devdb provider %q is not recognised", cfg.DevDB.Provider)}
+	}
+}
+
+// CheckDevDBTemplateExists verifies that the configured template DB is present
+// in the provider. WARNING (not CRITICAL) so first-time setup can proceed.
+func CheckDevDBTemplateExists(cfg config.Config) Result {
+	name := "devdb-template"
+	if cfg.DevDB.Provider == "" || cfg.DevDB.Provider == "null" {
+		return Result{Name: name, Severity: SeverityInfo, Passed: true,
+			Message: "devdb disabled — no template required"}
+	}
+	if cfg.DevDB.Template == "" {
+		return Result{Name: name, Severity: SeverityInfo, Passed: true,
+			Message: "no template configured (devdb.template empty) — stories get empty DBs"}
+	}
+	if cfg.DevDB.Provider != "docker" {
+		// Ghost template-check needs SP2; skip with INFO for now.
+		return Result{Name: name, Severity: SeverityInfo, Passed: true,
+			Message: fmt.Sprintf("template check skipped for provider=%s", cfg.DevDB.Provider)}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	p := docker.NewProvider(docker.Config{
+		Image:          cfg.DevDB.Docker.Image,
+		ContainerName:  cfg.DevDB.Docker.ContainerName,
+		TemplateVolume: cfg.DevDB.Docker.TemplateVolume,
+		Network:        cfg.DevDB.Docker.Network,
+		HostPortRange:  cfg.DevDB.Docker.HostPortRange,
+	})
+	templates, err := p.ListTemplates(ctx)
+	if err != nil {
+		return Result{Name: name, Severity: SeverityWarning, Passed: false,
+			Message: fmt.Sprintf("devdb template list failed: %v", err)}
+	}
+	for _, t := range templates {
+		if t == cfg.DevDB.Template {
+			return Result{Name: name, Severity: SeverityInfo, Passed: true,
+				Message: fmt.Sprintf("devdb template %q is present", cfg.DevDB.Template)}
+		}
+	}
+	return Result{Name: name, Severity: SeverityWarning, Passed: false,
+		Message: fmt.Sprintf("devdb template %q not found in provider (run: vxd db template create %s)",
+			cfg.DevDB.Template, cfg.DevDB.Template)}
+}
+
+// DispatchChecksWithConfig returns the dispatch check set with cfg-dependent
+// devdb checks bound. Use this from CLI commands that load cfg.
+func DispatchChecksWithConfig(cfg config.Config) []Check {
+	extras := []Check{
+		func() Result { return CheckDevDBProviderReachable(cfg) },
+		func() Result { return CheckDevDBTemplateExists(cfg) },
+	}
+	return append(DispatchChecks(), extras...)
+}
+
+// AllChecksWithConfig returns the full check set including devdb.
+func AllChecksWithConfig(cfg config.Config) []Check {
+	extras := []Check{
+		func() Result { return CheckDevDBProviderReachable(cfg) },
+		func() Result { return CheckDevDBTemplateExists(cfg) },
+	}
+	return append(AllChecks(), extras...)
 }
 
 // parseGHUsername extracts the authenticated GitHub username from the output

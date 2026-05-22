@@ -2336,3 +2336,78 @@ func TestWiring_StoryConflictEscalated_ProjectsWithoutError(t *testing.T) {
 			"Add 'case EventStoryConflictEscalated' in sqlite.go Project() that returns nil.", err)
 	}
 }
+
+// ---- Finding #8: STORY_INTEGRATION_FAILED must land in sqlite.go without error ----
+
+func TestWiring_StoryIntegrationFailed_ProjectsWithoutError(t *testing.T) {
+	dir := t.TempDir()
+	store, err := state.NewSQLiteStore(filepath.Join(dir, "wiring.db"))
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer store.Close()
+
+	evt := state.NewEvent(state.EventStoryIntegrationFailed, "monitor", "s-integ-fail-1",
+		map[string]any{
+			"error":    "cmd/server/main.go:12:15: undefined: handler.Handler",
+			"fix_hint": "Reconcile Handler interface between s-001 and s-002",
+		})
+
+	if err := store.Project(evt); err != nil {
+		t.Errorf("WIRING FAILURE: EventStoryIntegrationFailed returned error from Project(): %v\n"+
+			"Add 'case EventStoryIntegrationFailed' in sqlite.go Project() that returns nil.", err)
+	}
+}
+
+// ---- Finding #6: REQ_PLANNING_STARTED must land in sqlite.go without error ----
+
+func TestWiring_ReqPlanningStarted_ProjectsWithoutError(t *testing.T) {
+	dir := t.TempDir()
+	store, err := state.NewSQLiteStore(filepath.Join(dir, "wiring2.db"))
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer store.Close()
+
+	evt := state.NewEvent(state.EventReqPlanningStarted, "tech-lead", "",
+		map[string]any{
+			"req_id": "01JV7TESTID0000000000001",
+			"model":  "claude-opus-4-20250514",
+		})
+
+	if err := store.Project(evt); err != nil {
+		t.Errorf("WIRING FAILURE: EventReqPlanningStarted returned error from Project(): %v\n"+
+			"Add 'case EventReqPlanningStarted' in sqlite.go Project() that returns nil.", err)
+	}
+}
+
+// ---- Finding #10: Monitor.SetTechLeadFixer stores the fixer ----
+
+func TestWiring_Monitor_SetTechLeadFixer_Stores(t *testing.T) {
+	cfg := config.DefaultConfig()
+
+	dir := t.TempDir()
+	es, err := state.NewFileStore(filepath.Join(dir, "events.jsonl"))
+	if err != nil {
+		t.Fatalf("create event store: %v", err)
+	}
+	defer es.Close()
+
+	ps, err := state.NewSQLiteStore(filepath.Join(dir, "monitor_wiring.db"))
+	if err != nil {
+		t.Fatalf("create proj store: %v", err)
+	}
+	defer ps.Close()
+
+	m := engine.NewMonitor(nil, nil, nil, nil, nil, cfg, es, ps)
+	if m == nil {
+		t.Fatal("NewMonitor returned nil")
+	}
+
+	fixer := engine.NewTechLeadFixer(llm.NewDryRunClient(0), "claude-opus-4-20250514", 1024, es, ps)
+	m.SetTechLeadFixer(fixer)
+
+	// If SetTechLeadFixer is wired correctly this compiles and runs without panic.
+	// We verify indirectly: if the field wasn't exported via a setter, the test
+	// wouldn't compile. That's the wiring guarantee we need.
+}

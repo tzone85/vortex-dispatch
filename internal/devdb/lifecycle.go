@@ -80,6 +80,45 @@ func (l *Lifecycle) Provision(ctx context.Context, storyID, project, worktreeDir
 	return db, nil
 }
 
+// Release deletes the DB and emits STORY_DB_DELETED.
+// Honours cfg.KeepDBOnFail: if the story failed and KeepDBOnFail is true,
+// skips the delete call and emits STORY_DB_DELETED with status="retained".
+func (l *Lifecycle) Release(ctx context.Context, db DB, outcome StoryOutcome) error {
+	status := "deleted"
+	keep := outcome != OutcomeSuccess && l.cfg.KeepDBOnFail
+	if keep {
+		status = "retained"
+	}
+
+	if !keep {
+		if err := l.provider.Delete(ctx, db.ID); err != nil {
+			// Emit a failed-release event so GC can pick up later. We do not
+			// return the error after the event is emitted — callers don't
+			// need to block pipeline progress on release failures.
+			l.emitFailed("", db.Name, fmt.Sprintf("release: %v", err))
+			return fmt.Errorf("devdb release: %w", err)
+		}
+	}
+
+	duration := 0.0
+	if !db.CreatedAt.IsZero() {
+		duration = l.clock().Sub(db.CreatedAt).Seconds()
+	}
+	payload := map[string]any{
+		"db_id":            db.ID,
+		"duration_seconds": duration,
+		"bytes_used":       0,
+		"status":           status,
+	}
+	data, _ := json.Marshal(payload)
+	_ = l.events.Append(state.Event{
+		Type:      state.EventStoryDBDeleted,
+		Timestamp: l.clock(),
+		Payload:   data,
+	})
+	return nil
+}
+
 func (l *Lifecycle) emitCreated(storyID string, db DB) {
 	h := sha256.Sum256([]byte(db.ConnectionString))
 	payload := map[string]any{

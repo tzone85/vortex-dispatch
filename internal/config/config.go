@@ -2,7 +2,12 @@
 // validation for VXD (Vortex Dispatch).
 package config
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+
+	"gopkg.in/yaml.v3"
+)
 
 // Config is the top-level VXD configuration.
 type Config struct {
@@ -226,9 +231,46 @@ type AutoresearchBayes struct {
 
 // SLAConfig defines per-complexity story duration limits in minutes.
 // Stories exceeding their limit emit STORY_SLA_BREACHED events.
+//
+// MaxMinutesPerComplexity accepts both bare integer keys (5: 60) and
+// quoted string keys ("5": 60) in YAML — the latter is common when
+// editing config files with YAML tooling that normalises all keys to strings.
 type SLAConfig struct {
-	MaxMinutesPerComplexity map[int]int `yaml:"max_minutes_per_complexity"`
-	AutoEscalate            bool        `yaml:"auto_escalate"`
+	MaxMinutesPerComplexity IntKeyMap `yaml:"max_minutes_per_complexity"`
+	AutoEscalate            bool      `yaml:"auto_escalate"`
+}
+
+// IntKeyMap is a map[int]int that accepts both bare-integer and
+// quoted-string keys when unmarshalled from YAML.
+type IntKeyMap map[int]int
+
+// UnmarshalYAML implements yaml.Unmarshaler so that both
+//
+//	5: 60          (bare integer key)
+//	"5": 60        (quoted string key)
+//
+// are accepted without a cryptic "cannot unmarshal !!str" error.
+func (m *IntKeyMap) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind != yaml.MappingNode {
+		return fmt.Errorf("sla.max_minutes_per_complexity: expected a mapping, got %v", value.Tag)
+	}
+	out := make(IntKeyMap, len(value.Content)/2)
+	for i := 0; i+1 < len(value.Content); i += 2 {
+		keyNode := value.Content[i]
+		valNode := value.Content[i+1]
+
+		k, err := strconv.Atoi(keyNode.Value)
+		if err != nil {
+			return fmt.Errorf("sla.max_minutes_per_complexity: key %q is not an integer: %w", keyNode.Value, err)
+		}
+		v, err := strconv.Atoi(valNode.Value)
+		if err != nil {
+			return fmt.Errorf("sla.max_minutes_per_complexity[%d]: value %q is not an integer: %w", k, valNode.Value, err)
+		}
+		out[k] = v
+	}
+	*m = out
+	return nil
 }
 
 // BillingConfig controls cost estimation and client quoting.

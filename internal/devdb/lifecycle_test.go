@@ -91,3 +91,71 @@ func TestLifecycle_Provision_HashesConnString(t *testing.T) {
 		t.Errorf("hash = %v, want %v", payload["conn_string_hash"], wantHash)
 	}
 }
+
+// recordingProvider wraps null.Provider and records Delete calls.
+type recordingProvider struct {
+	*null.Provider
+	deleted []string
+}
+
+func (r *recordingProvider) Delete(ctx context.Context, dbID string) error {
+	r.deleted = append(r.deleted, dbID)
+	return nil
+}
+
+func TestLifecycle_Release_Success_Deletes(t *testing.T) {
+	rp := &recordingProvider{Provider: null.New()}
+	es := &fakeEventStore{}
+	lc := devdb.NewLifecycle(rp, es, devdb.Config{Provider: "null"})
+
+	db := devdb.DB{ID: "abc", Name: "vxd-myproj-story-1"}
+	if err := lc.Release(context.Background(), db, devdb.OutcomeSuccess); err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+	if len(rp.deleted) != 1 || rp.deleted[0] != "abc" {
+		t.Errorf("expected one delete call for abc, got %v", rp.deleted)
+	}
+	if len(es.appended) != 1 {
+		t.Fatalf("appended = %d, want 1", len(es.appended))
+	}
+	if es.appended[0].Type != state.EventStoryDBDeleted {
+		t.Errorf("type = %v, want STORY_DB_DELETED", es.appended[0].Type)
+	}
+	var payload map[string]any
+	_ = json.Unmarshal(es.appended[0].Payload, &payload)
+	if payload["status"] != "deleted" {
+		t.Errorf("status = %v, want deleted", payload["status"])
+	}
+}
+
+func TestLifecycle_Release_FailedWithKeepDB_Retains(t *testing.T) {
+	rp := &recordingProvider{Provider: null.New()}
+	es := &fakeEventStore{}
+	lc := devdb.NewLifecycle(rp, es, devdb.Config{Provider: "null", KeepDBOnFail: true})
+
+	db := devdb.DB{ID: "abc"}
+	if err := lc.Release(context.Background(), db, devdb.OutcomeFailed); err != nil {
+		t.Fatal(err)
+	}
+	if len(rp.deleted) != 0 {
+		t.Errorf("expected zero delete calls, got %v", rp.deleted)
+	}
+	var payload map[string]any
+	_ = json.Unmarshal(es.appended[0].Payload, &payload)
+	if payload["status"] != "retained" {
+		t.Errorf("status = %v, want retained", payload["status"])
+	}
+}
+
+func TestLifecycle_Release_FailedWithoutKeepDB_Deletes(t *testing.T) {
+	rp := &recordingProvider{Provider: null.New()}
+	es := &fakeEventStore{}
+	lc := devdb.NewLifecycle(rp, es, devdb.Config{Provider: "null", KeepDBOnFail: false})
+
+	if err := lc.Release(context.Background(), devdb.DB{ID: "abc"}, devdb.OutcomeFailed); err != nil {
+		t.Fatal(err)
+	}
+	if len(rp.deleted) != 1 {
+		t.Errorf("expected one delete call, got %v", rp.deleted)
+	}
+}

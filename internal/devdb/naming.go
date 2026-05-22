@@ -8,6 +8,10 @@ import (
 // Maximum Postgres identifier length.
 const maxNameLen = 63
 
+// PrefixVXD is the canonical naming prefix for VXD-managed databases.
+// NXD's mirror should declare its own equivalent (e.g. "nxd").
+const PrefixVXD = "vxd"
+
 // Matches a valid Postgres-friendly DB name produced by FormatDBName:
 // lowercase letter start, then lowercase alphanumerics or hyphens,
 // up to 63 chars total.

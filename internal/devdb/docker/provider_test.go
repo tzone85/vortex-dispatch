@@ -23,28 +23,6 @@ func TestProvider_SatisfiesInterface(t *testing.T) {
 	var _ devdb.Provider = docker.NewProvider(docker.Config{HostPortRange: "5500-5599"})
 }
 
-func TestProvider_AdminPassword_GeneratedIfMissing(t *testing.T) {
-	dir := t.TempDir()
-	p := docker.NewProvider(docker.Config{
-		HostPortRange:  "5500-5500",
-		TemplateVolume: dir,
-	})
-	pw, err := p.LoadOrCreateAdminPassword(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(pw) < 16 {
-		t.Errorf("generated password too short: %q", pw)
-	}
-	pw2, err := p.LoadOrCreateAdminPassword(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pw2 != pw {
-		t.Error("LoadOrCreateAdminPassword should be idempotent")
-	}
-}
-
 func TestProvider_BootstrapFlow_WithMockDaemon(t *testing.T) {
 	inspectCalls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

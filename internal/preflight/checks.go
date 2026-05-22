@@ -14,6 +14,7 @@ import (
 
 	"github.com/tzone85/vortex-dispatch/internal/config"
 	"github.com/tzone85/vortex-dispatch/internal/devdb/docker"
+	"github.com/tzone85/vortex-dispatch/internal/devdb/ghost"
 	"github.com/tzone85/vortex-dispatch/internal/engine"
 )
 
@@ -363,8 +364,24 @@ func CheckDevDBProviderReachable(cfg config.Config) Result {
 		return Result{Name: name, Severity: SeverityInfo, Passed: true,
 			Message: "devdb docker provider reachable"}
 	case "ghost":
-		return Result{Name: name, Severity: SeverityWarning, Passed: false,
-			Message: "devdb provider 'ghost' not yet implemented (SP2 pending)"}
+		apiKey, err := ghost.ResolveAPIKey(cfg.DevDB.Ghost.APIKeyEnv, "")
+		if err != nil {
+			return Result{Name: name, Severity: SeverityCritical, Passed: false,
+				Message: fmt.Sprintf("devdb ghost: %v", err)}
+		}
+		p, err := ghost.New(ghost.Config{APIKey: apiKey, SpaceID: cfg.DevDB.Ghost.SpaceID})
+		if err != nil {
+			return Result{Name: name, Severity: SeverityCritical, Passed: false,
+				Message: fmt.Sprintf("devdb ghost: %v", err)}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := p.Ping(ctx); err != nil {
+			return Result{Name: name, Severity: SeverityCritical, Passed: false,
+				Message: fmt.Sprintf("devdb ghost provider unreachable: %v", err)}
+		}
+		return Result{Name: name, Severity: SeverityInfo, Passed: true,
+			Message: "devdb ghost provider reachable"}
 	default:
 		return Result{Name: name, Severity: SeverityCritical, Passed: false,
 			Message: fmt.Sprintf("devdb provider %q is not recognised", cfg.DevDB.Provider)}
@@ -384,9 +401,11 @@ func CheckDevDBTemplateExists(cfg config.Config) Result {
 			Message: "no template configured (devdb.template empty) — stories get empty DBs"}
 	}
 	if cfg.DevDB.Provider != "docker" {
-		// Ghost template-check needs SP2; skip with INFO for now.
+		// Ghost template lookup is performed inline at Fork time (Provider.Fork
+		// calls ListDBs and returns ErrTemplateMiss when not found). A dedicated
+		// preflight check for ghost templates is out of scope for SP2.
 		return Result{Name: name, Severity: SeverityInfo, Passed: true,
-			Message: fmt.Sprintf("template check skipped for provider=%s", cfg.DevDB.Provider)}
+			Message: fmt.Sprintf("template check skipped for provider=%s (verified at fork time)", cfg.DevDB.Provider)}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

@@ -20,6 +20,8 @@ import (
 	"github.com/tzone85/vortex-dispatch/internal/autoresearch"
 	"github.com/tzone85/vortex-dispatch/internal/codegraph"
 	"github.com/tzone85/vortex-dispatch/internal/config"
+	"github.com/tzone85/vortex-dispatch/internal/devdb"
+	"github.com/tzone85/vortex-dispatch/internal/devdb/null"
 	"github.com/tzone85/vortex-dispatch/internal/engine"
 	"github.com/tzone85/vortex-dispatch/internal/graph"
 	"github.com/tzone85/vortex-dispatch/internal/llm"
@@ -2021,5 +2023,47 @@ func TestWiring_StoryDBDeleted_UpdatesProjection(t *testing.T) {
 	if err := store.Project(deleted); err != nil {
 		t.Fatalf("WIRING FAILURE: STORY_DB_DELETED not handled by projector: %v. "+
 			"Check sqlite.go Project() — case may be missing or falling through to default.", err)
+	}
+}
+
+// --------------------------------------------------------------------------
+// SP4-1: Executor devdb.Lifecycle injection wiring tests
+// --------------------------------------------------------------------------
+
+// fakeEventAppender satisfies devdb.EventAppender using a no-op implementation.
+type fakeEventAppender struct{}
+
+func (f *fakeEventAppender) Append(state.Event) error { return nil }
+
+// TestWiring_Executor_SetDevDBLifecycle_Stores verifies that a freshly created
+// Executor has no lifecycle configured, and that SetDevDBLifecycle stores it so
+// HasDevDBLifecycle returns true.
+func TestWiring_Executor_SetDevDBLifecycle_Stores(t *testing.T) {
+	es, ps, cleanup := newTestStores(t)
+	defer cleanup()
+
+	cfg := config.DefaultConfig()
+	e := engine.NewExecutor(nil, cfg, es, ps)
+
+	if e.HasDevDBLifecycle() {
+		t.Error("WIRING FAILURE: freshly created Executor should have no devdb lifecycle configured")
+	}
+
+	lc := devdb.NewLifecycle(null.New(), &fakeEventAppender{}, devdb.Config{Provider: "null"})
+	e.SetDevDBLifecycle(lc)
+
+	if !e.HasDevDBLifecycle() {
+		t.Error("WIRING FAILURE: after SetDevDBLifecycle, HasDevDBLifecycle should return true.\n" +
+			"Check that executor.go stores the lifecycle pointer in the lifecycle field.")
+	}
+}
+
+// TestWiring_SpawnResult_DBFieldExists confirms at compile time that SpawnResult
+// has a DB field of type devdb.DB, and that its zero value has an empty Name.
+func TestWiring_SpawnResult_DBFieldExists(t *testing.T) {
+	var r engine.SpawnResult
+	_ = r.DB // compile-time assertion: field must exist and be of type devdb.DB
+	if r.DB.Name != "" {
+		t.Errorf("WIRING FAILURE: zero-value SpawnResult.DB.Name should be empty, got %q", r.DB.Name)
 	}
 }

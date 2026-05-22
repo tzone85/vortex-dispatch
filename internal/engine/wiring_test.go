@@ -2143,3 +2143,52 @@ func TestWiring_FindOrphans_WithListProvider(t *testing.T) {
 		t.Errorf("orphans = %+v, want [{ID:2 ...}]", got)
 	}
 }
+
+// --------------------------------------------------------------------------
+// SP4-4: defer-based devdb Release covers all postExecutionPipeline exits
+// --------------------------------------------------------------------------
+
+// recordingDeleteProvider captures Delete() calls for assertion.
+// It embeds null.Provider so it satisfies the full devdb.Provider interface.
+type recordingDeleteProvider struct {
+	*null.Provider
+	deleted []string
+}
+
+func (r *recordingDeleteProvider) Delete(ctx context.Context, id string) error {
+	r.deleted = append(r.deleted, id)
+	return nil
+}
+
+// TestWiring_PostExecution_ReleaseOutcomeIsFailed_OnDraftReset verifies that
+// Lifecycle.Release with OutcomeFailed deletes the DB (default KeepDBOnFail=false).
+// This is the outcome used by every resetStoryToDraft path in postExecutionPipeline.
+func TestWiring_PostExecution_ReleaseOutcomeIsFailed_OnDraftReset(t *testing.T) {
+	rp := &recordingDeleteProvider{Provider: null.New()}
+	lc := devdb.NewLifecycle(rp, &fakeEventAppender{}, devdb.Config{Provider: "null"})
+	db := devdb.DB{ID: "vxd-test-failed", Name: "vxd-test-failed"}
+	if err := lc.Release(context.Background(), db, devdb.OutcomeFailed); err != nil {
+		t.Fatal(err)
+	}
+	if len(rp.deleted) != 1 {
+		t.Errorf("WIRING FAILURE: OutcomeFailed with KeepDBOnFail=false should delete the DB; got %d Delete calls, want 1", len(rp.deleted))
+	}
+}
+
+// TestWiring_PostExecution_ReleaseOutcomeIsPaused_KeepsDB verifies that
+// Lifecycle.Release with OutcomePaused + KeepDBOnFail=true does NOT delete.
+// This is the outcome set before pauseRequirement calls in postExecutionPipeline.
+func TestWiring_PostExecution_ReleaseOutcomeIsPaused_KeepsDB(t *testing.T) {
+	rp := &recordingDeleteProvider{Provider: null.New()}
+	lc := devdb.NewLifecycle(rp, &fakeEventAppender{}, devdb.Config{
+		Provider:     "null",
+		KeepDBOnFail: true,
+	})
+	db := devdb.DB{ID: "vxd-test-paused", Name: "vxd-test-paused"}
+	if err := lc.Release(context.Background(), db, devdb.OutcomePaused); err != nil {
+		t.Fatal(err)
+	}
+	if len(rp.deleted) != 0 {
+		t.Errorf("WIRING FAILURE: OutcomePaused with KeepDBOnFail=true must NOT delete; got %d Delete calls, want 0", len(rp.deleted))
+	}
+}

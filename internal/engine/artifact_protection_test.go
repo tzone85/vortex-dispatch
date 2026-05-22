@@ -356,6 +356,51 @@ func TestStripVXDArtifacts_PreservesProjectCLAUDEMDOnMain(t *testing.T) {
 // Integration: Full pipeline simulation
 // ===================================================================
 
+func TestStripVXDArtifacts_RemovesVXDDB(t *testing.T) {
+	clone, _ := initBareAndClone(t, "main")
+
+	// Create a feature branch with agent work + .vxd-db
+	run(t, clone, "git", "checkout", "-b", "vxd/story-vxddb")
+	os.WriteFile(filepath.Join(clone, "feature.go"), []byte("package main\n"), 0644)
+
+	// Seed a .vxd-db directory in the worktree
+	vxddbDir := filepath.Join(clone, ".vxd-db")
+	if err := os.MkdirAll(vxddbDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vxddbDir, "connect.env"),
+		[]byte("DATABASE_URL=postgres://x@x/x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vxddbDir, "README.md"),
+		[]byte("test readme"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	run(t, clone, "git", "add", "-A")
+	run(t, clone, "git", "commit", "-m", "feat: add feature + .vxd-db")
+
+	// Verify .vxd-db is tracked before strip
+	tracked := run(t, clone, "git", "ls-files")
+	if !strings.Contains(tracked, ".vxd-db") {
+		t.Fatal(".vxd-db should be tracked before strip")
+	}
+
+	// Strip
+	stripVXDArtifactsFromBranch(clone, "story-vxddb")
+
+	// .vxd-db should no longer be tracked
+	tracked = run(t, clone, "git", "ls-files")
+	if strings.Contains(tracked, ".vxd-db") {
+		t.Errorf(".vxd-db should not be tracked after strip, got: %s", tracked)
+	}
+
+	// Verify feature.go is still tracked
+	if !strings.Contains(tracked, "feature.go") {
+		t.Error("feature.go should still be tracked after strip")
+	}
+}
+
 func TestIntegration_FullPipelineArtifactProtection(t *testing.T) {
 	clone, bare := initBareAndClone(t, "main")
 

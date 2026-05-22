@@ -1546,6 +1546,7 @@ func stripVXDArtifactsFromBranch(worktreePath, storyID string) {
 		"WAVE_CONTEXT.md",
 		"REQUIREMENT.md",
 		".vxd-prompts",
+		".vxd-db",
 		".serena",
 		".superpowers",
 	}

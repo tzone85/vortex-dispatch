@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tzone85/vortex-dispatch/internal/agent"
 	"github.com/tzone85/vortex-dispatch/internal/autoresearch"
@@ -2103,5 +2104,42 @@ func TestWiring_ActiveAgent_DBField(t *testing.T) {
 	_ = ag.DB // compile-time: field must exist on ActiveAgent
 	if ag.DB.ID != "" {
 		t.Errorf("WIRING FAILURE: zero-value ActiveAgent.DB.ID should be empty, got %q", ag.DB.ID)
+	}
+}
+
+// --------------------------------------------------------------------------
+// SP4-3: devdb orphan recovery wiring test
+// --------------------------------------------------------------------------
+
+// recordingListProvider is a Provider that lets tests inject List() output.
+// It embeds null.Provider so it satisfies the full devdb.Provider interface.
+type recordingListProvider struct {
+	*null.Provider
+	dbs []devdb.DB
+}
+
+func (p *recordingListProvider) List(ctx context.Context) ([]devdb.DB, error) {
+	return p.dbs, nil
+}
+
+// TestWiring_FindOrphans_WithListProvider is a wiring-level confirmation that
+// devdb.FindOrphans can be called from the engine layer with a provider that
+// overrides only List(). Detailed behaviour lives in internal/devdb/recovery_test.go.
+func TestWiring_FindOrphans_WithListProvider(t *testing.T) {
+	now := time.Now()
+	p := &recordingListProvider{
+		Provider: null.New(),
+		dbs: []devdb.DB{
+			{ID: "1", Name: "vxd-test-active-story", CreatedAt: now.Add(-2 * time.Hour)},
+			{ID: "2", Name: "vxd-test-orphan-story", CreatedAt: now.Add(-2 * time.Hour)},
+		},
+	}
+	active := []string{"active-story"}
+	got, err := devdb.FindOrphans(context.Background(), p, devdb.PrefixVXD, active)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "2" {
+		t.Errorf("orphans = %+v, want [{ID:2 ...}]", got)
 	}
 }

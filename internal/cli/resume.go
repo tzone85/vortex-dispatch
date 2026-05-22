@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -13,6 +14,9 @@ import (
 	"github.com/tzone85/vortex-dispatch/internal/artifact"
 	"github.com/tzone85/vortex-dispatch/internal/codegraph"
 	"github.com/tzone85/vortex-dispatch/internal/config"
+	"github.com/tzone85/vortex-dispatch/internal/devdb"
+	"github.com/tzone85/vortex-dispatch/internal/devdb/docker"
+	"github.com/tzone85/vortex-dispatch/internal/devdb/null"
 	"github.com/tzone85/vortex-dispatch/internal/engine"
 	vxdgit "github.com/tzone85/vortex-dispatch/internal/git"
 	"github.com/tzone85/vortex-dispatch/internal/graph"
@@ -217,6 +221,9 @@ func runResume(cmd *cobra.Command, args []string) error {
 		s.Events.Append(recoveryEvt)
 		s.Proj.Project(recoveryEvt)
 	}
+
+	// Recover orphaned devdb instances left behind by previously crashed pipelines.
+	runDevDBOrphanRecovery(out, runtimeCfg, stories)
 
 	// Build story map for executor
 	storyMap := make(map[string]engine.PlannedStory, len(plannedStories))
@@ -458,6 +465,73 @@ func runResume(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// newDevDBProvider returns a Provider for the configured devdb backend,
+// or a null provider if devdb is disabled.
+func newDevDBProvider(cfg config.Config) (devdb.Provider, error) {
+	switch cfg.DevDB.Provider {
+	case "", "null":
+		return null.New(), nil
+	case "docker":
+		return docker.NewProvider(docker.Config{
+			Image:          cfg.DevDB.Docker.Image,
+			ContainerName:  cfg.DevDB.Docker.ContainerName,
+			TemplateVolume: cfg.DevDB.Docker.TemplateVolume,
+			Network:        cfg.DevDB.Docker.Network,
+			HostPortRange:  cfg.DevDB.Docker.HostPortRange,
+		}), nil
+	case "ghost":
+		return nil, fmt.Errorf("devdb.provider 'ghost' is not yet implemented (SP2)")
+	default:
+		return nil, fmt.Errorf("devdb.provider %q is not recognised", cfg.DevDB.Provider)
+	}
+}
+
+// runDevDBOrphanRecovery scans for devdb instances left behind by previously
+// crashed pipelines and releases the ones older than RetainHours. It is a
+// best-effort operation: failures are logged but never block resume.
+func runDevDBOrphanRecovery(out io.Writer, cfg config.Config, stories []state.Story) {
+	if cfg.DevDB.Provider == "" || cfg.DevDB.Provider == "null" {
+		return
+	}
+	p, err := newDevDBProvider(cfg)
+	if err != nil {
+		fmt.Fprintf(out, "DevDB recovery: skipped (provider init failed: %v)\n", err)
+		return
+	}
+	if err := p.Ping(context.Background()); err != nil {
+		fmt.Fprintf(out, "DevDB recovery: provider unreachable (%v) — skipping\n", err)
+		return
+	}
+
+	active := make([]string, 0, len(stories))
+	for _, s := range stories {
+		if s.Status == "merged" || s.Status == "archived" {
+			continue
+		}
+		active = append(active, s.ID)
+	}
+
+	orphans, err := devdb.FindOrphans(context.Background(), p, devdb.PrefixVXD, active)
+	if err != nil {
+		fmt.Fprintf(out, "DevDB recovery: FindOrphans failed: %v\n", err)
+		return
+	}
+	if len(orphans) == 0 {
+		return
+	}
+
+	retainHours := time.Duration(cfg.DevDB.OnFailure.RetainHours) * time.Hour
+	if retainHours <= 0 {
+		retainHours = 24 * time.Hour
+	}
+	deleted, kept, err := devdb.ReleaseOrphans(context.Background(), p, orphans, retainHours)
+	fmt.Fprintf(out, "DevDB recovery: scanned %d orphans, deleted %d, kept %d (newer than %s)\n",
+		len(orphans), len(deleted), len(kept), retainHours)
+	if err != nil {
+		fmt.Fprintf(out, "DevDB recovery: some deletes failed: %v\n", err)
+	}
 }
 
 func dirExists(path string) bool {

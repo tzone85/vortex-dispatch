@@ -354,6 +354,7 @@ func CheckDevDBProviderReachable(cfg config.Config) Result {
 			TemplateVolume: cfg.DevDB.Docker.TemplateVolume,
 			Network:        cfg.DevDB.Docker.Network,
 			HostPortRange:  cfg.DevDB.Docker.HostPortRange,
+			Host:           cfg.DevDB.Docker.Host,
 		})
 		if err := p.Ping(ctx); err != nil {
 			return Result{Name: name, Severity: SeverityCritical, Passed: false,
@@ -395,6 +396,7 @@ func CheckDevDBTemplateExists(cfg config.Config) Result {
 		TemplateVolume: cfg.DevDB.Docker.TemplateVolume,
 		Network:        cfg.DevDB.Docker.Network,
 		HostPortRange:  cfg.DevDB.Docker.HostPortRange,
+		Host:           cfg.DevDB.Docker.Host,
 	})
 	templates, err := p.ListTemplates(ctx)
 	if err != nil {

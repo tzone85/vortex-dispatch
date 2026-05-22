@@ -307,6 +307,7 @@ func dockerProviderFor(cmd *cobra.Command) (*docker.Provider, error) {
 		TemplateVolume: cfg.DevDB.Docker.TemplateVolume,
 		Network:        cfg.DevDB.Docker.Network,
 		HostPortRange:  cfg.DevDB.Docker.HostPortRange,
+		Host:           cfg.DevDB.Docker.Host,
 	}), nil
 }
 

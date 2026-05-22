@@ -288,6 +288,11 @@ func (s *SQLiteStore) Project(evt Event) error {
 	case EventSupervisorDriftDetected:
 		return nil // informational — no projection change needed
 
+	case EventStoryConflictBinary, EventStoryConflictBinaryRemoved, EventStoryConflictEscalated:
+		// Conflict resolution events are informational; they are read from the
+		// event log for diagnostics but require no projection change.
+		return nil
+
 	case EventBaselineMeasured,
 		EventExperimentProposed,
 		EventExperimentRunning,

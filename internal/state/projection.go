@@ -6,5 +6,6 @@ type ProjectionStore interface {
 	GetRequirement(id string) (Requirement, error)
 	GetStory(id string) (Story, error)
 	ListStories(filter StoryFilter) ([]Story, error)
+	ListStoryDeps(reqID string) ([]StoryDep, error)
 	Close() error
 }

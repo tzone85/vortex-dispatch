@@ -83,7 +83,7 @@ func TestExecutor_SetProjectDir(t *testing.T) {
 }
 
 func TestNewConflictResolver(t *testing.T) {
-	cr := NewConflictResolver(nil, "test-model", 4096, nil)
+	cr := NewConflictResolver(nil, "test-model", nil, "", 4096, nil, nil)
 	if cr == nil {
 		t.Fatal("expected non-nil conflict resolver")
 	}

@@ -40,6 +40,9 @@ const (
 	EventStoryRewritten       EventType = "STORY_REWRITTEN"
 	EventStorySLABreached     EventType = "STORY_SLA_BREACHED"
 	EventStorySplit           EventType = "STORY_SPLIT"
+	EventStoryDBCreated       EventType = "STORY_DB_CREATED"
+	EventStoryDBFailed        EventType = "STORY_DB_FAILED"
+	EventStoryDBDeleted       EventType = "STORY_DB_DELETED"
 
 	// Agent lifecycle events.
 	EventAgentSpawned    EventType = "AGENT_SPAWNED"

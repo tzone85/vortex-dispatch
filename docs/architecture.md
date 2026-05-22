@@ -76,7 +76,7 @@ internal/
   state/              Event store + SQLite projections
   tmux/               Terminal session management
   web/                Web dashboard (WebSocket, embedded static files, command dispatch)
-  devdb/              [PLANNED 2026-05-21] Per-story ephemeral Postgres provider abstraction
+  devdb/              [SHIPPED 2026-05-22] Per-story ephemeral Postgres provider abstraction
     provider.go       Provider interface (Create/Fork/Delete/List/Schema/Ping)
     lifecycle.go      Lifecycle helper used by executor and QA
     null/             null.Provider (default no-op, used in tests)

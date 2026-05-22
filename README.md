@@ -264,9 +264,9 @@ Run `vxd init` to generate `vxd.yaml` with sensible defaults, then customize:
 | `autoresearch` | Per-repo Karpathy-style experiment loop: metric command, editable_paths allowlist, gate (`auto`/`winning`/`pr`), experiment budget, and Bayesian sampler | Disabled by default (`enabled: false`); requires `metric.command` and `editable_paths` when enabled |
 | `devdb` | Per-story ephemeral Postgres: backend (`ghost`/`docker`/`null`), template DB to fork from, on-failure retention policy, and provider-specific settings | Disabled by default (`provider: null`); requires `template` when enabled. See "Ephemeral Databases" section below. |
 
-## Ephemeral Databases (planned)
+## Ephemeral Databases
 
-> **Status:** Design spec complete (2026-05-21). See `docs/superpowers/specs/2026-05-21-ephemeral-dbs-master-design.md` and SP1–SP6 specs for the full plan. Implementation lands in subsequent PRs.
+> **Status:** SP1+SP3+SP4+SP5+SP6 shipped on `main` (2026-05-22). Docker provider + per-story DB lifecycle + QA migration gate + `vxd db` CLI all functional. SP2 (Ghost cloud provider) pending. SP6-C (dashboard column) and SP6-D (metrics DB section) deferred.
 
 Every story can get its own throwaway Postgres database, forked from a template, deleted when the story finishes. Inspired by [ghost.build](https://ghost.build) — "Postgres built for agents."
 
@@ -294,6 +294,8 @@ devdb:
 ```
 
 Agents read `DATABASE_URL` from `.vxd-db/connect.env` (auto-injected into the worktree). Humans use `vxd db list/connect/logs/delete` plus the dashboard's per-story DB column.
+
+For runtime usage run `vxd db --help`.
 
 ## Architecture
 

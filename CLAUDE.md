@@ -355,4 +355,11 @@ Every failure is a chance to make the system stronger:
 20. `monitor.go` 1806-line refactor (HIGH tech-debt finding from audit) — open
 21. Coverage roadmap: raise `cli` (65.6%), `config` (70.9%), `improve` (73%), `state` (78.2%) over 80% — open
 22. Self-improve source-quality gap — research scrapers fetch news, not code-actionable signals — feature request
-23. **Ephemeral DBs for agents** — SHIPPED on 2026-05-22: SP1+SP3 (foundation+Docker), SP4 (executor wiring + Lifecycle injection + orphan recovery + preflight), SP5 (QA migration_succeeds/schema_changed/sql_query_returns criteria), SP6-A/B/E (`vxd db` CLI + template subgroup + configurable docker host). Pending: SP2 (Ghost cloud provider), SP6-C (dashboard DB column), SP6-D (metrics DB section), NXD ports.
+23. **Ephemeral DBs for agents** — COMPLETE as of 2026-05-22. SHIPPED:
+    - SP1+SP3 (foundation + Docker provider)
+    - SP4 (executor wiring, Lifecycle injection, orphan recovery, SLA-breach release, preflight checks)
+    - SP5 (QA migration_succeeds/schema_changed/sql_query_returns criteria)
+    - SP6-A/B/C/D/E (vxd db CLI subtree, template subgroup, dashboard DB column, metrics DB section, configurable docker host)
+    - SP2 (Ghost cloud provider — api.ghost.build HTTP client)
+    - NXD mirror (Docker-only, no Ghost; offline-first preserved)
+    Total: ~50+ atomic commits across both repos. Live testing on Docker Desktop / Linux native works; Colima users need `VXD_TEST_DEVDB_HOST` env override.

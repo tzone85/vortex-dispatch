@@ -59,6 +59,9 @@ vxd-improve
 cli.test
 AGENTS.md
 
+# Self-improvement daily run artifacts (runtime output, not source)
+docs/self-improvement/runs/
+
 # VXD agent artifacts (auto-added)
 CLAUDE.md
 .vxd-prompts/

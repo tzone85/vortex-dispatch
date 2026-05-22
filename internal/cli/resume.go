@@ -16,6 +16,7 @@ import (
 	"github.com/tzone85/vortex-dispatch/internal/config"
 	"github.com/tzone85/vortex-dispatch/internal/devdb"
 	"github.com/tzone85/vortex-dispatch/internal/devdb/docker"
+	"github.com/tzone85/vortex-dispatch/internal/devdb/ghost"
 	"github.com/tzone85/vortex-dispatch/internal/devdb/null"
 	"github.com/tzone85/vortex-dispatch/internal/engine"
 	vxdgit "github.com/tzone85/vortex-dispatch/internal/git"
@@ -517,7 +518,14 @@ func newDevDBProvider(cfg config.Config) (devdb.Provider, error) {
 			Host:           cfg.DevDB.Docker.Host,
 		}), nil
 	case "ghost":
-		return nil, fmt.Errorf("devdb.provider 'ghost' is not yet implemented (SP2)")
+		apiKey, err := ghost.ResolveAPIKey(cfg.DevDB.Ghost.APIKeyEnv, "")
+		if err != nil {
+			return nil, err
+		}
+		return ghost.New(ghost.Config{
+			APIKey:  apiKey,
+			SpaceID: cfg.DevDB.Ghost.SpaceID,
+		})
 	default:
 		return nil, fmt.Errorf("devdb.provider %q is not recognised", cfg.DevDB.Provider)
 	}

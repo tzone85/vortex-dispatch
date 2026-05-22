@@ -2,6 +2,8 @@ package docker
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -169,12 +171,53 @@ func (p *Provider) adminConn(ctx context.Context) (*PGConn, error) {
 	return ConnectPG(ctx, dsn)
 }
 
-// List is implemented in Task 17.
+// List returns all DBs in the host container with the VXD prefix.
 func (p *Provider) List(ctx context.Context) ([]devdb.DB, error) {
-	return nil, fmt.Errorf("docker.Provider.List: not yet implemented (Task 17): %w", devdb.ErrUnsupported)
+	pg, err := p.adminConn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer pg.Close(ctx)
+	names, err := pg.ListDBsWithPrefix(ctx, "vxd-")
+	if err != nil {
+		return nil, fmt.Errorf("docker list: %w", err)
+	}
+	out := make([]devdb.DB, 0, len(names))
+	for _, n := range names {
+		out = append(out, p.dbFromName(devdb.CreateOpts{Name: n}))
+	}
+	return out, nil
 }
 
-// Schema is implemented in Task 17.
+// Schema returns a text dump of the named DB's schema.
 func (p *Provider) Schema(ctx context.Context, dbID string) (string, error) {
-	return "", fmt.Errorf("docker.Provider.Schema: not yet implemented (Task 17): %w", devdb.ErrUnsupported)
+	dsn := p.dbDSN(dbID, false)
+	pg, err := ConnectPG(ctx, dsn)
+	if err != nil {
+		return "", err
+	}
+	defer pg.Close(ctx)
+	return DumpSchema(ctx, pg)
+}
+
+// LoadOrCreateAdminPassword reads <storageDir>/devdb-admin.pw if present (mode 0600),
+// otherwise generates a new 32-char hex password and writes it.
+// storageDir lets tests override the location (production uses Config.TemplateVolume's parent).
+func (p *Provider) LoadOrCreateAdminPassword(storageDir string) (string, error) {
+	path := filepath.Join(storageDir, "devdb-admin.pw")
+	if b, err := os.ReadFile(path); err == nil {
+		return string(b), nil
+	}
+	var seed [16]byte
+	if _, err := rand.Read(seed[:]); err != nil {
+		return "", err
+	}
+	pw := hex.EncodeToString(seed[:])
+	if err := os.MkdirAll(storageDir, 0o700); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, []byte(pw), 0o600); err != nil {
+		return "", err
+	}
+	return pw, nil
 }

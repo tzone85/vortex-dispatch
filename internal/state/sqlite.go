@@ -293,6 +293,15 @@ func (s *SQLiteStore) Project(evt Event) error {
 		// event log for diagnostics but require no projection change.
 		return nil
 
+	case EventStoryIntegrationFailed:
+		// Integration build failures are persisted in the event log for diagnostics.
+		// No projection change needed — the story status is already "merged".
+		return nil
+
+	case EventReqPlanningStarted:
+		// Planning heartbeat — informational only, no projection change.
+		return nil
+
 	case EventBaselineMeasured,
 		EventExperimentProposed,
 		EventExperimentRunning,

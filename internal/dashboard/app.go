@@ -22,6 +22,7 @@ type dataMsg struct {
 	agents       []state.Agent
 	events       []state.Event
 	escalations  []state.Escalation
+	dbStatuses   map[string]string // story_id -> db status
 	err          error
 }
 
@@ -42,6 +43,7 @@ type Model struct {
 	agents       []state.Agent
 	events       []state.Event
 	escalations  []state.Escalation
+	dbStatuses   map[string]string // story_id -> "created"/"failed"/"deleted"/"retained"
 	lastRefresh  time.Time
 	err          error
 }
@@ -128,11 +130,12 @@ func (m Model) renderHeader() string {
 // renderStories renders the stories table section with a scrollable list.
 func (m Model) renderStories(width, maxRows int) string {
 	header := headingStyle.Render("─ Stories ")
-	colHeader := fmt.Sprintf("  %-20s %-16s %-4s %-4s %s",
+	colHeader := fmt.Sprintf("  %-20s %-16s %-4s %-4s %-3s %s",
 		columnHeaderStyle.Render("ID"),
 		columnHeaderStyle.Render("STATUS"),
 		columnHeaderStyle.Render("C"),
 		columnHeaderStyle.Render("T"),
+		columnHeaderStyle.Render("DB"),
 		columnHeaderStyle.Render("TITLE"))
 
 	var rows []string
@@ -147,9 +150,11 @@ func (m Model) renderStories(width, maxRows int) string {
 		if s.EscalationTier > 0 {
 			statusStr += fmt.Sprintf("|T%d", s.EscalationTier)
 		}
-		row := fmt.Sprintf("  %-20s %-16s [C%d] %-4d %s",
+		dbIndicator := dbStatusGlyph(m.dbStatuses[s.ID])
+		row := fmt.Sprintf("  %-20s %-16s [C%d] %-4d %-3s %s",
 			truncateStr(s.ID, 20), statusStr, s.Complexity, s.EscalationTier,
-			truncateStr(s.Title, width-60))
+			dbIndicator,
+			truncateStr(s.Title, width-65))
 		rows = append(rows, row)
 	}
 
@@ -297,6 +302,13 @@ func (m Model) fetchData() tea.Cmd {
 		}
 		d.escalations = escalations
 
+		dbStatuses, err := ps.StoryDBStatusAll()
+		if err != nil {
+			// Non-fatal: dashboard degrades gracefully without DB status.
+			dbStatuses = make(map[string]string)
+		}
+		d.dbStatuses = dbStatuses
+
 		return d
 	}
 }
@@ -316,6 +328,7 @@ func (m Model) applyData(d dataMsg) Model {
 		agents:            d.agents,
 		events:            d.events,
 		escalations:       d.escalations,
+		dbStatuses:        d.dbStatuses,
 		lastRefresh:       time.Now(),
 		err:               d.err,
 	}
@@ -337,5 +350,20 @@ func truncateStr(s string, maxLen int) string {
 		return s[:maxLen]
 	}
 	return s[:maxLen-3] + "..."
+}
+
+// dbStatusGlyph returns a short indicator for the current devdb status.
+// Returns "✓" for active, "✗" for failed, "R" for retained, "" otherwise.
+func dbStatusGlyph(status string) string {
+	switch status {
+	case "created":
+		return "✓"
+	case "failed":
+		return "✗"
+	case "retained":
+		return "R"
+	default:
+		return ""
+	}
 }
 

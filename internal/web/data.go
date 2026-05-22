@@ -16,6 +16,7 @@ type StateSnapshot struct {
 	Escalations  []state.Escalation  `json:"escalations"`
 	Requirements []state.Requirement `json:"requirements"`
 	DAG          *graph.DAGExport    `json:"dag,omitempty"`
+	DBStatuses   map[string]string   `json:"db_statuses,omitempty"` // story_id -> "created"/"failed"/"deleted"/"retained"
 }
 
 type PipelineCounts struct {
@@ -117,6 +118,11 @@ func (s *Server) BuildSnapshot() (StateSnapshot, error) {
 
 	// Include DAG export if available.
 	snap.DAG = s.dagExport
+
+	// Include per-story DB statuses (informational — non-fatal if unavailable).
+	if dbStatuses, err := s.projStore.StoryDBStatusAll(); err == nil {
+		snap.DBStatuses = dbStatuses
+	}
 
 	return snap, nil
 }

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/spf13/cobra"
 	"github.com/tzone85/vortex-dispatch/internal/devdb"
+	"github.com/tzone85/vortex-dispatch/internal/devdb/docker"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
 
@@ -29,6 +31,7 @@ is determined by the current project's devdb.provider config (ghost | docker | n
 	cmd.AddCommand(newDBDeleteCmd())
 	cmd.AddCommand(newDBGCCmd())
 	cmd.AddCommand(newDBPingCmd())
+	cmd.AddCommand(newDBTemplateCmd())
 	return cmd
 }
 
@@ -281,4 +284,100 @@ func newDBPingCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// --- template ---
+
+// dockerProviderFor returns the docker.Provider for the current project, or
+// an error if the configured provider is not "docker". This is needed because
+// template ops are docker-specific.
+func dockerProviderFor(cmd *cobra.Command) (*docker.Provider, error) {
+	s, err := loadStores(cmd)
+	if err != nil {
+		return nil, err
+	}
+	defer s.Close()
+	cfg := projectRuntimeConfig(s)
+	if cfg.DevDB.Provider != "docker" {
+		return nil, fmt.Errorf("template ops require devdb.provider == \"docker\" (current: %q)", cfg.DevDB.Provider)
+	}
+	return docker.NewProvider(docker.Config{
+		Image:          cfg.DevDB.Docker.Image,
+		ContainerName:  cfg.DevDB.Docker.ContainerName,
+		TemplateVolume: cfg.DevDB.Docker.TemplateVolume,
+		Network:        cfg.DevDB.Docker.Network,
+		HostPortRange:  cfg.DevDB.Docker.HostPortRange,
+	}), nil
+}
+
+func newDBTemplateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:          "template",
+		Short:        "Manage devdb template databases (docker provider only)",
+		SilenceUsage: true,
+	}
+	cmd.AddCommand(newDBTemplateListCmd())
+	cmd.AddCommand(newDBTemplateCreateCmd())
+	return cmd
+}
+
+func newDBTemplateListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:          "list",
+		Short:        "List template databases",
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, err := dockerProviderFor(cmd)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 15*time.Second)
+			defer cancel()
+			names, err := p.ListTemplates(ctx)
+			if err != nil {
+				return err
+			}
+			if len(names) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "No templates registered.")
+				return nil
+			}
+			for _, n := range names {
+				fmt.Fprintln(cmd.OutOrStdout(), n)
+			}
+			return nil
+		},
+	}
+}
+
+func newDBTemplateCreateCmd() *cobra.Command {
+	var dumpPath string
+	cmd := &cobra.Command{
+		Use:          "create <name>",
+		Short:        "Create a template DB by importing a SQL dump",
+		Args:         cobra.ExactArgs(1),
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if dumpPath == "" {
+				return fmt.Errorf("--from <path-to-sql-file> is required")
+			}
+			f, err := os.Open(dumpPath)
+			if err != nil {
+				return fmt.Errorf("open dump: %w", err)
+			}
+			defer f.Close()
+			p, err := dockerProviderFor(cmd)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Minute)
+			defer cancel()
+			if err := p.CreateTemplate(ctx, args[0], f); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "created template %s\n", args[0])
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&dumpPath, "from", "", "Path to SQL dump file (required)")
+	return cmd
 }

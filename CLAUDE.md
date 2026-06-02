@@ -344,9 +344,27 @@ Every failure is a chance to make the system stronger:
 6. **CLAUDE.md overwritten after merge** → `stripVXDArtifactsFromBranch` should prevent this. If it still happens, check that the function runs before `rebaseAndMerge`. Verify with: `git log --oneline --diff-filter=M -- CLAUDE.md`
 7. **Code exists on GitHub but not locally** → `pullMainAfterMerge` should auto-pull. If it failed, check for dirty working tree or network issues. Manual fix: `git pull --ff-only origin main`
 
-## Pending Work (as of 2026-05-13)
+## Production Readiness (as of 2026-06-02)
+
+Verified green on `main`:
+- `go build -o ~/.local/bin/vxd ./cmd/vxd` — clean
+- `go test ./... -count=1` — all 28 packages pass
+- `go vet ./...` — no warnings
+- `vxd preflight` — all CRITICAL + WARNING checks pass on a configured host
+- No `panic(` in `internal/` or `cmd/` (only docs/diagnostics strings)
+- Secrets sourced via env / Vault adapter only (`internal/cli/secrets.go`, `internal/improve/config.go`)
+- 30+ wiring tests guard event-projection paths
+- Documentation enforcement: `TestDocCoverage_CLICommands` + `TestDocCoverage_ConfigSections` block undocumented commands/config
+
+Known operational gates still required on first run:
+- `which vxd` must resolve to `~/.local/bin/vxd` (preflight warns otherwise)
+- `unset ANTHROPIC_API_KEY` if using Claude CLI subscription
+- `GOOGLE_AI_API_KEY` set if Gemma execution role is configured
+- Configured `devdb.provider` (docker/ghost/null) + reachable backend if non-null
+
+## Pending Work (as of 2026-06-02)
 1. ~~Port Docker/SSH runners to NXD~~ — DONE
-2. Fix GitHub Actions billing — account payment issue, CI slimmed to ubuntu-only
+2. Fix GitHub Actions billing — account payment issue, CI slimmed to ubuntu-only — OPEN
 3. ~~Mukuru-api / Mukuru-site / CashTask pipelines~~ — DONE
 4. ~~Artifact protection~~ — DONE (stripVXDArtifactsFromBranch + pullMainAfterMerge + 16 tests)
 5. ~~Codex review fixes~~ — DONE
@@ -361,13 +379,19 @@ Every failure is a chance to make the system stronger:
 14. ~~`pullMainAfterMerge` noisy on dirty trees~~ — DONE (PR #42, stash + pop or skip cleanly)
 15. ~~`AGENT_STUCK` threshold too aggressive~~ — DONE (PR #42, 120s → 600s default)
 16. ~~Per-story duration metric~~ — DONE (PR #42, `vxd metrics` shows `[Xm Ys]`)
-17. Post-merge rebase check — auto-detect and resolve conflicts on open PRs (open)
-18. Re-planner guardrails — prevent hallucinated sub-stories during tier-3 splits (open)
-19. `nhooyr.io/websocket → coder/websocket` migration (84 SA1019 deprecations) — open
-20. `monitor.go` 1806-line refactor (HIGH tech-debt finding from audit) — open
-21. Coverage roadmap: raise `cli` (65.6%), `config` (70.9%), `improve` (73%), `state` (78.2%) over 80% — open
-22. Self-improve source-quality gap — research scrapers fetch news, not code-actionable signals — feature request
-23. **Ephemeral DBs for agents** — COMPLETE as of 2026-05-22. SHIPPED:
+17. ~~Post-merge integration build + auto-fix~~ — DONE (commit `41b156a`, Tech-Lead-led)
+18. ~~Tech-Lead conflict escalation w/ DAG context~~ — DONE (`b845181`, `1cf0509`)
+19. ~~Binary-conflict detection (numstat + null-byte sniff)~~ — DONE (`a0c9e44`)
+20. ~~`vxd req` self-daemonize + `vxd logs` + planning heartbeat~~ — DONE (`e4f08bd`)
+21. ~~Structural reviewer check — validate spec file list~~ — DONE (`df2aeee`)
+22. ~~SLA map accepts bare int + quoted string keys~~ — DONE (`299dc9a`)
+23. ~~Pre-clean `WAVE_CONTEXT.md`/`REQUIREMENT.md` before ff-pull~~ — DONE (`4c0c61c`)
+24. Re-planner guardrails — prevent hallucinated sub-stories during tier-3 splits — OPEN
+25. `nhooyr.io/websocket → coder/websocket` migration (84 SA1019 deprecations) — OPEN
+26. `monitor.go` 1806-line refactor (HIGH tech-debt finding from audit) — OPEN
+27. Coverage roadmap: raise `cli` (65.6%), `config` (70.9%), `improve` (73%), `state` (78.2%) over 80% — OPEN
+28. Self-improve source-quality gap — research scrapers fetch news, not code-actionable signals — FEATURE REQUEST
+29. **Ephemeral DBs for agents** — COMPLETE as of 2026-05-22. SHIPPED:
     - SP1+SP3 (foundation + Docker provider)
     - SP4 (executor wiring, Lifecycle injection, orphan recovery, SLA-breach release, preflight checks)
     - SP5 (QA migration_succeeds/schema_changed/sql_query_returns criteria)

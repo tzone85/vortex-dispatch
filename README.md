@@ -570,6 +570,16 @@ If you're interested in AI agent orchestration, these projects are well worth st
 
 ## Recent Changes
 
+### 2026-06-02 — Production-Readiness Pass
+
+- **Verified green**: 28 packages pass `go test ./... -count=1`, `go vet` clean, `vxd preflight` all-green on configured hosts.
+- **Conflict resolution**: 3-tier rebase strategy — binary detection (numstat + null-byte sniff), Senior fast-path, Tech-Lead escalation with DAG/sibling/log context. Triggers on Senior failure, residual `<<<<<<<` markers, or >3-file integration conflicts (`internal/engine/conflict_resolver.go`).
+- **Post-merge integration build**: Tech-Lead-led auto-fix loop after merge to catch cross-story regressions before the next wave dispatches.
+- **`vxd req --background`**: self-daemonizes the planning + dispatch loop; `vxd logs <req-id>` tails the captured daemon log; planning emits a heartbeat so the dashboard doesn't show a dead pipeline.
+- **Reviewer structural check**: spec file list validated against actual diff — agents that ship a partial spec are rejected, not silently merged.
+- **Config robustness**: `sla.max_minutes_per_complexity` accepts both bare-int and quoted-string keys; LLM provider error message lists accepted values (`anthropic_cli` alias added).
+- **Cleanup hygiene**: `pre-ff-pull` removes `WAVE_CONTEXT.md` / `REQUIREMENT.md` before `git pull --ff-only` so fast-forward doesn't choke on VXD artifacts.
+
 ### Unreleased — Hardening Session (2026-04-15/16)
 
 **Security**

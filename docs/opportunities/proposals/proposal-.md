@@ -1,17 +1,17 @@
 You are writing a freelance proposal for a client posting. This is a DRAFT that a human will review before sending.
 
 **Opportunity:**
-- Title: Operations software assistant
-- Company: Bulldog Digital Media
-- Budget: $12k - $19k (35 hrs/week, freelance)
-- Skills: security, seo, AI/ML
-- Description: The role focuses on AI/ML and operations software, which aligns perfectly with VXD's ability to deploy autonomous agents for automation. The budget is excellent, equating to $75-$118/hr. Win probability is moderate because the title 'assistant' can sometimes attract non-technical applicants, requiring VXD to clearly position itself as an automated software solution rather than a human virtual assistant.
+- Title: Senior Independent AI Engineer / Architect
+- Company: A.Team
+- Budget: $120 - $170 /hour
+- Skills: go, UI/UX, wordpress, chat, apple, testing, catalyst
+- Description: The title 'AI Engineer / Architect' is a direct hit for VXD's agentic orchestration model. The budget is exceptionally high, well above the premium threshold. Win probability is tempered by the platform (A.Team is highly competitive/vetted) and the lack of a detailed description which necessitates more discovery effort to tailor the pitch.
 
 **Proposal Structure (follow this exactly):**
 1. Understanding - Restate the client's problem in their language
 2. Approach - Tech stack, phases, timeline, what makes us different
 3. Relevant Experience - Reference real software engineering experience, AI-augmented development capability
-4. Timeline & Budget - Client's stated budget: $12k - $19k (35 hrs/week, freelance). Position at 75th percentile, compete on quality not price. Minimum $50/hr equivalent.
+4. Timeline & Budget - Client's stated budget: $120 - $170 /hour. Position at 75th percentile, compete on quality not price. Minimum $50/hr equivalent.
 5. Next Steps - Clear call to action, availability
 
 **Tone Instructions:**

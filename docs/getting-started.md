@@ -531,7 +531,7 @@ launchctl list | grep vxd     # Daily schedule active
 |----------|------|-----|
 | Daily 6am | `vxd-improve` — research, analyze, implement, email, re-mine MemPalace | `~/.vxd/self-improve/launchd.log` |
 
-Reports sent to `vortex.dispatch01@gmail.com`.
+Reports are sent to the address in `$VXD_NOTIFY_EMAIL` (skipped when unset).
 
 ## Next Steps
 

@@ -26,6 +26,12 @@ jobs:
       - name: Install dependencies
         run: go mod download
 
+      - name: Configure git defaults for tests
+        run: |
+          git config --global init.defaultBranch main
+          git config --global user.email "ci@vortex-dispatch.local"
+          git config --global user.name "VXD CI"
+
       - name: Run vet
         run: go vet ./...
 

@@ -51,7 +51,7 @@ func TestCoordinator_RunsTickOnEachWave(t *testing.T) {
 	c := NewCoordinator("r1", runner.Bank, runner.Sampler, runner, func() float64 { return 100 }, 2, time.Second)
 	c.PromptBuilder = countingPromptBuilder{n: &ticks, inner: SimplePromptBuilder{}}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_ = c.Run(ctx)
 

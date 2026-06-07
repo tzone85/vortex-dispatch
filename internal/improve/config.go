@@ -67,6 +67,12 @@ func LoadConfig() (Config, error) {
 		return Config{}, fmt.Errorf("RESEND_API_KEY environment variable is required")
 	}
 
+	emailTo := os.Getenv("VXD_NOTIFY_EMAIL")
+	emailFrom := os.Getenv("VXD_NOTIFY_FROM")
+	if emailFrom == "" {
+		emailFrom = "VXD Self-Improvement <onboarding@resend.dev>"
+	}
+
 	googleAIKey := os.Getenv("GOOGLE_AI_API_KEY")
 	if googleAIKey == "" {
 		return Config{}, fmt.Errorf("GOOGLE_AI_API_KEY environment variable is required")
@@ -120,8 +126,8 @@ func LoadConfig() (Config, error) {
 		MaxFilesChanged:      10,
 		RelevanceThreshold:   5,
 		MaxFindingsToAnalyze: 10,
-		EmailTo:              "vortex.dispatch01@gmail.com",
-		EmailFrom:            "VXD Self-Improvement <onboarding@resend.dev>",
+		EmailTo:              emailTo,
+		EmailFrom:            emailFrom,
 		ClaudePath:           claudePath,
 		DryRun:               false,
 		ActiveBidding:        activeBidding,

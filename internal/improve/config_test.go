@@ -70,8 +70,8 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	if cfg.MaxFindingsToAnalyze != 10 {
 		t.Errorf("expected MaxFindingsToAnalyze 10, got %d", cfg.MaxFindingsToAnalyze)
 	}
-	if cfg.EmailTo != "vortex.dispatch01@gmail.com" {
-		t.Errorf("expected EmailTo 'vortex.dispatch01@gmail.com', got %q", cfg.EmailTo)
+	if cfg.EmailTo != "" {
+		t.Errorf("expected default EmailTo to be empty (configured via VXD_NOTIFY_EMAIL), got %q", cfg.EmailTo)
 	}
 }
 

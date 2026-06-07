@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,8 +16,9 @@ import (
 // Fakes -----------------------------------------------------------------
 
 type fakeWorktreeOps struct {
-	created []string
-	removed []string
+	mu        sync.Mutex
+	created   []string
+	removed   []string
 	createErr error
 }
 
@@ -29,11 +31,15 @@ func (f *fakeWorktreeOps) Create(_, path, _ string) error {
 	if err := osMkdirAll(path); err != nil {
 		return err
 	}
+	f.mu.Lock()
 	f.created = append(f.created, path)
+	f.mu.Unlock()
 	return nil
 }
 func (f *fakeWorktreeOps) Remove(_, path, _ string) error {
+	f.mu.Lock()
 	f.removed = append(f.removed, path)
+	f.mu.Unlock()
 	return nil
 }
 

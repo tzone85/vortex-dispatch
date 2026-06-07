@@ -380,8 +380,7 @@ const weeklyEmailTemplate = `<!DOCTYPE html>
 <p style="margin:0;font-weight:700;color:#1e293b;font-size:0.95rem;">Vortex Dispatch</p>
 <p style="margin:2px 0;color:#64748b;font-size:0.8rem;">AI-Augmented Software Development</p>
 <p style="margin:6px 0 0;font-size:0.8rem;">
-<a href="https://github.com/tzone85/vortex-dispatch" style="color:#2563eb;text-decoration:none;margin-right:12px;">GitHub</a>
-<a href="mailto:vortex.dispatch01@gmail.com" style="color:#2563eb;text-decoration:none;">Email</a>
+<a href="https://github.com/tzone85/vortex-dispatch" style="color:#2563eb;text-decoration:none;">GitHub</a>
 </p>
 </td>
 </tr>

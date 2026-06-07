@@ -240,7 +240,6 @@ const emailTemplateSrc = `<!DOCTYPE html>
 <p style="margin:2px 0;color:#64748b;font-size:0.8rem;">AI-Augmented Software Development</p>
 <p style="margin:6px 0 0;font-size:0.8rem;">
 <a href="https://github.com/tzone85/vortex-dispatch" style="color:#2563eb;text-decoration:none;margin-right:12px;">GitHub</a>
-<a href="mailto:vortex.dispatch01@gmail.com" style="color:#2563eb;text-decoration:none;margin-right:12px;">Email</a>
 <a href="https://github.com/tzone85/vortex-dispatch/blob/main/docs/self-improvement/changelog.jsonl" style="color:#94a3b8;text-decoration:none;font-size:0.75rem;">Audit Trail</a>
 </p>
 </td>

@@ -14,7 +14,7 @@ manageable.
 Replacement: scheduled remote agent on 2026-05-10T07:00:00Z UTC will open
 PR with internal/autoresearch/baseline.go and a RemeasuringBaseline.
 Routine ID: trig_01SpGAAg3GtvrXwoGWAf3bV9
-Spec: docs/superpowers/specs/2026-05-02-autoresearch-harness-design.md
+Spec: docs/autoresearch-harness-design.md
 ("Open questions" section)
 
 ### autoCommit message is generic

@@ -1,7 +1,7 @@
 # Autoresearch Harness — Architecture Decisions
 
 **Source session:** 2026-05-02 → 2026-05-04
-**Spec:** docs/superpowers/specs/2026-05-02-autoresearch-harness-design.md
+**Spec:** docs/autoresearch-harness-design.md
 **Code:** internal/autoresearch/, internal/cli/autoresearch.go
 
 ## What it is

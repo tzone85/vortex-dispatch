@@ -617,7 +617,7 @@ If you're interested in AI agent orchestration, these projects are well worth st
 - Google AI integration test updated for header-based auth
 
 **Documentation**
-- New 1,650-line architecture overview at `docs/superpowers/specs/2026-04-15-architecture-overview.md`
+- New 1,650-line architecture overview at `docs/architecture-overview.md`
 - README sections for SLA, secrets, /health, backup workflow
 
 ## License

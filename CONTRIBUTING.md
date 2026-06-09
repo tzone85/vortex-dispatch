@@ -100,6 +100,8 @@ chore(ci): update Go version to 1.26
 
 ## Build
 
+### macOS / Linux
+
 ```bash
 # Build to the standard location (CRITICAL: not ~/go/bin/)
 go build -o ~/.local/bin/vxd ./cmd/vxd
@@ -109,6 +111,27 @@ make build
 make test
 make lint
 ```
+
+### Windows (native PowerShell)
+
+```powershell
+# Build to %USERPROFILE%\.local\bin\vxd.exe (matches the Unix layout when WSL2
+# shares your home dir). Adjust the output path if you prefer %GOPATH%\bin.
+go build -o "$env:USERPROFILE\.local\bin\vxd.exe" ./cmd/vxd
+go test ./...
+```
+
+The `Makefile` is bash-only — use the `go` commands above on native Windows
+shells, or run `make` inside WSL2.
+
+### Cross-compiling a Windows binary from macOS / Linux
+
+```bash
+GOOS=windows GOARCH=amd64 go build -o dist/vxd.exe ./cmd/vxd
+```
+
+The resulting `.exe` is a valid PE32+ binary; copy it onto a Windows host or
+launch it through WSL's `/mnt/c/...` mount.
 
 ## Event Sourcing Rules
 

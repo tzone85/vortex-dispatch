@@ -15,6 +15,11 @@ go test ./... -count=1
 cd ~/Sites/misc/nexus-dispatch && go build -o ~/.local/bin/nxd ./cmd/nxd/
 ```
 
+### Cross-platform / Windows
+- `GOOS=windows GOARCH=amd64 go build -o dist/vxd.exe ./cmd/vxd` cross-compiles a Windows PE32+ binary.
+- Native Windows: all read-only commands work (`estimate`, `status`, `metrics`, `report`, `projects`, `config`, `events`, `dashboard`). Full agent pipeline (`req`/`resume`) needs tmux → run inside WSL2.
+- Platform-specific code lives in `_unix.go` / `_windows.go` build-tagged pairs: `internal/cli/req_*.go` (daemon detach), `internal/engine/lockfile_*.go` (process liveness), `internal/devdb/docker/host_*.go` (docker default host). Shell command exec goes through `internal/shellexec` (`sh -c` on Unix, `cmd.exe /C` on Windows, override with `VXD_SHELL`).
+
 ## Architecture
 
 ### Pipeline Flow

@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -61,13 +60,14 @@ func forkReqDaemon(self, reqID, logPath string, extraArgs []string) *exec.Cmd {
 	argv := append([]string{"resume", reqID}, extraArgs...)
 	cmd := exec.Command(self, argv...)
 
-	// Detach from the current process group.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	// Detach from the current process group (platform-specific: Setsid on
+	// Unix, CREATE_NEW_PROCESS_GROUP on Windows).
+	applyDaemonDetach(cmd)
 
 	// Redirect stdin from /dev/null, stdout+stderr to the log file.
 	// The file is opened lazily by exec.Cmd on Start().
-	cmd.Stdin = nil // will be set to /dev/null by the OS when Setsid=true
-	cmd.Dir = "."  // inherit cwd
+	cmd.Stdin = nil
+	cmd.Dir = "."
 
 	// We set log file via ExtraFiles + dup trick, but the simpler approach
 	// is to open the file in the parent and pass it as stdout/stderr.

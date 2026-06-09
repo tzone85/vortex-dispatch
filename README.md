@@ -60,11 +60,24 @@ vxd init
 vxd preflight    # Will fail the tmux check; everything else should pass.
 ```
 
-State on Windows lives under `%USERPROFILE%\.vxd\` by default. The devdb
-provider's Docker fallback dials `tcp://localhost:2375` (enable "Expose daemon
-on tcp://localhost:2375 without TLS" in Docker Desktop) — or set `DOCKER_HOST`
-explicitly. To pick a different host shell for user metric/migration commands,
-set `VXD_SHELL=pwsh` (or any shell available on PATH); the default is `cmd.exe`.
+State on Windows lives under `%USERPROFILE%\.vxd\` by default.
+
+**Docker on Windows requires an explicit `DOCKER_HOST`.** The devdb provider's
+built-in Windows default points at the named pipe
+`npipe:////./pipe/docker_engine`, but Go's stdlib HTTP transport cannot dial
+named pipes without an extra dependency, so this default is intentionally a
+fail-closed sentinel rather than a working endpoint. Set `DOCKER_HOST` to one
+of:
+
+- `tcp://localhost:2376` with `DOCKER_TLS_VERIFY=1` and `DOCKER_CERT_PATH=...`
+  (the secure path — Docker Desktop's TLS-enabled TCP socket).
+- `tcp://localhost:2375` **only if you have already accepted the plaintext
+  risk** (no auth, no TLS — any local process can take over the daemon).
+- Anything reachable from your environment (remote Docker host, WSL2 bridge,
+  etc.).
+
+To pick a different host shell for user metric/migration commands, set
+`VXD_SHELL=pwsh` (or any shell on PATH); the default is `cmd.exe`.
 
 #### Windows install (full pipeline via WSL2)
 

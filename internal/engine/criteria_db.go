@@ -5,12 +5,12 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/tzone85/vortex-dispatch/internal/shellexec"
 )
 
 // readDatabaseURL returns the DATABASE_URL value from .vxd-db/connect.env in workDir,
@@ -43,7 +43,7 @@ func evaluateMigrationSucceeds(c Criterion, workDir string) CriterionResult {
 		return CriterionResult{Criterion: c, Passed: false,
 			Detail: "no .vxd-db/connect.env in worktree — devdb not provisioned for this story"}
 	}
-	cmd := exec.Command("sh", "-c", c.Command)
+	cmd := shellexec.Command(c.Command)
 	cmd.Dir = workDir
 	cmd.Env = append(os.Environ(), "DATABASE_URL="+dsn)
 	out, err := cmd.CombinedOutput()

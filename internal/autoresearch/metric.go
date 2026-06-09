@@ -12,6 +12,7 @@ import (
 
 	"github.com/tzone85/vortex-dispatch/internal/config"
 	"github.com/tzone85/vortex-dispatch/internal/llm"
+	"github.com/tzone85/vortex-dispatch/internal/shellexec"
 )
 
 // Tiebreaker is the LLM-based judge invoked when two scores fall within
@@ -35,7 +36,7 @@ func (h *MetricHarness) Measure(ctx context.Context, worktree string, baseline f
 	if h.Metric.Command == "" {
 		return Score{}, errors.New("metric command is empty")
 	}
-	cmd := exec.CommandContext(ctx, "sh", "-c", h.Metric.Command)
+	cmd := shellexec.CommandContext(ctx, h.Metric.Command)
 	cmd.Dir = worktree
 	out, runErr := cmd.CombinedOutput()
 	exitCode := 0

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -21,11 +22,18 @@ import (
 // --- CRITICAL checks ---
 
 // CheckTmux verifies tmux is installed and reachable on PATH.
+// On Windows tmux is not natively available; the message points the operator
+// to WSL2, which is the supported path for the agent execution pipeline.
 func CheckTmux() Result {
 	out, err := exec.Command("tmux", "-V").Output()
 	if err != nil {
-		return Result{Name: "tmux", Severity: SeverityCritical, Passed: false,
-			Message: "tmux not found on PATH — install with: brew install tmux"}
+		msg := "tmux not found on PATH — install with: brew install tmux"
+		if runtime.GOOS == "windows" {
+			msg = "tmux is not available on native Windows. The agent execution pipeline requires tmux; " +
+				"run VXD inside WSL2 (Ubuntu) where you can `sudo apt install tmux`. Read-only commands " +
+				"(estimate, status, metrics, report, projects, config) still work on native Windows."
+		}
+		return Result{Name: "tmux", Severity: SeverityCritical, Passed: false, Message: msg}
 	}
 	version := strings.TrimSpace(string(out))
 	return Result{Name: "tmux", Severity: SeverityCritical, Passed: true,

@@ -7,9 +7,22 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 )
+
+// spacePath builds a Ghost API path under /spaces, percent-escaping each
+// dynamic segment so a name/ref/template cannot inject extra path segments or
+// traverse the URL (defense-in-depth atop the devdb.IsValid allowlist applied
+// upstream). segments are appended after /spaces/<spaceID>/databases.
+func (c *Client) spacePath(spaceID string, segments ...string) string {
+	p := c.baseURL + "/spaces/" + url.PathEscape(spaceID) + "/databases"
+	for _, s := range segments {
+		p += "/" + url.PathEscape(s)
+	}
+	return p
+}
 
 // DefaultBaseURL is the canonical Ghost cloud API endpoint.
 const DefaultBaseURL = "https://api.ghost.build/v0"
@@ -173,7 +186,7 @@ func (c *Client) ResolveSpaceID(ctx context.Context) (string, error) {
 func (c *Client) CreateDB(ctx context.Context, spaceID, name string) (dbResponse, error) {
 	payload, _ := json.Marshal(map[string]string{"name": name})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		c.baseURL+"/spaces/"+spaceID+"/databases",
+		c.spacePath(spaceID),
 		bytes.NewReader(payload))
 	if err != nil {
 		return dbResponse{}, err
@@ -198,7 +211,7 @@ func (c *Client) CreateDB(ctx context.Context, spaceID, name string) (dbResponse
 func (c *Client) ForkDB(ctx context.Context, spaceID, templateRef, name string) (dbResponse, error) {
 	payload, _ := json.Marshal(map[string]string{"name": name})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		c.baseURL+"/spaces/"+spaceID+"/databases/"+templateRef+"/fork",
+		c.spacePath(spaceID, templateRef, "fork"),
 		bytes.NewReader(payload))
 	if err != nil {
 		return dbResponse{}, err
@@ -222,7 +235,7 @@ func (c *Client) ForkDB(ctx context.Context, spaceID, templateRef, name string) 
 // DeleteDB deletes the database identified by ref in spaceID.
 func (c *Client) DeleteDB(ctx context.Context, spaceID, ref string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete,
-		c.baseURL+"/spaces/"+spaceID+"/databases/"+ref, nil)
+		c.spacePath(spaceID, ref), nil)
 	if err != nil {
 		return err
 	}
@@ -241,7 +254,7 @@ func (c *Client) DeleteDB(ctx context.Context, spaceID, ref string) error {
 // ListDBs returns all databases in spaceID.
 func (c *Client) ListDBs(ctx context.Context, spaceID string) ([]dbResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		c.baseURL+"/spaces/"+spaceID+"/databases", nil)
+		c.spacePath(spaceID), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +278,7 @@ func (c *Client) ListDBs(ctx context.Context, spaceID string) ([]dbResponse, err
 // GetDB fetches a single database by ref from spaceID.
 func (c *Client) GetDB(ctx context.Context, spaceID, ref string) (dbResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		c.baseURL+"/spaces/"+spaceID+"/databases/"+ref, nil)
+		c.spacePath(spaceID, ref), nil)
 	if err != nil {
 		return dbResponse{}, err
 	}

@@ -44,6 +44,14 @@ type WSResponse struct {
 }
 
 func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
+	// Authenticate before upgrading. The token gates non-browser local
+	// processes (which present no Origin and so slip past OriginPatterns); the
+	// OriginPatterns below additionally blocks cross-origin browser pages
+	// (CSWSH). Both layers are required.
+	if !h.server.validToken(r) {
+		http.Error(w, "unauthorized: missing or invalid session token", http.StatusUnauthorized)
+		return
+	}
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		OriginPatterns: []string{"localhost:*", "127.0.0.1:*"},
 	})

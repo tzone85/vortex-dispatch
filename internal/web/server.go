@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/tzone85/vortex-dispatch/internal/graph"
@@ -34,7 +35,8 @@ type Server struct {
 	httpServer *http.Server
 	dagExport  *graph.DAGExport
 	startTime  time.Time
-	NoOpen     bool // skip opening browser on start
+	NoOpen     bool   // skip opening browser on start
+	authToken  string // per-session secret gating the /ws command channel
 }
 
 func NewServer(es state.EventStore, ps *state.SQLiteStore, port int, filter state.ReqFilter) *Server {
@@ -44,6 +46,7 @@ func NewServer(es state.EventStore, ps *state.SQLiteStore, port int, filter stat
 		port:       port,
 		reqFilter:  filter,
 		startTime:  time.Now(),
+		authToken:  newAuthToken(),
 	}
 	s.hub = NewHub(s)
 	return s
@@ -54,6 +57,42 @@ func (s *Server) SetDAG(dag *graph.DAGExport) {
 	s.dagExport = dag
 }
 
+// serveIndex serves the dashboard HTML, performing the token handshake. When
+// the request already carries the correct token (query param on the
+// server-opened URL, or a previously-set cookie) the token is injected into the
+// page as window.__VXD_TOKEN__ and persisted in a cookie so reloads stay
+// authenticated. Requests without the token receive the page with an empty
+// token and the dashboard surfaces an "unauthorized" banner — they cannot read
+// the secret, so an unrelated local process cannot harvest it by fetching "/".
+func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request, staticFS fs.FS) {
+	raw, err := fs.ReadFile(staticFS, "index.html")
+	if err != nil {
+		http.Error(w, "index not found", http.StatusInternalServerError)
+		return
+	}
+
+	injected := ""
+	if s.validToken(r) && s.authToken != "" {
+		injected = s.authToken
+		http.SetCookie(w, &http.Cookie{
+			Name:     tokenCookieName,
+			Value:    s.authToken,
+			Path:     "/",
+			HttpOnly: false, // the page's JS must read it to open the WebSocket
+			SameSite: http.SameSiteStrictMode,
+		})
+	}
+
+	// Inject the token before </head>. JSON-encoding guards against breaking
+	// out of the script context.
+	tokenJSON, _ := json.Marshal(injected)
+	snippet := fmt.Sprintf("<script>window.__VXD_TOKEN__=%s;</script></head>", tokenJSON)
+	html := strings.Replace(string(raw), "</head>", snippet, 1)
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(html))
+}
+
 func (s *Server) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 
@@ -62,7 +101,18 @@ func (s *Server) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("static files: %w", err)
 	}
-	mux.Handle("/", http.FileServer(http.FS(staticFS)))
+	fileServer := http.FileServer(http.FS(staticFS))
+	// The index page performs the token handshake; all other static assets are
+	// served verbatim. The token is echoed back into the page (and a cookie)
+	// ONLY when the request already presents it, so an unrelated local process
+	// cannot read the token by simply fetching "/".
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
+			s.serveIndex(w, r, staticFS)
+			return
+		}
+		fileServer.ServeHTTP(w, r)
+	})
 
 	// WebSocket endpoint
 	mux.HandleFunc("/ws", s.hub.HandleWebSocket)
@@ -81,10 +131,16 @@ func (s *Server) Start(ctx context.Context) error {
 
 	s.httpServer = &http.Server{Handler: mux}
 
+	// The opened URL carries the session token so the operator's browser is
+	// authenticated on first load; the page then persists it in a cookie.
 	url := fmt.Sprintf("http://%s", addr)
-	log.Printf("Dashboard server running at %s", url)
+	authedURL := url
+	if s.authToken != "" {
+		authedURL = fmt.Sprintf("%s/?token=%s", url, s.authToken)
+	}
+	log.Printf("Dashboard server running at %s", authedURL)
 	if !s.NoOpen {
-		openBrowser(url)
+		openBrowser(authedURL)
 	}
 
 	// Start hub broadcast loop

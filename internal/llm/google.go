@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -24,7 +23,7 @@ type GoogleAIClient struct {
 func NewGoogleAIClient(apiKey string) *GoogleAIClient {
 	return &GoogleAIClient{
 		apiKey:     apiKey,
-		httpClient: &http.Client{},
+		httpClient: &http.Client{Timeout: defaultHTTPTimeout},
 		baseURL:    googleAIBaseURL,
 	}
 }
@@ -127,7 +126,7 @@ func (c *GoogleAIClient) Complete(ctx context.Context, req CompletionRequest) (C
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := limitedReadAll(resp.Body)
 	if err != nil {
 		return CompletionResponse{}, fmt.Errorf("read response: %w", err)
 	}

@@ -175,10 +175,9 @@ func (cr *ConflictResolver) RebaseWithResolution(ctx context.Context, storyID, w
 					return fmt.Errorf("LLM resolve %s: %w", file, seniorErr)
 				}
 				// If needsTechLead but senior succeeded and no tech lead: use senior result.
-			} else if seniorErr != nil {
-				vxdgit.RebaseAbort(worktreePath)
-				return fmt.Errorf("LLM resolve %s: %w", file, seniorErr)
 			}
+			// Note: the seniorErr-only case is fully handled by the branch above
+			// (its guard includes seniorErr != nil), so no separate else is needed.
 
 			if wErr := os.WriteFile(absPath, []byte(resolved), 0o644); wErr != nil {
 				vxdgit.RebaseAbort(worktreePath)
@@ -433,7 +432,7 @@ func (cr *ConflictResolver) buildTechLeadContext(ctx context.Context, storyID, w
 
 // gitFileHistory returns the last n commit subjects that touched the given file.
 func gitFileHistory(worktreePath, file string, n int) []string {
-	cmd := exec.Command("git", "log", fmt.Sprintf("--pretty=%%s"), fmt.Sprintf("-%d", n), "--", file)
+	cmd := exec.Command("git", "log", "--pretty=%s", fmt.Sprintf("-%d", n), "--", file)
 	cmd.Dir = worktreePath
 	out, err := cmd.CombinedOutput()
 	if err != nil {

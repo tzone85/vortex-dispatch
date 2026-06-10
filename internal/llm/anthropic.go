@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 )
@@ -23,7 +22,7 @@ type AnthropicClient struct {
 func NewAnthropicClient(apiKey string) *AnthropicClient {
 	return &AnthropicClient{
 		apiKey:     apiKey,
-		httpClient: &http.Client{},
+		httpClient: &http.Client{Timeout: defaultHTTPTimeout},
 		baseURL:    anthropicAPIURL,
 	}
 }
@@ -103,7 +102,7 @@ func (c *AnthropicClient) Complete(ctx context.Context, req CompletionRequest) (
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := limitedReadAll(resp.Body)
 	if err != nil {
 		return CompletionResponse{}, fmt.Errorf("read response: %w", err)
 	}

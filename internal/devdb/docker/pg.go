@@ -34,23 +34,32 @@ func (p *PGConn) Close(ctx context.Context) error {
 	return p.conn.Close(ctx)
 }
 
+// quoteIdent quotes a Postgres identifier correctly: wrap in double quotes and
+// double any embedded double quotes. fmt's %q is GO string quoting, not SQL
+// identifier quoting, so it does not escape the way Postgres expects. Names are
+// already validated against a strict allowlist (devdb.IsValid); this is
+// defense-in-depth for any caller that bypasses validation.
+func quoteIdent(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
 // CreateDB runs CREATE DATABASE "<name>". Caller is responsible for naming validation.
 func (p *PGConn) CreateDB(ctx context.Context, name string) error {
-	_, err := p.conn.Exec(ctx, fmt.Sprintf(`CREATE DATABASE %q`, name))
+	_, err := p.conn.Exec(ctx, `CREATE DATABASE `+quoteIdent(name))
 	return err
 }
 
 // CreateDBFromTemplate runs CREATE DATABASE "<name>" WITH TEMPLATE "<template>".
 // Caller must ensure no active connections to template (use SetTemplateFlag first).
 func (p *PGConn) CreateDBFromTemplate(ctx context.Context, name, template string) error {
-	_, err := p.conn.Exec(ctx, fmt.Sprintf(`CREATE DATABASE %q WITH TEMPLATE %q`, name, template))
+	_, err := p.conn.Exec(ctx, `CREATE DATABASE `+quoteIdent(name)+` WITH TEMPLATE `+quoteIdent(template))
 	return err
 }
 
 // DropDB runs DROP DATABASE IF EXISTS "<name>".
 // Existing connections are NOT terminated here; call KillConnections first.
 func (p *PGConn) DropDB(ctx context.Context, name string) error {
-	_, err := p.conn.Exec(ctx, fmt.Sprintf(`DROP DATABASE IF EXISTS %q`, name))
+	_, err := p.conn.Exec(ctx, `DROP DATABASE IF EXISTS `+quoteIdent(name))
 	return err
 }
 

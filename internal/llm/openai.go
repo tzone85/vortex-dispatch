@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 )
@@ -23,7 +22,7 @@ type OpenAIClient struct {
 func NewOpenAIClient(apiKey string) *OpenAIClient {
 	return &OpenAIClient{
 		apiKey:     apiKey,
-		httpClient: &http.Client{},
+		httpClient: &http.Client{Timeout: defaultHTTPTimeout},
 		baseURL:    openaiAPIURL,
 	}
 }
@@ -109,7 +108,7 @@ func (c *OpenAIClient) Complete(ctx context.Context, req CompletionRequest) (Com
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := limitedReadAll(resp.Body)
 	if err != nil {
 		return CompletionResponse{}, fmt.Errorf("read response: %w", err)
 	}

@@ -189,6 +189,13 @@ architecture and conventions when planning stories.`, profileContext)
 	}
 	idMap := make(map[string]string, len(stories))
 	for i, s := range stories {
+		// Story IDs come from LLM output and flow into git refs and filesystem
+		// paths. Validate the charset to prevent path traversal / argument
+		// injection before the ID is prefixed and persisted (see
+		// state.ValidateStoryID and CLAUDE.md "Prompt Injection Defenses").
+		if err := state.ValidateStoryID(s.ID); err != nil {
+			return PlanResult{}, fmt.Errorf("tech lead returned invalid story ID: %w", err)
+		}
 		// Reject duplicate story IDs — LLM hallucination would silently drop stories.
 		if _, exists := idMap[s.ID]; exists {
 			return PlanResult{}, fmt.Errorf("LLM returned duplicate story ID: %s", s.ID)

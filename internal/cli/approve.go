@@ -73,6 +73,22 @@ func runApprove(cmd *cobra.Command, args []string) error {
 }
 
 func approveStory(cmd *cobra.Command, s stores, storyID string) error {
+	// Validate the story exists and is in the correct state BEFORE requiring
+	// external tooling (gh). These checks are cheap and deterministic, so they
+	// should fail fast with an accurate error rather than complaining about a
+	// missing CLI for a story that could never be approved anyway.
+	story, err := s.Proj.GetStory(storyID)
+	if err != nil {
+		return fmt.Errorf("story %s not found", storyID)
+	}
+	if story.Status != "awaiting_approval" {
+		return fmt.Errorf("story %s is in status %q, not awaiting_approval", storyID, story.Status)
+	}
+	// A story with no PR can never be merged, regardless of tooling. Surface
+	// that accurate error before requiring the gh CLI.
+	if story.PRNumber == 0 {
+		return fmt.Errorf("story %s has no PR", storyID)
+	}
 	if !vxdgit.GHAvailable() {
 		return fmt.Errorf("gh CLI is required to approve and merge story %s", storyID)
 	}

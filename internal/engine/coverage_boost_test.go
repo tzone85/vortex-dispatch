@@ -81,7 +81,13 @@ func TestWriteMetadata_Success(t *testing.T) {
 }
 
 func TestWriteMetadata_InvalidDir(t *testing.T) {
-	err := WriteMetadata("/nonexistent/path/that/does/not/exist", ProjectMetadata{
+	// Use a regular file as the parent path. MkdirAll under a file yields
+	// ENOTDIR regardless of privilege, keeping the test hermetic under root.
+	file := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := WriteMetadata(filepath.Join(file, "sub"), ProjectMetadata{
 		Name: "test",
 	})
 	if err == nil {

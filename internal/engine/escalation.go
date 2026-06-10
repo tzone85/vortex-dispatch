@@ -177,9 +177,20 @@ func (e *EscalationMachine) ValidateSplitWithEdges(parentSplitDepth int, childre
 	}
 
 	// Build suffix set first so it can be reused for both duplicate detection
-	// and edge validation.
+	// and edge validation. Child IDs and suffixes originate from LLM output
+	// (split/re-plan) and flow into git refs and filesystem paths, so they are
+	// validated against the safe story-ID charset to prevent path traversal
+	// and argument injection (see state.ValidateStoryID).
 	suffixSet := make(map[string]bool, len(children))
 	for _, child := range children {
+		if err := state.ValidateStoryID(child.Suffix); err != nil {
+			return fmt.Errorf("invalid child suffix: %w", err)
+		}
+		if child.ID != "" {
+			if err := state.ValidateStoryID(child.ID); err != nil {
+				return fmt.Errorf("invalid child story ID: %w", err)
+			}
+		}
 		if suffixSet[child.Suffix] {
 			return fmt.Errorf("duplicate child suffix: %q", child.Suffix)
 		}

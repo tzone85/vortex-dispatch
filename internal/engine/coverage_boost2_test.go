@@ -251,7 +251,14 @@ func TestForceAcquireLock_OverridesExistingAndReads(t *testing.T) {
 }
 
 func TestWriteLockFile_InvalidPath(t *testing.T) {
-	err := writeLockFile("/nonexistent/path/lock.json", LockInfo{PID: 1})
+	// Use a regular file as if it were a parent directory. Writing a child
+	// path under a file yields ENOTDIR regardless of privilege, so the test
+	// is hermetic even when run as root (where /nonexistent would be created).
+	file := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := writeLockFile(filepath.Join(file, "lock.json"), LockInfo{PID: 1})
 	if err == nil {
 		t.Error("expected error writing to invalid path")
 	}

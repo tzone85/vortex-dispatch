@@ -12,17 +12,19 @@ import (
 // git history, and potentially tests. This triggers the CodebaseArchaeology and
 // LegacyCodeSurvival diagnostic playbooks.
 func detectExistingCodebase(repoPath string) bool {
-	// Check for git history beyond the initial commit
+	// Check for git history beyond the initial commit. A git error (no repo,
+	// no HEAD, signing/hook failure) must NOT short-circuit detection: a
+	// working tree full of source files is an existing codebase regardless of
+	// whether its history is readable. So on error we fall through to the
+	// source-file heuristic below rather than returning false.
 	cmd := exec.Command("git", "rev-list", "--count", "HEAD")
 	cmd.Dir = repoPath
-	out, err := cmd.Output()
-	if err != nil {
-		return false
-	}
-	commitCount := strings.TrimSpace(string(out))
-	// More than 3 commits = existing codebase with history
-	if commitCount != "" && commitCount != "0" && commitCount != "1" && commitCount != "2" && commitCount != "3" {
-		return true
+	if out, err := cmd.Output(); err == nil {
+		commitCount := strings.TrimSpace(string(out))
+		// More than 3 commits = existing codebase with history
+		if commitCount != "" && commitCount != "0" && commitCount != "1" && commitCount != "2" && commitCount != "3" {
+			return true
+		}
 	}
 
 	// Check for existing source files beyond scaffolding

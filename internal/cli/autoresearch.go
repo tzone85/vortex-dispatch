@@ -52,10 +52,11 @@ Subcommands:
 
 func newAutoresearchStartCmd() *cobra.Command {
 	var (
-		budget     time.Duration
-		continuous bool
-		duration   time.Duration
-		dryRun     bool
+		budget         time.Duration
+		continuous     bool
+		duration       time.Duration
+		dryRun         bool
+		maxExperiments int
 	)
 	cmd := &cobra.Command{
 		Use:   "start <repo>",
@@ -75,6 +76,9 @@ func newAutoresearchStartCmd() *cobra.Command {
 			}
 			if continuous {
 				cfg.Autoresearch.Continuous = true
+			}
+			if maxExperiments > 0 {
+				cfg.Autoresearch.MaxExperiments = maxExperiments
 			}
 
 			repoDir, err := filepath.Abs(repoArg)
@@ -127,6 +131,7 @@ func newAutoresearchStartCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&budget, "budget", 0, "Override autoresearch.budget (e.g. 10m)")
 	cmd.Flags().BoolVar(&continuous, "continuous", false, "Run back-to-back instead of scheduled batch")
 	cmd.Flags().DurationVar(&duration, "duration", 0, "Maximum wall-clock duration for this session (default: until Ctrl-C)")
+	cmd.Flags().IntVar(&maxExperiments, "max-experiments", 0, "Hard cap on total experiments this run (0 = unlimited); bounds API spend")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Validate config and resolve dependencies without spawning the coordinator")
 	return cmd
 }
@@ -244,6 +249,10 @@ func buildLiveCoordinator(repoDir string, cfg config.Config) (*autoresearch.Coor
 		parallel,
 		budget,
 	)
+	// Hard ceiling on total experiments (spend) for this run, if configured.
+	if cfg.Autoresearch.MaxExperiments > 0 {
+		coord.MaxExperiments = cfg.Autoresearch.MaxExperiments
+	}
 
 	// One last log line so operators can confirm the runtime selection.
 	fmt.Fprintf(os.Stderr, "autoresearch: runtime=%s model=%s baseline-source=fixed\n", runtimeName, model)

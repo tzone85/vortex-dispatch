@@ -73,6 +73,15 @@ type Coordinator struct {
 	Parallel      int
 	Budget        time.Duration
 
+	// MaxExperiments caps the total number of experiments across the whole
+	// run (0 = unlimited). Each experiment spawns an LLM agent plus tripwire
+	// LLM calls, so this is the hard ceiling on spend for a single run.
+	MaxExperiments int
+	// MaxConsecutiveFailures stops the loop after this many consecutive waves
+	// in which every experiment failed — a circuit breaker against burning
+	// API credits on a persistently broken setup (0 = disabled).
+	MaxConsecutiveFailures int
+
 	stop chan struct{}
 	once sync.Once
 }
@@ -94,7 +103,10 @@ func NewCoordinator(repo string, bank *HypothesisBank, sampler *BayesSampler, ru
 		Baseline:      baseline,
 		Parallel:      parallel,
 		Budget:        budget,
-		stop:          make(chan struct{}),
+		// Circuit breaker on by default: after 10 consecutive fully-failed
+		// waves the loop stops rather than burning credits indefinitely.
+		MaxConsecutiveFailures: 10,
+		stop:                   make(chan struct{}),
 	}
 }
 
@@ -106,6 +118,8 @@ func (c *Coordinator) Stop() {
 // Run blocks until ctx is cancelled or Stop is called. Schedules
 // experiments in waves of size Parallel.
 func (c *Coordinator) Run(ctx context.Context) error {
+	total := 0
+	consecutiveFailedWaves := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -115,25 +129,73 @@ func (c *Coordinator) Run(ctx context.Context) error {
 		default:
 		}
 
-		// Run one wave of Parallel experiments concurrently.
+		// Spend ceilings: stop cleanly when the hard experiment cap is reached,
+		// and trip the circuit breaker after too many fully-failed waves.
+		if c.MaxExperiments > 0 && total >= c.MaxExperiments {
+			c.emitStopped("max_experiments_reached", total)
+			return nil
+		}
+		if c.MaxConsecutiveFailures > 0 && consecutiveFailedWaves >= c.MaxConsecutiveFailures {
+			c.emitStopped("circuit_breaker_consecutive_failures", total)
+			return fmt.Errorf("autoresearch circuit breaker: %d consecutive failed waves", consecutiveFailedWaves)
+		}
+
+		// Size this wave, respecting any remaining experiment budget.
+		n := c.Parallel
+		if c.MaxExperiments > 0 && total+n > c.MaxExperiments {
+			n = c.MaxExperiments - total
+		}
+
+		// Run one wave of n experiments concurrently, tracking how many failed.
 		var wg sync.WaitGroup
-		for i := 0; i < c.Parallel; i++ {
+		var mu sync.Mutex
+		failures := 0
+		for i := 0; i < n; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
+				ok := false
 				defer func() {
 					if r := recover(); r != nil {
 						c.emitPanic(fmt.Sprintf("%v", r))
 					}
+					if !ok {
+						mu.Lock()
+						failures++
+						mu.Unlock()
+					}
 				}()
 				if err := c.tick(ctx); err != nil {
-					// One bad tick should not stop the whole loop.
+					// One bad tick should not stop the whole loop, but it counts
+					// toward the consecutive-failure circuit breaker.
 					return
 				}
+				ok = true
 			}()
 		}
 		wg.Wait()
+
+		total += n
+		if failures == n && n > 0 {
+			consecutiveFailedWaves++
+		} else {
+			consecutiveFailedWaves = 0
+		}
 	}
+}
+
+// emitStopped records why the coordinator loop terminated (budget/circuit
+// breaker) for operator visibility.
+func (c *Coordinator) emitStopped(reason string, total int) {
+	if c.Runner == nil || c.Runner.Events == nil {
+		return
+	}
+	evt := state.NewEvent(state.EventCoordinatorStopped, "autoresearch", "", map[string]any{
+		"repo":              c.Repo,
+		"reason":            reason,
+		"total_experiments": total,
+	})
+	_ = c.Runner.Events.Append(evt)
 }
 
 // tick dispatches one experiment.

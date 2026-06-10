@@ -563,3 +563,30 @@ sla:
 		t.Errorf("bare int key: expected [5]=240, got %d", cfg2.SLA.MaxMinutesPerComplexity[5])
 	}
 }
+
+func TestValidate_RejectsUnsafeStateDir(t *testing.T) {
+	bad := []string{
+		"~/.vxd; rm -rf /",        // shell injection
+		"~/.vxd$(whoami)",         // command substitution
+		"~/../../etc",             // traversal
+		"~/.vxd`id`",              // backtick
+		"~/.vxd | tee x",          // pipe
+	}
+	for _, dir := range bad {
+		cfg := config.DefaultConfig()
+		cfg.Workspace.StateDir = dir
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("Validate() accepted unsafe state_dir %q", dir)
+		}
+	}
+}
+
+func TestValidate_AcceptsNormalStateDir(t *testing.T) {
+	for _, dir := range []string{"~/.vxd", "/var/lib/vxd", "~/.vxd-mukuru-api", "./state"} {
+		cfg := config.DefaultConfig()
+		cfg.Workspace.StateDir = dir
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() rejected normal state_dir %q: %v", dir, err)
+		}
+	}
+}

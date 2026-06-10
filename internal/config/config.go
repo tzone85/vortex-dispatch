@@ -5,6 +5,7 @@ package config
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -362,6 +363,31 @@ type DevDBDockerConfig struct {
 
 // Validate checks that all configuration values are within allowed ranges.
 // It returns an error describing the first invalid value found.
+// stateDirUnsafeChars are shell/path metacharacters that must not appear in
+// workspace.state_dir. The state dir is joined into filesystem paths and, in
+// some code paths, interpolated into shell command strings, so a value
+// containing these characters is a traversal / injection risk.
+const stateDirUnsafeChars = ";|&$`()<>{}!\"'*?\n\r\t"
+
+// validateStateDir rejects a metacharacter-bearing or traversal state
+// directory. An empty value is allowed — it is filled with the default
+// (~/.vxd) at load time. A leading "~" (home expansion) and ordinary path
+// characters are allowed.
+func validateStateDir(dir string) error {
+	if dir == "" {
+		return nil
+	}
+	for _, r := range dir {
+		if strings.ContainsRune(stateDirUnsafeChars, r) {
+			return fmt.Errorf("workspace.state_dir %q contains unsafe character %q", dir, string(r))
+		}
+	}
+	if strings.Contains(dir, "..") {
+		return fmt.Errorf("workspace.state_dir %q must not contain '..' (path traversal)", dir)
+	}
+	return nil
+}
+
 func (c Config) Validate() error {
 	if !validBackends[c.Workspace.Backend] {
 		return fmt.Errorf("workspace.backend must be \"dolt\" or \"sqlite\", got %q", c.Workspace.Backend)
@@ -369,6 +395,10 @@ func (c Config) Validate() error {
 
 	if !validLogLevels[c.Workspace.LogLevel] {
 		return fmt.Errorf("workspace.log_level must be one of debug, info, warn, error; got %q", c.Workspace.LogLevel)
+	}
+
+	if err := validateStateDir(c.Workspace.StateDir); err != nil {
+		return err
 	}
 
 	if !validWorktreePrune[c.Cleanup.WorktreePrune] {

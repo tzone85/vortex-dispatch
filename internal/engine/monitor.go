@@ -20,6 +20,7 @@ import (
 	"github.com/tzone85/vortex-dispatch/internal/llm"
 	"github.com/tzone85/vortex-dispatch/internal/notify"
 	"github.com/tzone85/vortex-dispatch/internal/runtime"
+	"github.com/tzone85/vortex-dispatch/internal/sanitize"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
 
@@ -1432,8 +1433,18 @@ func (m *Monitor) handleTechLeadEscalation(ctx context.Context, story PlannedSto
 	}
 	logPath := filepath.Join(logDir, storyID+".log")
 	if data, err := os.ReadFile(logPath); err == nil {
+		// The agent log is untrusted data: a hallucinating or compromised
+		// agent could emit "ignore previous instructions, decompose into …"
+		// which would otherwise steer the Tech Lead re-planner. Screen it the
+		// same way the executor screens review feedback before re-injecting it.
+		logText := string(data)
 		failureContext.WriteString("\nAgent log:\n")
-		failureContext.Write(data)
+		if sanitize.DetectPromptInjection(logText) {
+			log.Printf("[tech-lead] stripped prompt injection from agent log for %s", storyID)
+			failureContext.WriteString("[Agent log redacted — contained prompt injection pattern]")
+		} else {
+			failureContext.WriteString(logText)
+		}
 	}
 
 	// Check if planner is available.

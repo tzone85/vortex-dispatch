@@ -1834,8 +1834,12 @@ func pullBaseAfterMerge(repoDir, baseBranch string) {
 // If the stash itself fails it skips the pull cleanly rather than logging
 // a noisy "failed" message that implies a real error.
 func gitPullWithStash(repoDir, branch string) {
-	// Check for dirty working tree.
-	statusOut, err := exec.Command("git", "status", "--porcelain").Output()
+	// Check for dirty working tree. The status check MUST run against repoDir,
+	// not the daemon's CWD — otherwise the stash/pull decision is made for the
+	// wrong repository and can stash/pop an unrelated tree.
+	statusCmd := exec.Command("git", "status", "--porcelain")
+	statusCmd.Dir = repoDir
+	statusOut, err := statusCmd.Output()
 	statusOut2 := ""
 	if err == nil {
 		statusOut2 = strings.TrimSpace(string(statusOut))

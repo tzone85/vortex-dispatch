@@ -3,8 +3,10 @@ package docker_test
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/tzone85/vortex-dispatch/internal/devdb"
@@ -75,5 +77,61 @@ func TestClient_InspectContainer_Running(t *testing.T) {
 	}
 	if !state.Exists || !state.Running {
 		t.Errorf("state = %+v, want Exists=true Running=true", state)
+	}
+}
+
+func TestClient_CreateContainer_BindsLoopbackByDefault(t *testing.T) {
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/containers/create" {
+			gotBody, _ = io.ReadAll(r.Body)
+			w.WriteHeader(http.StatusCreated)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"Id":"abc123"}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	c := docker.NewClient(docker.ClientConfig{BaseURL: srv.URL})
+	_, err := c.CreateContainer(context.Background(), docker.CreateContainerSpec{
+		Name:          "vxd-devdb-pg16",
+		Image:         "postgres:16",
+		HostPort:      5500,
+		AdminPassword: "pw",
+		// HostBindIP left empty → must default to loopback.
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(gotBody), `"HostIp":"127.0.0.1"`) {
+		t.Errorf("CreateContainer body must bind to loopback by default; got: %s", gotBody)
+	}
+}
+
+func TestClient_CreateContainer_RespectsExplicitBindIP(t *testing.T) {
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/containers/create" {
+			gotBody, _ = io.ReadAll(r.Body)
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"Id":"abc123"}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	c := docker.NewClient(docker.ClientConfig{BaseURL: srv.URL})
+	_, err := c.CreateContainer(context.Background(), docker.CreateContainerSpec{
+		Name: "vxd-devdb-pg16", Image: "postgres:16", HostPort: 5500,
+		AdminPassword: "pw", HostBindIP: "0.0.0.0",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(gotBody), `"HostIp":"0.0.0.0"`) {
+		t.Errorf("CreateContainer body should honor explicit HostBindIP; got: %s", gotBody)
 	}
 }

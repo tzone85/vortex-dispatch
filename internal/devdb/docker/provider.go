@@ -80,6 +80,23 @@ func applyDefaults(c Config) Config {
 	return c
 }
 
+// bindIPForHost decides which host interface the container's Postgres port
+// should bind to, based on the configured DB host.
+//
+// For the default loopback host (localhost / 127.0.0.1 / ::1 / empty) the port
+// binds to 127.0.0.1 only, so the dev database is not reachable from the LAN.
+// For an explicit non-loopback host — a Colima/Lima VM IP, where the operator
+// deliberately connects across the VM boundary — it binds to 0.0.0.0 so that
+// cross-host access keeps working.
+func bindIPForHost(host string) string {
+	switch host {
+	case "", "localhost", "127.0.0.1", "::1":
+		return "127.0.0.1"
+	default:
+		return "0.0.0.0"
+	}
+}
+
 // Name returns "docker".
 func (p *Provider) Name() string { return "docker" }
 
@@ -122,6 +139,7 @@ func (p *Provider) EnsureContainer(ctx context.Context) error {
 			VolumeMount:   p.cfg.TemplateVolume,
 			AdminPassword: pw,
 			Network:       p.cfg.Network,
+			HostBindIP:    bindIPForHost(p.cfg.Host),
 		}
 		id, err := p.client.CreateContainer(ctx, spec)
 		if err != nil {

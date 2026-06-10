@@ -112,11 +112,20 @@ type CreateContainerSpec struct {
 	VolumeMount   string // host path → /var/lib/postgresql/data
 	AdminPassword string
 	Network       string
+	// HostBindIP is the host interface the container port binds to. Empty
+	// defaults to 127.0.0.1 (loopback only) so the dev database — which holds
+	// forked production-snapshot data — is not exposed on every network
+	// interface. Set to "0.0.0.0" only for remote-host (Colima/Lima VM) setups.
+	HostBindIP string
 }
 
 // CreateContainer creates the host Postgres container with port + volume + env.
 // Returns the container ID.
 func (c *Client) CreateContainer(ctx context.Context, spec CreateContainerSpec) (string, error) {
+	bindIP := spec.HostBindIP
+	if bindIP == "" {
+		bindIP = "127.0.0.1"
+	}
 	body := map[string]any{
 		"Image": spec.Image,
 		"Env":   []string{"POSTGRES_PASSWORD=" + spec.AdminPassword, "POSTGRES_USER=postgres"},
@@ -124,7 +133,7 @@ func (c *Client) CreateContainer(ctx context.Context, spec CreateContainerSpec) 
 			"NetworkMode": spec.Network,
 			"Binds":       []string{spec.VolumeMount + ":/var/lib/postgresql/data"},
 			"PortBindings": map[string]any{
-				"5432/tcp": []map[string]string{{"HostPort": fmt.Sprintf("%d", spec.HostPort)}},
+				"5432/tcp": []map[string]string{{"HostIp": bindIP, "HostPort": fmt.Sprintf("%d", spec.HostPort)}},
 			},
 		},
 		"ExposedPorts": map[string]any{"5432/tcp": map[string]any{}},

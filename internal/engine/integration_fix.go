@@ -86,7 +86,12 @@ func (f *TechLeadFixer) buildPrompt(triggerStoryID, buildError string, recentSto
 // never stalls the monitor's pipeline goroutine.
 func (f *TechLeadFixer) DispatchIntegrationFix(ctx context.Context, triggerStoryID, repoDir, buildError string) {
 	go func() {
-		fixCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		// Detach from the caller's context. postExecutionPipeline cancels its
+		// pipelineCtx via defer as soon as it returns — which is immediately
+		// after dispatching this fire-and-forget goroutine. Deriving fixCtx
+		// from that context would cancel the LLM call before it could run, so
+		// use a fresh background context with our own timeout instead.
+		fixCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 
 		// Look up recently merged stories for the same requirement.

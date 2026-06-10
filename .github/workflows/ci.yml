@@ -7,8 +7,10 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege by default: the workflow only needs to read the repo.
+# The release job elevates to contents: write locally.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   test:
@@ -34,15 +36,18 @@ jobs:
           git config --global init.defaultBranch main
           git config --global user.email "ci@vortex-dispatch.local"
           git config --global user.name "VXD CI"
+          # Tests create throwaway commits; never attempt to sign them so the
+          # suite stays hermetic regardless of the runner's git config.
+          git config --global commit.gpgsign false
 
       - name: Run vet
         run: go vet ./...
 
       - name: Run tests
-        # internal/improve and internal/cli are excluded — chronic CI failures
-        # under investigation; both pass locally with `go test ./...`. Tracked
-        # in CLAUDE.md "Coverage roadmap" tech debt.
-        run: go test -race -coverprofile=coverage.out -covermode=atomic $(go list ./... | grep -vE 'improve|internal/cli$')
+        # Full suite — every package, including internal/improve and
+        # internal/cli (previously excluded for non-hermetic git/gh
+        # dependencies, now fixed).
+        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4
@@ -91,11 +96,35 @@ jobs:
           name: vxd-linux
           path: vxd
 
+  vulncheck:
+    name: Vulnerability scan
+    runs-on: ubuntu-latest
+    # Advisory for now: govulncheck releases can lag a brand-new Go language
+    # version (go 1.26), so a tooling-version mismatch must not block CI. Flip
+    # to required once govulncheck tracks the toolchain.
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Run govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
   release:
     name: Release
     runs-on: ubuntu-latest
     needs: [test, lint, build]
     if: startsWith(github.ref, 'refs/tags/v')
+    # The release job is the only one that writes to the repo/releases.
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4

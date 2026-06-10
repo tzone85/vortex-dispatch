@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tzone85/vortex-dispatch/internal/sanitize"
+
 	"github.com/tzone85/vortex-dispatch/internal/llm"
 )
 
@@ -33,6 +35,14 @@ func BuildProposalPrompt(opp Opportunity) string {
 	if opp.Budget != "" {
 		budgetGuidance = fmt.Sprintf("Client's stated budget: %s. ", opp.Budget)
 	}
+
+	// The posting fields are scraped, untrusted input. Screen the free-text
+	// fields for prompt-injection patterns before interpolating them so a
+	// hostile posting cannot hijack the drafting agent (the output is also
+	// screened post-hoc, but input screening fails earlier and safer).
+	title := screenUntrusted(opp.Title)
+	company := screenUntrusted(opp.Company)
+	notes := screenUntrusted(opp.Notes)
 
 	return fmt.Sprintf(`You are writing a freelance proposal for a client posting. This is a DRAFT that a human will review before sending.
 
@@ -61,9 +71,18 @@ Bad example (NEVER do this): "Dear Sir/Madam, I am writing to express my interes
 - Do NOT include any personal data beyond professional capability
 - Keep the total proposal under 400 words
 - End with a specific, actionable next step`,
-		opp.Title, opp.Company, opp.Budget,
-		strings.Join(opp.Skills, ", "), opp.Notes,
+		title, company, opp.Budget,
+		strings.Join(opp.Skills, ", "), notes,
 		budgetGuidance)
+}
+
+// screenUntrusted redacts scraped text that contains prompt-injection patterns
+// before it is interpolated into an LLM prompt.
+func screenUntrusted(s string) string {
+	if sanitize.DetectPromptInjection(s) {
+		return "[redacted — contained prompt injection pattern]"
+	}
+	return s
 }
 
 // EstimateMinBudget returns a budget range string based on hourly rate and effort.

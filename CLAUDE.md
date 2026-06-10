@@ -396,6 +396,7 @@ Known operational gates still required on first run:
 25. `nhooyr.io/websocket → coder/websocket` migration (84 SA1019 deprecations) — OPEN
 26. `monitor.go` 1806-line refactor (HIGH tech-debt finding from audit) — OPEN
 27. Coverage roadmap: raise `cli` (65.6%), `config` (70.9%), `improve` (73%), `state` (78.2%) over 80% — OPEN
+    - NOTE: `internal/cli` and `internal/improve` are no longer excluded from CI. Their non-hermetic git/gh dependencies were fixed (hermetic test helpers, `commit.gpgsign=false` in CI, `approve` validates before requiring `gh`), so the full suite now runs on every push.
 28. Self-improve source-quality gap — research scrapers fetch news, not code-actionable signals — FEATURE REQUEST
 29. **Ephemeral DBs for agents** — COMPLETE as of 2026-05-22. SHIPPED:
     - SP1+SP3 (foundation + Docker provider)

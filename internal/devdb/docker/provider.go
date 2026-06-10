@@ -216,6 +216,11 @@ func (p *Provider) Fork(ctx context.Context, template string, opts devdb.CreateO
 // dbID is the DB name in this provider (the docker provider has no separate
 // opaque ID space).
 func (p *Provider) Delete(ctx context.Context, dbID string) error {
+	// Validate at the provider boundary — consistent with Create/Fork — so a
+	// crafted name cannot break out of identifier quoting in DropDB.
+	if !devdb.IsValid(dbID) {
+		return fmt.Errorf("invalid database name: %q", dbID)
+	}
 	pg, err := p.adminConn(ctx)
 	if err != nil {
 		return err
@@ -292,6 +297,9 @@ func (p *Provider) List(ctx context.Context) ([]devdb.DB, error) {
 
 // Schema returns a text dump of the named DB's schema.
 func (p *Provider) Schema(ctx context.Context, dbID string) (string, error) {
+	if !devdb.IsValid(dbID) {
+		return "", fmt.Errorf("invalid database name: %q", dbID)
+	}
 	dsn := p.dbDSN(dbID, false)
 	pg, err := ConnectPG(ctx, dsn)
 	if err != nil {

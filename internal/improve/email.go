@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // EmailData holds all data needed to build the report email.
@@ -284,7 +285,7 @@ func NewEmailSender(apiKey, baseURL string) *EmailSender {
 	return &EmailSender{
 		apiKey:  apiKey,
 		baseURL: baseURL,
-		client:  &http.Client{},
+		client:  &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
@@ -317,7 +318,7 @@ func (s *EmailSender) Send(ctx context.Context, subject, html, to, from string) 
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return fmt.Errorf("resend returned %d: %s", resp.StatusCode, string(respBody))
 	}

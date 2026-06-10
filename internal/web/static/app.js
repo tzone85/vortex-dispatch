@@ -10,7 +10,15 @@ let confirmCallback = null;
 // ── WebSocket connection ─────────────────────────────────────────────
 function connect() {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-  ws = new WebSocket(`${protocol}//${location.host}/ws`);
+  // The session token is injected into the page by the server on the
+  // authenticated load and persisted in a cookie. Fall back to the URL query
+  // param for the very first load.
+  const token =
+    window.__VXD_TOKEN__ ||
+    new URLSearchParams(location.search).get("token") ||
+    "";
+  const suffix = token ? `?token=${encodeURIComponent(token)}` : "";
+  ws = new WebSocket(`${protocol}//${location.host}/ws${suffix}`);
 
   ws.onopen = () => {
     reconnectDelay = 1000;

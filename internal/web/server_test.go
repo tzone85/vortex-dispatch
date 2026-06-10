@@ -25,7 +25,11 @@ func newTestServer(t *testing.T) *Server {
 		es.Close()  //nolint:errcheck
 		ps.Close()  //nolint:errcheck
 	})
-	return NewServer(es, ps, 0, state.ReqFilter{})
+	s := NewServer(es, ps, 0, state.ReqFilter{})
+	// Disable token auth for the shared test helper; dedicated tests in
+	// auth_test.go exercise the token gate explicitly.
+	s.authToken = ""
+	return s
 }
 
 // seedRequirement emits and projects a REQ_SUBMITTED event and returns the requirement ID.

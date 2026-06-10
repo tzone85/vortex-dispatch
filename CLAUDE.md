@@ -169,7 +169,7 @@ devdb:  # planned — design spec complete, impl in SP1–SP6 PRs
 | `vxd improve log` | Browse improvement changelog (`--disposition`, `--category`, `--since`, `--errors`) |
 | `vxd improve runs` | Show daily run summaries (findings, PRs, email status) |
 | `vxd improve detail <id>` | Full details of a specific finding (reasoning, errors, PR) |
-| `vxd autoresearch start <repo>` | Start autoresearch coordinator for a repo (`--budget`, `--continuous`) |
+| `vxd autoresearch start <repo>` | Start autoresearch coordinator for a repo (`--budget`, `--continuous`, `--max-experiments`) |
 | `vxd autoresearch stop <repo>` | Drain and stop coordinator |
 | `vxd autoresearch status [<repo>]` | Show wins, losses, Bayes posterior, budget |
 | `vxd autoresearch hypotheses <repo>` | List top wins and recent losses with diff hashes |

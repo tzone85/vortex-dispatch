@@ -174,8 +174,9 @@ type AutoresearchConfig struct {
 	EditablePaths  []string            `yaml:"editable_paths"`
 	ForbiddenPaths []string            `yaml:"forbidden_paths,omitempty"`
 	Gate           string              `yaml:"gate"`        // "auto" | "winning" | "pr"
-	Budget         string              `yaml:"budget"`      // duration string, e.g. "5m"
-	Parallel       int                 `yaml:"parallel"`    // max concurrent experiments
+	Budget         string              `yaml:"budget"`          // duration string, e.g. "5m"
+	Parallel       int                 `yaml:"parallel"`        // max concurrent experiments
+	MaxExperiments int                 `yaml:"max_experiments"` // hard cap on total experiments per run (0 = unlimited)
 	Continuous     bool                `yaml:"continuous"`  // run back-to-back vs scheduled batch only
 	Schedule       AutoresearchSchedule `yaml:"schedule,omitempty"`
 	Tripwire       AutoresearchTripwire `yaml:"tripwire,omitempty"`

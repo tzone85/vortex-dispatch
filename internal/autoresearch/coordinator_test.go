@@ -136,3 +136,27 @@ func TestSimplePromptBuilder_IncludesWinsAndLosses(t *testing.T) {
 func contains(haystack, needle string) bool {
 	return len(haystack) >= len(needle) && indexOf(haystack, needle) >= 0
 }
+
+// TestCoordinator_MaxExperimentsCaps verifies the coordinator stops after the
+// configured experiment budget, bounding API spend.
+func TestCoordinator_MaxExperimentsCaps(t *testing.T) {
+	drv := &fakeAgentDriver{diff: "diff", paths: []string{"src/main.go"}}
+	wt := &fakeWorktreeOps{}
+	runner, _, _ := newTestRunner(t, drv, wt)
+
+	var ticks int32
+	c := NewCoordinator("r1", runner.Bank, runner.Sampler, runner, func() float64 { return 100 }, 1, time.Second)
+	c.PromptBuilder = countingPromptBuilder{n: &ticks, inner: SimplePromptBuilder{}}
+	c.MaxExperiments = 3
+
+	// Generous deadline; the cap (not the timeout) must terminate the loop.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := c.Run(ctx); err != nil {
+		t.Fatalf("Run should return nil when the experiment cap is reached, got: %v", err)
+	}
+
+	if got := atomic.LoadInt32(&ticks); got != 3 {
+		t.Errorf("expected exactly 3 experiments under MaxExperiments=3, got %d", got)
+	}
+}

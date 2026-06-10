@@ -97,6 +97,7 @@ const (
 	EventExperimentDiscarded EventType = "EXPERIMENT_DISCARDED"
 	EventExperimentFailed    EventType = "EXPERIMENT_FAILED"
 	EventCoordinatorPanic    EventType = "COORDINATOR_PANIC"
+	EventCoordinatorStopped  EventType = "COORDINATOR_STOPPED"
 	EventProgrammdEvolved    EventType = "PROGRAMMD_EVOLVED"
 )
 

@@ -45,3 +45,19 @@ func TestProvider_DSN_ReadOnly_UsesConfiguredHost(t *testing.T) {
 		t.Errorf("ReadOnly DSN should include read-only option, got: %s", dsn)
 	}
 }
+
+func TestBindIPForHost(t *testing.T) {
+	cases := map[string]string{
+		"":             "127.0.0.1", // default — loopback only
+		"localhost":    "127.0.0.1",
+		"127.0.0.1":    "127.0.0.1",
+		"::1":          "127.0.0.1",
+		"192.168.64.3": "0.0.0.0", // Colima/Lima VM — cross-host access
+		"10.0.0.5":     "0.0.0.0",
+	}
+	for host, want := range cases {
+		if got := bindIPForHost(host); got != want {
+			t.Errorf("bindIPForHost(%q) = %q, want %q", host, got, want)
+		}
+	}
+}

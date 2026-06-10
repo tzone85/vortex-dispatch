@@ -26,6 +26,7 @@ func init() {
 	rootCmd.AddCommand(newAgentsCmd())
 	rootCmd.AddCommand(newEscalationsCmd())
 	rootCmd.AddCommand(newGCCmd())
+	rootCmd.AddCommand(newRebuildCmd())
 	rootCmd.AddCommand(newConfigCmd())
 	rootCmd.AddCommand(newEventsCmd())
 	rootCmd.AddCommand(newDashboardCmd())

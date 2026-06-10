@@ -84,8 +84,14 @@ func (m *Merger) Merge(storyID, storyTitle, repoDir, branch string) (MergeResult
 		Merged:   false,
 	}
 
-	// Auto-merge if configured
-	if m.config.AutoMerge && pr.Number > 0 {
+	// Auto-merge if configured. A zero PR number means CreatePR did not return
+	// a usable PR — surface that as an error rather than silently reporting a
+	// non-merge as success, which would let dependents dispatch against work
+	// that never merged.
+	if m.config.AutoMerge {
+		if pr.Number == 0 {
+			return result, fmt.Errorf("auto-merge requested but no PR number was returned for story %s", storyID)
+		}
 		if err := m.ghOps.MergePR(repoDir, pr.Number); err != nil {
 			return result, fmt.Errorf("auto-merge PR #%d: %w", pr.Number, err)
 		}

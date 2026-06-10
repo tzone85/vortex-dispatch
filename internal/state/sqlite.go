@@ -103,9 +103,20 @@ type SQLiteStore struct {
 	db *sql.DB
 }
 
+// sqliteDSN augments a bare DSN with a busy timeout so concurrent writers
+// (the monitor's pipeline goroutines) wait for the lock instead of failing
+// immediately with SQLITE_BUSY ("database is locked"). It leaves
+// already-parameterized DSNs untouched.
+func sqliteDSN(dsn string) string {
+	if strings.Contains(dsn, "?") {
+		return dsn
+	}
+	return dsn + "?_busy_timeout=5000"
+}
+
 // NewSQLiteStore opens a SQLite database and applies the schema migration.
 func NewSQLiteStore(dsn string) (*SQLiteStore, error) {
-	db, err := sql.Open("sqlite3", dsn)
+	db, err := sql.Open("sqlite3", sqliteDSN(dsn))
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
@@ -180,6 +191,57 @@ func NewSQLiteStore(dsn string) (*SQLiteStore, error) {
 // Close closes the underlying database connection.
 func (s *SQLiteStore) Close() error {
 	return s.db.Close()
+}
+
+// projectionTables lists the materialized tables that Rebuild clears before
+// replaying the event log. Keep in sync with initSQL.
+var projectionTables = []string{
+	"story_deps",
+	"escalations",
+	"agent_scores",
+	"agents",
+	"story_databases",
+	"stories",
+	"requirements",
+}
+
+// Rebuild reconstructs the entire projection from the event log. events.jsonl
+// is the source of truth; the SQLite projection is a derived cache that the
+// constitution requires to be rebuildable at any time. This is the recovery
+// path for the case where the projection diverges from the log (e.g. a crash
+// between a durable Append and its Project call, or a previously-swallowed
+// Project error).
+//
+// It clears all projection tables and replays every event in order inside a
+// single transaction, so a mid-rebuild failure leaves the existing projection
+// untouched.
+func (s *SQLiteStore) Rebuild(es EventStore) error {
+	events, err := es.List(EventFilter{})
+	if err != nil {
+		return fmt.Errorf("read event log: %w", err)
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin rebuild tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck — no-op after a successful Commit
+
+	for _, tbl := range projectionTables {
+		if _, err := tx.Exec("DELETE FROM " + tbl); err != nil {
+			return fmt.Errorf("clear %s: %w", tbl, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit table clear: %w", err)
+	}
+
+	for _, evt := range events {
+		if err := s.Project(evt); err != nil {
+			return fmt.Errorf("replay event %s (%s): %w", evt.ID, evt.Type, err)
+		}
+	}
+	return nil
 }
 
 // Project applies a domain event to the projection tables, updating the
@@ -567,8 +629,11 @@ func (s *SQLiteStore) projectStoryCreated(payload map[string]any) error {
 
 	splitDepth := payloadInt(payload, "split_depth")
 
+	// INSERT OR IGNORE keeps the projection idempotent: replaying the event log
+	// (or a duplicate STORY_CREATED) must not fail with a PRIMARY KEY violation.
+	// This mirrors projectReqSubmitted and the dependency inserts below.
 	_, err := s.db.Exec(
-		`INSERT INTO stories (id, req_id, title, description, acceptance_criteria, complexity, status, owned_files, wave_hint, split_depth)
+		`INSERT OR IGNORE INTO stories (id, req_id, title, description, acceptance_criteria, complexity, status, owned_files, wave_hint, split_depth)
 		 VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)`,
 		storyID,
 		payloadStr(payload, "req_id"),

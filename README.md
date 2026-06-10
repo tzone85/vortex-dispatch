@@ -150,6 +150,7 @@ vhs docs/demo.tape
 | `vxd agents [--status S]` | List all agents with current story, session, and status |
 | `vxd escalations` | List all escalation events with story, agent, reason, and status |
 | `vxd gc [--dry-run]` | Garbage-collect merged branches and worktrees past retention |
+| `vxd rebuild` | Rebuild the SQLite projection by replaying `events.jsonl` (recovery for log↔projection divergence) |
 | `vxd config show` | Pretty-print the current configuration as YAML |
 | `vxd config validate` | Load and validate the configuration file |
 | `vxd events [--type T] [--story S] [--limit N]` | List events from the event store, newest first |

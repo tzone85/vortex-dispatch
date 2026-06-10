@@ -165,6 +165,7 @@ devdb:  # planned — design spec complete, impl in SP1–SP6 PRs
 | `vxd learn [path]` | Run repo analysis (`--force`, `--pass 1\|2\|3`, `--json`) |
 | `vxd backup` | Create tar.gz archive of project state (`--output DIR`) |
 | `vxd gc` | Garbage-collect branches + expired logs |
+| `vxd rebuild` | Rebuild the SQLite projection by replaying `events.jsonl` (recovery for log↔projection divergence) |
 | `vxd improve log` | Browse improvement changelog (`--disposition`, `--category`, `--since`, `--errors`) |
 | `vxd improve runs` | Show daily run summaries (findings, PRs, email status) |
 | `vxd improve detail <id>` | Full details of a specific finding (reasoning, errors, PR) |

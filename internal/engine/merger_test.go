@@ -169,3 +169,31 @@ func TestMerger_Merge_CreatePRError(t *testing.T) {
 		t.Fatal("expected create PR error")
 	}
 }
+
+// TestMerger_Merge_AutoMergeZeroPR verifies that auto-merge with a zero PR
+// number is surfaced as an error rather than silently reported as a non-merge,
+// which would let dependents dispatch against unmerged work.
+func TestMerger_Merge_AutoMergeZeroPR(t *testing.T) {
+	es, ps, cleanup := newTestStores(t)
+	defer cleanup()
+
+	ps.Project(state.NewEvent(state.EventStoryCreated, "tech-lead", "s-zero", map[string]any{
+		"id": "s-zero", "req_id": "r-001", "title": "Task", "description": "desc", "complexity": 3,
+	}))
+
+	// CreatePR returns Number: 0 (no usable PR).
+	ghOps := &mockGitHubOps{createPR: engine.PRCreationResult{Number: 0}}
+	cfg := config.MergeConfig{AutoMerge: true, BaseBranch: "main"}
+	merger := engine.NewMerger(cfg, ghOps, es, ps)
+
+	result, err := merger.Merge("s-zero", "Add thing", "/tmp/repo", "vxd/s-zero")
+	if err == nil {
+		t.Fatal("expected error when auto-merge requested but PR number is 0")
+	}
+	if result.Merged {
+		t.Fatal("result must not report Merged=true when no PR exists")
+	}
+	if ghOps.mergeCalls != 0 {
+		t.Fatalf("MergePR must not be called with a zero PR number, got %d calls", ghOps.mergeCalls)
+	}
+}

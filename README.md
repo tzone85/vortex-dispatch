@@ -285,6 +285,21 @@ vault kv put secret/vxd \
 
 Switching providers requires no code changes — only the config file.
 
+### Dashboard authentication
+
+The web dashboard (`vxd dashboard --web`) binds to `localhost` only and protects
+its WebSocket command channel (which can pause/resume requirements, kill agents,
+and edit stories) with a per-session token:
+
+- A random token is generated at startup and embedded in the URL the command
+  opens in your browser; the page persists it in a `Strict`-SameSite cookie.
+- `/ws` rejects any connection without the correct token (constant-time check),
+  closing the path where another local process could drive the orchestrator.
+- The Origin check additionally blocks cross-origin browser pages (CSWSH).
+
+If you open the dashboard manually, use the tokenized URL printed in the
+terminal (`http://localhost:<port>/?token=…`).
+
 ### Health Endpoint
 
 When running `vxd dashboard --web`, a `/health` endpoint returns JSON `{status: "ok", version: "0.1.0"}` for systemd, Docker, or Kubernetes liveness probes.
@@ -318,7 +333,7 @@ Run `vxd init` to generate `vxd.yaml` with sensible defaults, then customize:
 | `sla` | Per-Fibonacci-point maximum story duration in minutes; `auto_escalate` promotes breached stories to the next tier | `1pt→60m`, `2pt→120m`, `3pt→240m`, `5pt→480m`, `8pt→960m`, `13pt→1920m`; `auto_escalate: false` |
 | `secrets` | Secrets provider: `env` (default, reads from environment) or `vault` (HashiCorp Vault KV v2) | `provider: env`; Vault settings: `vault_mount: secret`, `vault_path: vxd` |
 | `notify` | Outbound Slack webhook URL and per-event triggers (`notify_on_sla`, `notify_on_complete`) | Disabled by default (empty `slack_webhook_url`) |
-| `autoresearch` | Per-repo Karpathy-style experiment loop: metric command, editable_paths allowlist, gate (`auto`/`winning`/`pr`), experiment budget, and Bayesian sampler | Disabled by default (`enabled: false`); requires `metric.command` and `editable_paths` when enabled |
+| `autoresearch` | Per-repo Karpathy-style experiment loop: metric command, editable_paths allowlist, gate (`auto`/`winning`/`pr`), experiment budget, `max_experiments` spend cap, and Bayesian sampler | Disabled by default (`enabled: false`); requires `metric.command` and `editable_paths` when enabled. A consecutive-failure circuit breaker stops runaway runs; `max_experiments` (or `--max-experiments`) hard-caps total experiments. |
 | `devdb` | Per-story ephemeral Postgres: backend (`ghost`/`docker`/`null`), template DB to fork from, on-failure retention policy, and provider-specific settings | Disabled by default (`provider: null`); requires `template` when enabled. See "Ephemeral Databases" section below. |
 
 ## Ephemeral Databases
@@ -351,6 +366,11 @@ devdb:
 ```
 
 Agents read `DATABASE_URL` from `.vxd-db/connect.env` (auto-injected into the worktree). Humans use `vxd db list/connect/logs/delete` plus the dashboard's per-story DB column.
+
+The Docker provider publishes its Postgres port on `127.0.0.1` (loopback) by
+default, so forked snapshot data is not exposed on the LAN. When `devdb.docker.host`
+is set to a non-loopback address (e.g. a Colima/Lima VM IP), the port binds to
+`0.0.0.0` so cross-host access keeps working.
 
 For runtime usage run `vxd db --help`.
 

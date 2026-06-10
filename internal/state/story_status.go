@@ -11,11 +11,16 @@ package state
 // This function lives in the state package (not engine) so that sqlite.go
 // can use it for state-machine guards without creating an import cycle
 // (engine already imports state).
+// terminalStatuses are the story statuses treated as "done" for DAG
+// dependency-resolution. Kept as a single source of truth so SQL guards (e.g.
+// guardedStartStory) and IsStoryComplete cannot drift apart.
+var terminalStatuses = []string{"merged", "pr_submitted", "split", "awaiting_approval"}
+
 func IsStoryComplete(status string) bool {
-	switch status {
-	case "merged", "pr_submitted", "split", "awaiting_approval":
-		return true
-	default:
-		return false
+	for _, t := range terminalStatuses {
+		if status == t {
+			return true
+		}
 	}
+	return false
 }

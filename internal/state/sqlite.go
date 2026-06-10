@@ -703,18 +703,33 @@ func (s *SQLiteStore) updateStoryStatus(storyID, status string) error {
 // the dispatcher (e.g., the auto-resume loop fixed in PR #40). Rejecting such
 // transitions here surfaces the bug instead of silently corrupting state.
 func (s *SQLiteStore) guardedStartStory(storyID string) error {
-	var currentStatus string
-	err := s.db.QueryRow(`SELECT status FROM stories WHERE id = ?`, storyID).Scan(&currentStatus)
+	// Atomic guard: transition to in_progress only when the current status is
+	// not terminal. A single conditional UPDATE avoids the check-then-act race
+	// that a separate SELECT+UPDATE exposes under concurrent projection from
+	// multiple pipeline goroutines. A non-existent story matches zero rows
+	// (benign — STORY_STARTED replayed before STORY_CREATED).
+	placeholders := make([]string, len(terminalStatuses))
+	args := make([]any, 0, len(terminalStatuses)+1)
+	args = append(args, storyID)
+	for i, st := range terminalStatuses {
+		placeholders[i] = "?"
+		args = append(args, st)
+	}
+	query := `UPDATE stories SET status = 'in_progress', updated_at = CURRENT_TIMESTAMP
+		 WHERE id = ? AND status NOT IN (` + strings.Join(placeholders, ",") + `)`
+	res, err := s.db.Exec(query, args...)
 	if err != nil {
-		// Story not found yet — allow the transition so that
-		// STORY_STARTED events replayed before STORY_CREATED don't error.
-		return s.updateStoryStatus(storyID, "in_progress")
+		return err
 	}
-	if IsStoryComplete(currentStatus) {
-		log.Printf("[projection] rejecting STORY_STARTED for %s: current status is terminal (%s) — likely a dispatcher bug", storyID, currentStatus)
-		return nil // no state regression; silently drop the transition
+	// If nothing changed, distinguish a terminal status (likely dispatcher bug,
+	// worth logging) from a not-yet-created story (benign).
+	if n, _ := res.RowsAffected(); n == 0 {
+		var currentStatus string
+		if qErr := s.db.QueryRow(`SELECT status FROM stories WHERE id = ?`, storyID).Scan(&currentStatus); qErr == nil && IsStoryComplete(currentStatus) {
+			log.Printf("[projection] rejecting STORY_STARTED for %s: current status is terminal (%s) — likely a dispatcher bug", storyID, currentStatus)
+		}
 	}
-	return s.updateStoryStatus(storyID, "in_progress")
+	return nil
 }
 
 func (s *SQLiteStore) updateStoryApproved(storyID string) error {

@@ -120,7 +120,14 @@ func (r *SSHRunner) Run(pe PreparedExecution) error {
 }
 
 // Terminate kills the remote process by session ID pattern.
+// Validates sessionID before composing the pkill command — sessionIDs
+// are internally generated today (ULID + role + counter), but the
+// defence-in-depth check stops a regression in the ID-generation path
+// from becoming a remote command injection.
 func (r *SSHRunner) Terminate(sessionID string) error {
+	if err := ValidateSessionName(sessionID); err != nil {
+		return fmt.Errorf("ssh terminate: %w", err)
+	}
 	cmd := fmt.Sprintf("pkill -f %q 2>/dev/null || true", sessionID)
 	return r.sshExec("sh", "-c", cmd)
 }
@@ -130,8 +137,13 @@ func (r *SSHRunner) SendInput(sessionID string, input string) error {
 	return fmt.Errorf("SendInput not supported for SSH runner")
 }
 
-// ReadOutput reads the last N lines from the remote log file.
+// ReadOutput reads the last N lines from the remote log file. Validates
+// sessionID to keep `path.Join` from emitting a remote path that
+// includes shell metacharacters or traversal segments.
 func (r *SSHRunner) ReadOutput(sessionID string, lines int) (string, error) {
+	if err := ValidateSessionName(sessionID); err != nil {
+		return "", fmt.Errorf("ssh read output: %w", err)
+	}
 	logPath := path.Join(r.remoteDir, sessionID, "agent.log")
 	cmd := r.buildSSHCmd("tail", fmt.Sprintf("-%d", lines), logPath)
 	out, err := cmd.CombinedOutput()
@@ -142,7 +154,13 @@ func (r *SSHRunner) ReadOutput(sessionID string, lines int) (string, error) {
 }
 
 // IsAlive checks if the remote process is still running.
+// Returns false (not "alive") on an invalid sessionID so a future bug
+// in the ID generator surfaces as "dead session" rather than reaching
+// `pgrep -f` with attacker-influenced content.
 func (r *SSHRunner) IsAlive(sessionID string) bool {
+	if ValidateSessionName(sessionID) != nil {
+		return false
+	}
 	cmd := r.buildSSHCmd("pgrep", "-f", sessionID)
 	return cmd.Run() == nil
 }

@@ -29,9 +29,10 @@ func TestHealthHandler_ReturnsOK(t *testing.T) {
 	if resp["status"] != "ok" {
 		t.Errorf("status field = %q, want %q", resp["status"], "ok")
 	}
-	if resp["version"] == "" {
-		t.Error("version field should not be empty")
-	}
+	// The bare-function healthHandler still includes version (it's the
+	// legacy form). The Server.healthHandler — exposed at /health on the
+	// real server — does NOT include version; see
+	// TestServer_HealthHandlerEndToEnd_OmitsTelemetry.
 }
 
 func TestHealthHandler_ContentType(t *testing.T) {
@@ -78,7 +79,12 @@ func TestBuildHealthResponse_WithStore(t *testing.T) {
 	}
 }
 
-func TestServer_HealthHandlerEndToEnd(t *testing.T) {
+// TestServer_HealthHandlerEndToEnd_OmitsTelemetry pins the security
+// hardening that strips uptime / events_total / version from the
+// UNAUTHENTICATED /health response. Operational telemetry must move to
+// authenticated endpoints; /health stays minimal so an unauth visitor
+// cannot fingerprint the deployment or enumerate event counts.
+func TestServer_HealthHandlerEndToEnd_OmitsTelemetry(t *testing.T) {
 	dir := t.TempDir()
 	es, err := state.NewFileStore(filepath.Join(dir, "events.jsonl"))
 	if err != nil {
@@ -110,10 +116,9 @@ func TestServer_HealthHandlerEndToEnd(t *testing.T) {
 	if resp["status"] != "ok" {
 		t.Errorf("status = %v, want ok", resp["status"])
 	}
-	if _, ok := resp["uptime_seconds"]; !ok {
-		t.Error("uptime_seconds missing")
-	}
-	if _, ok := resp["events_total"]; !ok {
-		t.Error("events_total missing")
+	for _, banned := range []string{"uptime_seconds", "events_total", "version"} {
+		if _, ok := resp[banned]; ok {
+			t.Errorf("/health unauthenticated response must NOT include %q (telemetry leak)", banned)
+		}
 	}
 }

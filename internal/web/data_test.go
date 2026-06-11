@@ -203,10 +203,8 @@ func TestBuildSnapshot_AgentsListReturnsEmpty(t *testing.T) {
 		t.Fatalf("BuildSnapshot: %v", err)
 	}
 
-	// Agents are not projected, so the list remains empty
-	if snap.Agents == nil {
-		// nil is acceptable when no agents are projected
-	}
+	// Agents are not projected, so snap.Agents may be nil or empty — both fine.
+	_ = snap.Agents
 }
 
 func TestBuildSnapshot_IncludesDAG(t *testing.T) {

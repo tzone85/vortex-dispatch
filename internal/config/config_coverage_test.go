@@ -165,11 +165,8 @@ func TestLoadFromFile_MalformedYAML(t *testing.T) {
 	os.WriteFile(path, []byte("{\t: broken"), 0o644)
 
 	_, err := LoadFromFile(path)
-	if err == nil {
-		// Even if YAML parsing is lenient, this is fine.
-		// Just ensure it doesn't panic.
-	}
-	_ = err // suppress
+	// Either an error or nil is acceptable — the contract is "do not panic".
+	_ = err
 }
 
 // --- DefaultYAML ---

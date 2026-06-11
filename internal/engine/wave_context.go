@@ -16,13 +16,6 @@ const waveContextFileName = "WAVE_CONTEXT.md"
 // This document is read by subsequent stories so they know what prior
 // stories accomplished — preventing blind implementation and conflicting patterns.
 func CaptureStoryContext(repoDir, storyID, storyTitle, branch string) {
-	// Get the diff summary (files changed + key functions/types added)
-	diffStat := runGitSafe(repoDir, "diff", "--stat", "main..."+branch)
-	if diffStat == "" {
-		// Try the merge commit diff if branch already merged
-		diffStat = runGitSafe(repoDir, "log", "--oneline", "-1", "--format=%s")
-	}
-
 	// Get the list of files that were added or modified
 	filesChanged := runGitSafe(repoDir, "diff", "--name-only", "main..."+branch)
 	if filesChanged == "" {

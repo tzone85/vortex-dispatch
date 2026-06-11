@@ -172,21 +172,22 @@ func (c *CLIRuntime) BuildCommand(cfg SessionConfig) (string, error) {
 	// (planner, reviewer, QA) still use the API key from the parent process.
 	// If an agent runtime genuinely needs the Anthropic API key, it can be
 	// configured explicitly via EnvVars in the session config.
-	var envExports string
+	env := make(map[string]string, len(cfg.EnvVars)+3)
 	for _, key := range []string{
 		"OPENAI_API_KEY",
 		"GOOGLE_API_KEY",
 		"GEMINI_API_KEY",
 	} {
 		if val := os.Getenv(key); val != "" {
-			envExports += fmt.Sprintf("export %s=%q; ", key, val)
+			env[key] = val
 		}
 	}
-	// Also pass through any env vars from the session config.
+	// Session-config env wins on conflict; this matches prior ordering
+	// (the second `envExports` append used to clobber the first at runtime).
 	for key, val := range cfg.EnvVars {
-		envExports += fmt.Sprintf("export %s=%q; ", key, val)
+		env[key] = val
 	}
-	cmdStr = envExports + "unset CLAUDECODE; " + cmdStr
+	cmdStr = BuildEnvExports(env) + "unset CLAUDECODE; " + cmdStr
 
 	return cmdStr, nil
 }

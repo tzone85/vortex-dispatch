@@ -361,17 +361,24 @@ Respond ONLY with the JSON array, no other text.`, reqTitle, storyID, storyTitle
 		return nil, fmt.Errorf("replan produced no sub-stories")
 	}
 
-	// Filter out sub-stories with no owned_files (likely hallucinated).
+	// Filter out sub-stories with no owned_files AND no description
+	// (likely hallucinated) or that fail lexical grounding against the
+	// parent (also hallucinated — different topic entirely).
+	parentAnchors := ExtractLexicalAnchors(reqTitle, storyTitle, storyDesc)
 	var valid []PlannedStory
 	for _, s := range stories {
 		if len(s.OwnedFiles) == 0 && s.Description == "" {
 			log.Printf("[replan] skipping empty sub-story %s: no owned_files or description", s.ID)
 			continue
 		}
+		if !HasLexicalGrounding(parentAnchors, s.Title, s.Description) {
+			log.Printf("[replan] skipping ungrounded sub-story %s: %q shares no meaningful tokens with parent context", s.ID, s.Title)
+			continue
+		}
 		valid = append(valid, s)
 	}
 	if len(valid) == 0 {
-		return nil, fmt.Errorf("replan produced no valid sub-stories (all filtered)")
+		return nil, fmt.Errorf("replan produced no valid sub-stories (all filtered — possible LLM hallucination)")
 	}
 
 	return valid, nil

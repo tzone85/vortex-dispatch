@@ -587,16 +587,19 @@ func TestHandleTechLeadEscalation_RePlanSuccess(t *testing.T) {
 	ps.Project(reqEvt)
 
 	storyEvt := state.NewEvent(state.EventStoryCreated, "tl", "s-tl-ok", map[string]any{
-		"id": "s-tl-ok", "req_id": "r-tl-ok", "title": "Complex Task",
-		"description": "desc", "complexity": 8, "split_depth": 0,
+		"id": "s-tl-ok", "req_id": "r-tl-ok", "title": "Refactor payment processing pipeline",
+		"description": "Split payment validation, charge submission, and receipt issuance into focused modules.",
+		"complexity": 8, "split_depth": 0,
 	})
 	es.Append(storyEvt)
 	ps.Project(storyEvt)
 
-	// RePlan response: two replacement stories.
+	// RePlan response: two replacement stories. Titles + descriptions
+	// share grounding tokens ("payment", "validation", "receipt") with
+	// the parent so the new replan_guards.go lexical check accepts them.
 	rePlanResponse := `[
-		{"id": "s-tl-ok-a", "title": "Part A", "description": "first", "acceptance_criteria": "test A", "complexity": 3, "owned_files": ["a.go"]},
-		{"id": "s-tl-ok-b", "title": "Part B", "description": "second", "acceptance_criteria": "test B", "complexity": 3, "owned_files": ["b.go"]}
+		{"id": "s-tl-ok-a", "title": "Extract payment validation step", "description": "Pull payment validation into its own struct.", "acceptance_criteria": "test A", "complexity": 3, "owned_files": ["a.go"]},
+		{"id": "s-tl-ok-b", "title": "Extract receipt issuance step",  "description": "Pull receipt issuance into its own struct.",  "acceptance_criteria": "test B", "complexity": 3, "owned_files": ["b.go"]}
 	]`
 	replayClient := llm.NewReplayClient(llm.CompletionResponse{Content: rePlanResponse})
 

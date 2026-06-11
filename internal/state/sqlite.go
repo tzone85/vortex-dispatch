@@ -118,47 +118,37 @@ func NewSQLiteStore(dsn string) (*SQLiteStore, error) {
 	// Enable WAL mode for concurrent read/write access. The monitor's
 	// pipeline goroutines write concurrently; without WAL, SQLite uses
 	// journal mode which returns "database is locked" under contention.
-	db.Exec("PRAGMA journal_mode=WAL")
-
-	// Migrate existing databases: add acceptance_criteria column if missing.
-	db.Exec(`ALTER TABLE stories ADD COLUMN acceptance_criteria TEXT NOT NULL DEFAULT ''`)
-
-	// Migrate existing databases: add owned_files and wave_hint columns if missing.
-	db.Exec(`ALTER TABLE stories ADD COLUMN owned_files TEXT NOT NULL DEFAULT '[]'`)
-	db.Exec(`ALTER TABLE stories ADD COLUMN wave_hint TEXT NOT NULL DEFAULT 'parallel'`)
-
-	// Migrate existing databases: add repo_path column to requirements if missing.
-	db.Exec(`ALTER TABLE requirements ADD COLUMN repo_path TEXT NOT NULL DEFAULT ''`)
-
-	// Migrate existing databases: add wave and pr_number columns if missing.
-	db.Exec(`ALTER TABLE stories ADD COLUMN wave INTEGER NOT NULL DEFAULT 0`)
-	db.Exec(`ALTER TABLE stories ADD COLUMN pr_number INTEGER NOT NULL DEFAULT 0`)
-
-	// Migrate existing databases: add merged_at column if missing.
-	db.Exec(`ALTER TABLE stories ADD COLUMN merged_at TIMESTAMP`)
-
-	// Migrate existing databases: add escalation columns if missing.
-	escalationMigrations := []string{
-		"ALTER TABLE stories ADD COLUMN escalation_tier INTEGER DEFAULT 0",
-		"ALTER TABLE stories ADD COLUMN split_depth INTEGER DEFAULT 0",
-		"ALTER TABLE escalations ADD COLUMN from_tier INTEGER DEFAULT 0",
-		"ALTER TABLE escalations ADD COLUMN to_tier INTEGER DEFAULT 0",
-	}
-	for _, m := range escalationMigrations {
-		db.Exec(m) // errors ignored for idempotency
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		log.Printf("[sqlite] enable WAL mode: %v (continuing in default journal mode)", err)
 	}
 
-	// Migrate existing databases: add review/estimation/recovery columns to requirements.
-	requirementMigrations := []string{
-		"ALTER TABLE requirements ADD COLUMN review_mode TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE requirements ADD COLUMN estimated_hours_low REAL NOT NULL DEFAULT 0",
-		"ALTER TABLE requirements ADD COLUMN estimated_hours_high REAL NOT NULL DEFAULT 0",
-		"ALTER TABLE requirements ADD COLUMN estimated_cost_low REAL NOT NULL DEFAULT 0",
-		"ALTER TABLE requirements ADD COLUMN estimated_cost_high REAL NOT NULL DEFAULT 0",
-		"ALTER TABLE requirements ADD COLUMN recovered_at TIMESTAMP",
+	// Migrations below are intentionally idempotent — running them on a
+	// fresh DB or a previously-migrated DB returns "duplicate column"
+	// errors that we want to swallow. tryMigrate distinguishes those
+	// expected errors from real failures (disk full, locked DB, perms)
+	// which it logs at WARNING. Without this, a partial migration left
+	// the DB in an inconsistent state with no signal.
+	migrations := []string{
+		`ALTER TABLE stories ADD COLUMN acceptance_criteria TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE stories ADD COLUMN owned_files TEXT NOT NULL DEFAULT '[]'`,
+		`ALTER TABLE stories ADD COLUMN wave_hint TEXT NOT NULL DEFAULT 'parallel'`,
+		`ALTER TABLE requirements ADD COLUMN repo_path TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE stories ADD COLUMN wave INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE stories ADD COLUMN pr_number INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE stories ADD COLUMN merged_at TIMESTAMP`,
+		`ALTER TABLE stories ADD COLUMN escalation_tier INTEGER DEFAULT 0`,
+		`ALTER TABLE stories ADD COLUMN split_depth INTEGER DEFAULT 0`,
+		`ALTER TABLE escalations ADD COLUMN from_tier INTEGER DEFAULT 0`,
+		`ALTER TABLE escalations ADD COLUMN to_tier INTEGER DEFAULT 0`,
+		`ALTER TABLE requirements ADD COLUMN review_mode TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE requirements ADD COLUMN estimated_hours_low REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE requirements ADD COLUMN estimated_hours_high REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE requirements ADD COLUMN estimated_cost_low REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE requirements ADD COLUMN estimated_cost_high REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE requirements ADD COLUMN recovered_at TIMESTAMP`,
 	}
-	for _, m := range requirementMigrations {
-		db.Exec(m) // errors ignored for idempotency
+	for _, m := range migrations {
+		tryMigrate(db, m)
 	}
 
 	indexStatements := []string{
@@ -516,6 +506,20 @@ func (s *SQLiteStore) ListStoryDeps(reqID string) ([]StoryDep, error) {
 		deps = append(deps, d)
 	}
 	return deps, rows.Err()
+}
+
+// tryMigrate runs an idempotent ALTER TABLE statement and distinguishes
+// "duplicate column" errors (expected on a previously-migrated DB) from
+// real failures (disk full, locked DB, perms). Real failures are logged
+// at WARNING so operators see the gap before the projection diverges.
+func tryMigrate(db *sql.DB, stmt string) {
+	if _, err := db.Exec(stmt); err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "duplicate column") {
+			return // benign — column already added by a previous run
+		}
+		log.Printf("[sqlite] migration %q failed: %v", stmt, err)
+	}
 }
 
 // --- private helpers ---

@@ -289,7 +289,9 @@ func (s *Server) handleKill(payload json.RawMessage) WSResponse {
 		"reason": "killed from dashboard",
 		"source": "dashboard",
 	})
-	s.eventStore.Append(evt) //nolint:errcheck
+	if err := s.eventStore.Append(evt); err != nil {
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("append event: %v", err)}
+	}
 	if err := s.projStore.Project(evt); err != nil {
 		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("projection error: %v", err)}
 	}
@@ -336,7 +338,9 @@ func (s *Server) handleEdit(payload json.RawMessage) WSResponse {
 		"changes": changes,
 		"source":  "dashboard",
 	})
-	s.eventStore.Append(evt) //nolint:errcheck
+	if err := s.eventStore.Append(evt); err != nil {
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("append event: %v", err)}
+	}
 	if err := s.projStore.Project(evt); err != nil {
 		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("projection error: %v", err)}
 	}

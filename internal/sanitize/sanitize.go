@@ -9,6 +9,15 @@ var (
 	htmlTagRe    = regexp.MustCompile(`<[^>]*>`)
 	multiSpaceRe = regexp.MustCompile(`\s+`)
 
+	// injectionPatterns is a HEURISTIC substring blocklist of obvious
+	// prompt-injection phrases. It is NOT a sound defence on its own —
+	// any of these can be bypassed via Unicode lookalikes, zero-width
+	// characters, base64 directives, multi-line context overrides, or
+	// non-English variants. The real defence is the
+	// `<untrusted_content>` structural framing applied by callers
+	// (analyzer.Triage, implementer.Implement). Treat a positive hit
+	// here as a strong signal worth aborting on; do NOT treat the
+	// absence of a hit as "content is safe".
 	injectionPatterns = []string{
 		"ignore previous instructions",
 		"ignore all previous",

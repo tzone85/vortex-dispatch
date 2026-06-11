@@ -151,7 +151,9 @@ func (s *Server) handleRetry(payload json.RawMessage) WSResponse {
 		"reason":    "manual retry from dashboard",
 		"source":    "dashboard",
 	})
-	s.eventStore.Append(escEvt) //nolint:errcheck
+	if err := s.eventStore.Append(escEvt); err != nil {
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("append event: %v", err)}
+	}
 	if err := s.projStore.Project(escEvt); err != nil {
 		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("projection error: %v", err)}
 	}
@@ -159,7 +161,9 @@ func (s *Server) handleRetry(payload json.RawMessage) WSResponse {
 	resetEvt := state.NewEvent(state.EventStoryReviewFailed, "dashboard", p.StoryID, map[string]any{
 		"source": "dashboard",
 	})
-	s.eventStore.Append(resetEvt) //nolint:errcheck
+	if err := s.eventStore.Append(resetEvt); err != nil {
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("append event: %v", err)}
+	}
 	if err := s.projStore.Project(resetEvt); err != nil {
 		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("projection error: %v", err)}
 	}
@@ -192,7 +196,9 @@ func (s *Server) handleReassign(payload json.RawMessage) WSResponse {
 		"reason":    "manual reassign from dashboard",
 		"source":    "dashboard",
 	})
-	s.eventStore.Append(escEvt) //nolint:errcheck
+	if err := s.eventStore.Append(escEvt); err != nil {
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("append event: %v", err)}
+	}
 	if err := s.projStore.Project(escEvt); err != nil {
 		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("projection error: %v", err)}
 	}
@@ -200,7 +206,9 @@ func (s *Server) handleReassign(payload json.RawMessage) WSResponse {
 	resetEvt := state.NewEvent(state.EventStoryReviewFailed, "dashboard", p.StoryID, map[string]any{
 		"source": "dashboard",
 	})
-	s.eventStore.Append(resetEvt) //nolint:errcheck
+	if err := s.eventStore.Append(resetEvt); err != nil {
+		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("append event: %v", err)}
+	}
 	if err := s.projStore.Project(resetEvt); err != nil {
 		return WSResponse{Type: "command_result", Action: action, Success: false, Message: fmt.Sprintf("projection error: %v", err)}
 	}

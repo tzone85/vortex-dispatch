@@ -122,12 +122,21 @@ func NewSQLiteStore(dsn string) (*SQLiteStore, error) {
 		log.Printf("[sqlite] enable WAL mode: %v (continuing in default journal mode)", err)
 	}
 
-	// Migrations below are intentionally idempotent — running them on a
-	// fresh DB or a previously-migrated DB returns "duplicate column"
-	// errors that we want to swallow. tryMigrate distinguishes those
-	// expected errors from real failures (disk full, locked DB, perms)
-	// which it logs at WARNING. Without this, a partial migration left
-	// the DB in an inconsistent state with no signal.
+	// SCHEMA EVOLUTION:
+	//
+	// The base CREATE TABLE statements at the top of this file run with
+	// IF NOT EXISTS, so they're effectively a no-op on an existing DB.
+	// Every column added AFTER an initial release MUST also appear in
+	// the `migrations` slice below as an idempotent `ALTER TABLE ADD
+	// COLUMN` statement so existing installs pick it up on next open.
+	//
+	// tryMigrate distinguishes the expected "duplicate column" errors
+	// (benign — column already exists from a prior run) from real
+	// failures (disk full, locked DB, perms) and logs the latter at
+	// WARNING. This is intentionally lightweight rather than a full
+	// version-tracking migration runner: the column-add pattern composes
+	// naturally with SQLite, and version-table tracking would be more
+	// machinery than the schema needs today.
 	migrations := []string{
 		`ALTER TABLE stories ADD COLUMN acceptance_criteria TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE stories ADD COLUMN owned_files TEXT NOT NULL DEFAULT '[]'`,

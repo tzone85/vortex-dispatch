@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/tzone85/vortex-dispatch/internal/llm"
@@ -73,10 +74,12 @@ Respond with JSON: {"on_track": bool, "concerns": ["..."], "reprioritize": ["sto
 	if !result.OnTrack {
 		eventType = state.EventSupervisorDriftDetected
 	}
-	s.eventStore.Append(state.NewEvent(eventType, "supervisor", "", map[string]any{
+	if err := s.eventStore.Append(state.NewEvent(eventType, "supervisor", "", map[string]any{
 		"on_track": result.OnTrack,
 		"concerns": result.Concerns,
-	}))
+	})); err != nil {
+		log.Printf("[supervisor] append %s event: %v", eventType, err)
+	}
 
 	return result, nil
 }

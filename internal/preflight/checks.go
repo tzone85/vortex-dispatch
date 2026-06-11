@@ -243,7 +243,7 @@ func CheckStateDir() Result {
 		return Result{Name: "state_dir", Severity: SeverityInfo, Passed: false,
 			Message: fmt.Sprintf("State dir not writable: %s", stateDir)}
 	}
-	os.Remove(tmp)
+	_ = os.Remove(tmp) // best-effort cleanup of the probe file
 	return Result{Name: "state_dir", Severity: SeverityInfo, Passed: true,
 		Message: fmt.Sprintf("State dir: %s", stateDir)}
 }

@@ -38,6 +38,10 @@ func evaluateMigrationSucceeds(c Criterion, workDir string) CriterionResult {
 		return CriterionResult{Criterion: c, Passed: false,
 			Detail: "migration_succeeds requires `command` field"}
 	}
+	if err := ValidateConfigShellCommand(c.Command); err != nil {
+		return CriterionResult{Criterion: c, Passed: false,
+			Detail: fmt.Sprintf("rejected unsafe command pattern: %v", err)}
+	}
 	dsn := readDatabaseURL(workDir)
 	if dsn == "" {
 		return CriterionResult{Criterion: c, Passed: false,

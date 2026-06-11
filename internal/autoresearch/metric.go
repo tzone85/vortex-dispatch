@@ -21,6 +21,20 @@ import (
 // re-compiled this regex on every call.
 var metricLastFloatRe = regexp.MustCompile(`-?\d+(?:\.\d+)?`)
 
+// validateMetricCommand rejects YAML-supplied metric commands containing
+// command-substitution patterns. Mirrors engine.ValidateConfigShell-
+// Command but avoids the cross-package import (engine depends on this
+// package transitively in some paths). Kept here as a small duplicate
+// rather than introduce an import cycle risk.
+func validateMetricCommand(cmd string) error {
+	for _, seq := range []string{"$(", "`", "$(("} {
+		if strings.Contains(cmd, seq) {
+			return fmt.Errorf("config-supplied command contains %q; rewrite to avoid embedded expressions", seq)
+		}
+	}
+	return nil
+}
+
 // Tiebreaker is the LLM-based judge invoked when two scores fall within
 // `tie_epsilon` of each other. Returns a nudge in [-1, +1] which the
 // harness scales by the configured epsilon.
@@ -41,6 +55,9 @@ type MetricHarness struct {
 func (h *MetricHarness) Measure(ctx context.Context, worktree string, baseline float64, candidateDiff string) (Score, error) {
 	if h.Metric.Command == "" {
 		return Score{}, errors.New("metric command is empty")
+	}
+	if err := validateMetricCommand(h.Metric.Command); err != nil {
+		return Score{}, fmt.Errorf("metric command rejected: %w", err)
 	}
 	cmd := shellexec.CommandContext(ctx, h.Metric.Command)
 	cmd.Dir = worktree

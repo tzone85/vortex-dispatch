@@ -48,7 +48,11 @@ func (a *CLIAdapter) Prepare(cfg SessionConfig) (PreparedExecution, error) {
 		if err := ValidateModelName(cfg.Model); err != nil {
 			return PreparedExecution{}, fmt.Errorf("invalid model name: %w", err)
 		}
-		cmdStr += fmt.Sprintf(" --model %q", cfg.Model)
+		// Use POSIX single-quote escaping via QuoteShellArg for
+		// consistency with every other argument site in this file.
+		// %q would leave `$` and backticks active under `sh -c` if the
+		// ValidateModelName allowlist ever widened to include them.
+		cmdStr += " --model " + QuoteShellArg(cfg.Model)
 	}
 
 	// Combine system prompt and goal into a single prompt string.

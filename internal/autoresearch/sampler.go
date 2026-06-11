@@ -1,10 +1,11 @@
 package autoresearch
 
 import (
+	cryptorand "crypto/rand"
+	"encoding/binary"
 	"math"
 	"math/rand"
 	"sync"
-	"time"
 )
 
 // BayesSampler maintains per-class Beta priors and Thompson-samples the next
@@ -50,8 +51,21 @@ func NewBayesSampler(classes []ExperimentClass, priorAlpha, priorBeta float64) *
 		classes:    append([]ExperimentClass(nil), classes...),
 		priorAlpha: priorAlpha,
 		priorBeta:  priorBeta,
-		rng:        rand.New(rand.NewSource(time.Now().UnixNano())),
+		rng:        rand.New(rand.NewSource(secureSeed())),
 	}
+}
+
+// secureSeed draws 8 bytes from crypto/rand and returns them as int64.
+// Replaces the previous time.Now().UnixNano() seed, which an observer
+// could predict from a known process start time. Falls back to a non-zero
+// constant if the OS RNG is unavailable (vanishingly rare; better than
+// panicking the sampler at startup).
+func secureSeed() int64 {
+	var b [8]byte
+	if _, err := cryptorand.Read(b[:]); err != nil {
+		return 1
+	}
+	return int64(binary.LittleEndian.Uint64(b[:]))
 }
 
 // SetSeed makes Thompson sampling deterministic for tests.

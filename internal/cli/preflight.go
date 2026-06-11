@@ -3,7 +3,6 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/tzone85/vortex-dispatch/internal/preflight"
@@ -39,7 +38,9 @@ func runPreflight(cmd *cobra.Command, _ []string) error {
 	}
 
 	if report.HasCritical {
-		os.Exit(1)
+		cmd.SilenceUsage = true
+		cmd.SilenceErrors = true
+		return fmt.Errorf("critical pre-flight issues — see output above")
 	}
 	return nil
 }

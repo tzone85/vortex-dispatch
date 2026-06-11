@@ -217,23 +217,79 @@ func TestBootstrapNonce_FirstUseSetsCookieAndSucceeds(t *testing.T) {
 	for _, c := range resp.Cookies() {
 		if c.Name == TokenCookieName && c.Value == "the-token" {
 			foundCookie = true
-			// Defence-in-depth attributes required by the security
-			// follow-up: HttpOnly + SameSite=Strict + Secure. Without
-			// Secure, a Mixed-Content reverse-proxy setup leaks the
-			// cookie over plain HTTP.
 			if !c.HttpOnly {
 				t.Error("session cookie must be HttpOnly")
 			}
 			if c.SameSite != http.SameSiteStrictMode {
 				t.Errorf("session cookie SameSite = %v, want Strict", c.SameSite)
 			}
-			if !c.Secure {
-				t.Error("session cookie must have Secure=true to avoid leaking over plain HTTP behind an HTTPS proxy")
+			// Secure is conditional on TLS / X-Forwarded-Proto=https.
+			// This test uses a plain-HTTP httptest server, so Secure
+			// MUST be false — setting it would break the auth flow on
+			// any subsequent request (the browser drops Secure cookies
+			// over plain HTTP). See TestBootstrapNonce_SecureCookieOver-
+			// ForwardedHTTPS for the proxied case.
+			if c.Secure {
+				t.Error("session cookie must not be Secure on a plain-HTTP listener — would break the auth flow")
 			}
 		}
 	}
 	if !foundCookie {
 		t.Error("expected cookie set after first bootstrap")
+	}
+}
+
+// TestBootstrapNonce_SecureCookieOverForwardedHTTPS asserts the cookie
+// becomes Secure when the request reports HTTPS via X-Forwarded-Proto —
+// the reverse-proxy scenario the audit flagged. Without this, a
+// Mixed-Content config would leak the token over plain HTTP.
+func TestBootstrapNonce_SecureCookieOverForwardedHTTPS(t *testing.T) {
+	srv := httptest.NewServer(newNonceMiddleware("tok", "nonce"))
+	defer srv.Close()
+
+	req, _ := http.NewRequest("GET", srv.URL+"/?bootstrap=nonce", nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	for _, c := range resp.Cookies() {
+		if c.Name == TokenCookieName {
+			if !c.Secure {
+				t.Error("Secure must be true when X-Forwarded-Proto=https")
+			}
+		}
+	}
+}
+
+// TestAuthHeaders_SetsSecurityBaseline confirms the OWASP-baseline
+// response headers are present on every request — including unauth'd
+// rejections — so a browser-facing operator gets clickjack / MIME-
+// sniff / CSP protection regardless of which endpoint they hit.
+func TestAuthHeaders_SetsSecurityBaseline(t *testing.T) {
+	srv := httptest.NewServer(newNonceMiddleware("tok", "nonce"))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/v1/requirements")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	for _, want := range []struct {
+		key, value string
+	}{
+		{"Referrer-Policy", "no-referrer"},
+		{"X-Frame-Options", "DENY"},
+		{"X-Content-Type-Options", "nosniff"},
+	} {
+		if got := resp.Header.Get(want.key); got != want.value {
+			t.Errorf("%s = %q, want %q", want.key, got, want.value)
+		}
+	}
+	if csp := resp.Header.Get("Content-Security-Policy"); csp == "" {
+		t.Error("Content-Security-Policy must be set")
 	}
 }
 

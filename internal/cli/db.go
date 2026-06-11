@@ -3,7 +3,9 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"regexp"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -100,10 +102,10 @@ func newDBListCmd() *cobra.Command {
 // --- connect ---
 
 func newDBConnectCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:          "connect <db-name>",
 		Aliases:      []string{"psql"},
-		Short:        "Print the psql command + DSN for a DB",
+		Short:        "Print the psql command + DSN for a DB (password redacted when stdout is not a TTY; pass --reveal to override)",
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -121,11 +123,70 @@ func newDBConnectCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "DATABASE_URL=%s\n", db.ConnectionString)
-			fmt.Fprintf(cmd.OutOrStdout(), "To connect: psql %q\n", db.ConnectionString)
+			// The DSN is printed at full fidelity ONLY when stdout is a
+			// real TTY (interactive shell). When stdout is redirected
+			// (CI logs, shell pipes, file captures, log aggregators) we
+			// redact the password segment so the credential does not
+			// land in archived job logs.
+			showFull, _ := cmd.Flags().GetBool("reveal")
+			dsn := db.ConnectionString
+			displayDSN := dsn
+			if !showFull && !isTerminal(cmd.OutOrStdout()) {
+				displayDSN = redactDSNPassword(dsn)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "DATABASE_URL=%s\n", displayDSN)
+			fmt.Fprintf(cmd.OutOrStdout(), "To connect: psql %q\n", displayDSN)
+			if displayDSN != dsn {
+				fmt.Fprintln(cmd.OutOrStdout(), "(password redacted because stdout is not a TTY; pass --reveal to show)")
+			}
 			return nil
 		},
 	}
+	cmd.Flags().Bool("reveal", false, "show the full DSN including password even when stdout is not a TTY")
+	return cmd
+}
+
+// redactDSNPassword replaces the password segment of a PostgreSQL DSN
+// (`postgres://user:pass@host/db` or `postgresql://user:pass@host/db`)
+// with `***`. Non-URL DSNs (`host=… password=…` key/value form) are
+// also handled. Leaves the rest of the string untouched so operators
+// can still see host / db / params.
+func redactDSNPassword(dsn string) string {
+	// URL form: scheme://user:pass@host/db
+	if idx := strings.Index(dsn, "://"); idx >= 0 {
+		head := dsn[:idx+3]
+		tail := dsn[idx+3:]
+		// Find user:pass@... — pass is between the first ':' and the
+		// LAST '@' before the host (handles passwords containing '@').
+		if at := strings.LastIndex(tail, "@"); at >= 0 {
+			authority := tail[:at]
+			if colon := strings.Index(authority, ":"); colon >= 0 {
+				return head + authority[:colon] + ":***" + tail[at:]
+			}
+		}
+		return dsn
+	}
+	// Key/value form: scan for password=… and redact until next whitespace.
+	out := dsnPasswordKeyRe.ReplaceAllString(dsn, "password=***")
+	return out
+}
+
+var dsnPasswordKeyRe = regexp.MustCompile(`password=\S+`)
+
+// isTerminal reports whether the writer is a terminal. We use a
+// best-effort check via the *os.File path; non-file writers (test
+// buffers, log writers) return false which is the safe default —
+// redact rather than leak.
+func isTerminal(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return (info.Mode() & os.ModeCharDevice) != 0
 }
 
 // --- sql ---

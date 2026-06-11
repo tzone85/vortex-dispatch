@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -50,7 +51,7 @@ func TestGetCommitsForDate_ValidGitRepo(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSearchMemPalace_EmptyQuery(t *testing.T) {
-	results, err := SearchMemPalace("")
+	results, err := SearchMemPalace(context.Background(), "")
 	if err != nil {
 		t.Errorf("expected nil error for empty query, got: %v", err)
 	}

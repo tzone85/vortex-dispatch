@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/tzone85/vortex-dispatch/internal/devdb"
@@ -286,10 +287,21 @@ func (p *Provider) Schema(ctx context.Context, dbID string) (string, error) {
 // loadOrCreateAdminPassword reads <storageDir>/devdb-admin.pw if present (mode 0600),
 // otherwise generates a new 32-char hex password and writes it.
 // storageDir lets tests override the location (production uses Config.TemplateVolume's parent).
+//
+// Defence-in-depth: when an existing password file is found, perms are
+// re-tightened to 0o600 on read. os.MkdirAll and os.WriteFile only set
+// the requested mode for NEW entries; an operator who created the dir or
+// file before VXD took over could have left them world-readable. Same
+// for the parent storageDir, which is re-chmodded to 0o700.
 func (p *Provider) loadOrCreateAdminPassword(storageDir string) (string, error) {
 	path := filepath.Join(storageDir, "devdb-admin.pw")
 	if b, err := os.ReadFile(path); err == nil {
-		return string(b), nil
+		// Repair lax perms left by older versions or external tooling.
+		// Ignore chmod errors on non-POSIX filesystems (e.g. Windows
+		// CIFS) — the file content is still usable.
+		_ = os.Chmod(path, 0o600)
+		_ = os.Chmod(storageDir, 0o700)
+		return strings.TrimSpace(string(b)), nil
 	}
 	var seed [16]byte
 	if _, err := rand.Read(seed[:]); err != nil {
@@ -299,6 +311,9 @@ func (p *Provider) loadOrCreateAdminPassword(storageDir string) (string, error) 
 	if err := os.MkdirAll(storageDir, 0o700); err != nil {
 		return "", err
 	}
+	// Re-chmod in case MkdirAll skipped (dir already existed with looser
+	// perms).
+	_ = os.Chmod(storageDir, 0o700)
 	if err := os.WriteFile(path, []byte(pw), 0o600); err != nil {
 		return "", err
 	}

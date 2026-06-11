@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/tzone85/vortex-dispatch/internal/devdb"
 )
 
@@ -102,7 +103,14 @@ func (p *Provider) RefreshTemplate(ctx context.Context, name string, dumpSQL io.
 		return fmt.Errorf("drop old template %s: %w", name, err)
 	}
 
-	if _, err := pg.conn.Exec(ctx, fmt.Sprintf(`ALTER DATABASE %q RENAME TO %q`, tmp, name)); err != nil {
+	// Use pgx.Identifier.Sanitize() for proper Postgres identifier
+	// quoting. Go's %q escapes \" as \\\" which Postgres won't accept;
+	// Postgres needs "" doubling. devdb.IsValid already constrains the
+	// charset (no double-quotes possible today), but matching the
+	// pgx.Identifier pattern used in pg.go closes the latent gap.
+	if _, err := pg.conn.Exec(ctx, fmt.Sprintf(`ALTER DATABASE %s RENAME TO %s`,
+		pgx.Identifier{tmp}.Sanitize(),
+		pgx.Identifier{name}.Sanitize())); err != nil {
 		return fmt.Errorf("rename tmp template %s -> %s: %w", tmp, name, err)
 	}
 	return pg.SetTemplateFlag(ctx, name, true)

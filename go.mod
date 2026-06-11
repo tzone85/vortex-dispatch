@@ -1,6 +1,6 @@
 module github.com/tzone85/vortex-dispatch
 
-go 1.26.1
+go 1.26.4
 
 require (
 	github.com/charmbracelet/bubbletea v1.3.10

@@ -82,9 +82,11 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("port %d is already in use. Try: vxd dashboard --web --port %d", s.port, s.port+1)
 	}
 
-	// Auth: load or generate a bearer token; wrap the mux so every
-	// endpoint except `/health` requires it. Without this, any local
-	// process can read pipeline state or mutate it via the API.
+	// Auth: persistent bearer token + a per-process single-use bootstrap
+	// nonce. Browser auto-open carries only the nonce in its URL; the
+	// nonce is invalidated on first use, so browser history / logs /
+	// shoulder surfing can't replay it. The persistent token only
+	// travels in the Authorization header or the SameSite cookie.
 	tokenPath := s.TokenPath
 	if tokenPath == "" {
 		tokenPath = defaultDashboardTokenPath()
@@ -93,14 +95,19 @@ func (s *Server) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("dashboard token: %w", err)
 	}
-	handler := RequireToken(token, mux)
+	nonce, err := generateToken()
+	if err != nil {
+		return fmt.Errorf("dashboard bootstrap nonce: %w", err)
+	}
+	handler := NewAuthMiddleware(AuthOptions{
+		Token:          token,
+		BootstrapNonce: nonce,
+	})(mux)
 
 	s.httpServer = &http.Server{Handler: handler}
 
 	url := fmt.Sprintf("http://%s", addr)
-	// The browser load needs the token in the URL once so the cookie
-	// gets bootstrapped. Subsequent requests go through the cookie.
-	browserURL := fmt.Sprintf("%s/?%s=%s", url, TokenQueryParam, token)
+	browserURL := fmt.Sprintf("%s/?%s=%s", url, NonceQueryParam, nonce)
 	log.Printf("Dashboard server running at %s", url)
 	log.Printf("Dashboard auth token: %s (paste with `Authorization: Bearer ...`)", token)
 	if !s.NoOpen {

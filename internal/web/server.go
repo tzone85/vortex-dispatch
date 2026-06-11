@@ -147,33 +147,11 @@ func (s *Server) healthHandler(w http.ResponseWriter, _ *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
-// healthHandler is the legacy bare-function form. Returns minimal status.
-// New deployments use Server.healthHandler which includes telemetry.
-func healthHandler(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	resp := map[string]any{
-		"status":  "ok",
-		"version": Version,
-	}
-	_ = json.NewEncoder(w).Encode(resp)
-}
-
-// buildHealthResponse assembles the rich health payload. Pure function for
-// testability — no I/O beyond the event store List call.
-func buildHealthResponse(es state.EventStore, startTime time.Time) map[string]any {
-	resp := map[string]any{
-		"status":         "ok",
-		"version":        Version,
-		"uptime_seconds": int(time.Since(startTime).Seconds()),
-	}
-	if es != nil {
-		if total, err := es.Count(state.EventFilter{}); err == nil {
-			resp["events_total"] = total
-		}
-	}
-	return resp
-}
+// (Dead `healthHandler` bare function and `buildHealthResponse` removed
+// 2026-06-11 — both leaked version / uptime / events_total but were not
+// registered on any mux. The live path is Server.healthHandler which
+// returns only {"status":"ok"}. Keeping the dead code risked a future
+// refactor wiring it back in by accident.)
 
 // redactTokenForLog returns the first 8 chars of the token followed by an
 // ellipsis. Keeps enough for operators to disambiguate sessions in logs

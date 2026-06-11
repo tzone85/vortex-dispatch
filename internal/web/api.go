@@ -20,6 +20,7 @@ package web
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"path"
 	"strings"
@@ -47,7 +48,8 @@ func (s *Server) handleRequirements(w http.ResponseWriter, r *http.Request) {
 	}
 	reqs, err := s.projStore.ListRequirementsFiltered(s.reqFilter)
 	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("[api] list requirements: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -76,7 +78,8 @@ func (s *Server) handleRequirementDetail(w http.ResponseWriter, r *http.Request)
 	if len(parts) == 2 && parts[1] == "stories" {
 		stories, err := s.projStore.ListStories(state.StoryFilter{ReqID: reqID})
 		if err != nil {
-			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			log.Printf("[api] list stories for %s: %v", reqID, err)
+			writeAPIError(w, http.StatusInternalServerError, "internal error")
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -109,7 +112,8 @@ func (s *Server) handleStories(w http.ResponseWriter, r *http.Request) {
 	}
 	stories, err := s.projStore.ListStories(filter)
 	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("[api] list stories with filter %+v: %v", filter, err)
+		writeAPIError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -147,12 +151,14 @@ func (s *Server) handleMetricsSummary(w http.ResponseWriter, r *http.Request) {
 	}
 	reqs, err := s.projStore.ListRequirementsFiltered(s.reqFilter)
 	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("[api] metrics list requirements: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	stories, err := s.projStore.ListStories(state.StoryFilter{})
 	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("[api] metrics list stories: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	totalEvents, _ := s.eventStore.Count(state.EventFilter{})

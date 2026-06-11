@@ -419,10 +419,16 @@ func (m *Monitor) checkSLA(ag ActiveAgent) {
 	}
 	m.slaBreachedSet[storyID] = true
 
-	// Optional webhook notification — fire-and-forget, errors logged not surfaced
+	// Optional webhook notification — fire-and-forget, errors logged not surfaced.
+	// Bound the call with a 10s ctx so a hung webhook doesn't leak the
+	// goroutine through monitor shutdown. context.Background() with no
+	// timeout used to keep these goroutines alive indefinitely (multiplied
+	// across SLA-breached stories), preventing clean process exit.
 	if m.notifier != nil {
 		go func() {
-			notifyErr := m.notifier.Notify(context.Background(), notify.Message{
+			nctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			notifyErr := m.notifier.Notify(nctx, notify.Message{
 				Title:    fmt.Sprintf("SLA breach: %s", storyID),
 				Body:     fmt.Sprintf("Story exceeded its %v SLA", maxDur),
 				Severity: "warn",

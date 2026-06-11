@@ -15,6 +15,18 @@ import (
 )
 
 // sourceExtensions maps file extensions to their language name.
+// Hoisted regexes — these used to be compiled inside their callers,
+// which runs once per file during repo scans and per call for the
+// language extractors. Compiling at package init avoids the per-call
+// alloc + parse.
+var (
+	makefileTargetRe   = regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_-]*)\s*:`)
+	goVersionRe        = regexp.MustCompile(`(?m)^go\s+(\d+\.\d+(?:\.\d+)?)`)
+	cargoRustVersionRe = regexp.MustCompile(`(?m)^rust-version\s*=\s*"([^"]+)"`)
+	cargoEditionRe     = regexp.MustCompile(`(?m)^edition\s*=\s*"([^"]+)"`)
+	pythonRequiresRe   = regexp.MustCompile(`(?m)requires-python\s*=\s*"([^"]+)"`)
+)
+
 var sourceExtensions = map[string]string{
 	".go":    "go",
 	".py":    "python",
@@ -697,14 +709,13 @@ func parseMakefileTargets(repoPath string) []string {
 	}
 	defer f.Close()
 
-	targetRe := regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_-]*)\s*:`)
 	var targets []string
 	seen := make(map[string]bool)
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if matches := targetRe.FindStringSubmatch(line); len(matches) > 1 {
+		if matches := makefileTargetRe.FindStringSubmatch(line); len(matches) > 1 {
 			target := matches[1]
 			if !seen[target] {
 				targets = append(targets, target)
@@ -721,8 +732,7 @@ func extractGoVersion(repoPath string) string {
 	if err != nil {
 		return ""
 	}
-	re := regexp.MustCompile(`(?m)^go\s+(\d+\.\d+(?:\.\d+)?)`)
-	if m := re.FindSubmatch(data); len(m) > 1 {
+	if m := goVersionRe.FindSubmatch(data); len(m) > 1 {
 		return string(m[1])
 	}
 	return ""
@@ -734,12 +744,10 @@ func extractCargoVersion(repoPath string) string {
 	if err != nil {
 		return ""
 	}
-	re := regexp.MustCompile(`(?m)^rust-version\s*=\s*"([^"]+)"`)
-	if m := re.FindSubmatch(data); len(m) > 1 {
+	if m := cargoRustVersionRe.FindSubmatch(data); len(m) > 1 {
 		return string(m[1])
 	}
-	re = regexp.MustCompile(`(?m)^edition\s*=\s*"([^"]+)"`)
-	if m := re.FindSubmatch(data); len(m) > 1 {
+	if m := cargoEditionRe.FindSubmatch(data); len(m) > 1 {
 		return "edition " + string(m[1])
 	}
 	return ""
@@ -751,8 +759,7 @@ func extractPythonVersion(repoPath string) string {
 	if err != nil {
 		return ""
 	}
-	re := regexp.MustCompile(`(?m)requires-python\s*=\s*"([^"]+)"`)
-	if m := re.FindSubmatch(data); len(m) > 1 {
+	if m := pythonRequiresRe.FindSubmatch(data); len(m) > 1 {
 		return string(m[1])
 	}
 	return ""

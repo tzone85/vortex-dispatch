@@ -41,7 +41,7 @@ func (p *Provider) CreateTemplate(ctx context.Context, name string, dumpSQL io.R
 	if err != nil {
 		return err
 	}
-	defer adminPG.Close(ctx)
+	defer func() { _ = adminPG.Close(ctx) }() // best-effort cleanup
 
 	if err := adminPG.CreateDB(ctx, name); err != nil {
 		return fmt.Errorf("template create %s: %w", name, err)
@@ -55,7 +55,7 @@ func (p *Provider) CreateTemplate(ctx context.Context, name string, dumpSQL io.R
 		_ = adminPG.DropDB(ctx, name)
 		return fmt.Errorf("template connect %s: %w", name, err)
 	}
-	defer dbConn.Close(ctx)
+	defer func() { _ = dbConn.Close(ctx) }() // best-effort cleanup
 
 	sql, err := io.ReadAll(io.LimitReader(dumpSQL, MaxTemplateDumpSize+1))
 	if err != nil {
@@ -94,7 +94,7 @@ func (p *Provider) RefreshTemplate(ctx context.Context, name string, dumpSQL io.
 	if err != nil {
 		return err
 	}
-	defer pg.Close(ctx)
+	defer func() { _ = pg.Close(ctx) }() // best-effort cleanup
 
 	// Drop the old. Lift datistemplate first so DROP can proceed; ignore
 	// errors if the old didn't exist.
@@ -123,6 +123,6 @@ func (p *Provider) ListTemplates(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer pg.Close(ctx)
+	defer func() { _ = pg.Close(ctx) }() // best-effort cleanup
 	return pg.ListTemplates(ctx)
 }

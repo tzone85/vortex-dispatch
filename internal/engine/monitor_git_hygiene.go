@@ -27,7 +27,7 @@ func simulateDryRunChanges(worktreePath, storyID string) {
 
 	commitCmd := exec.Command("git", "commit", "-m", fmt.Sprintf("[dry-run] simulated changes for %s", storyID))
 	commitCmd.Dir = worktreePath
-	commitCmd.Run() // ignore error (may already be committed)
+	_ = commitCmd.Run() // ignore error (may already be committed)
 
 	log.Printf("[dry-run] simulated changes committed for %s", storyID)
 }
@@ -138,7 +138,7 @@ func stripVXDArtifactsFromBranch(worktreePath, storyID string) {
 	// Stage changes and amend the commit
 	stageCmd := exec.Command("git", "add", "-A")
 	stageCmd.Dir = worktreePath
-	stageCmd.CombinedOutput()
+	_, _ = stageCmd.CombinedOutput() // best-effort stage; amend below surfaces real failures
 
 	amendCmd := exec.Command("git", "commit", "--amend", "--no-edit")
 	amendCmd.Dir = worktreePath
@@ -205,7 +205,7 @@ func stripBinariesFromBranch(worktreePath, storyID string) {
 
 	stageCmd := exec.Command("git", "add", ".gitignore")
 	stageCmd.Dir = worktreePath
-	stageCmd.CombinedOutput()
+	_, _ = stageCmd.CombinedOutput() // best-effort stage; amend below surfaces real failures
 
 	amendCmd := exec.Command("git", "commit", "--amend", "--no-edit")
 	amendCmd.Dir = worktreePath
@@ -249,7 +249,7 @@ func pullBaseAfterMerge(repoDir, baseBranch string) {
 		// Belt-and-suspenders: also remove from disk if both git ops were no-ops.
 		p := filepath.Join(repoDir, artifact)
 		if _, err := os.Stat(p); err == nil {
-			os.Remove(p)
+			_ = os.Remove(p) // best-effort; logged on next line
 		}
 		log.Printf("[auto-resume] pre-cleaned %s from repo root (best-effort)", artifact)
 	}

@@ -81,12 +81,15 @@ func runReviewStory(cmd *cobra.Command, args []string) error {
 }
 
 func openURL(url string) {
+	// All branches: best-effort browser launch; if the helper isn't
+	// installed (xdg-open missing on a headless Linux box) we just
+	// continue, the URL is already printed for the user to copy.
 	switch runtime.GOOS {
 	case "darwin":
-		exec.Command("open", url).Start()
+		_ = exec.Command("open", url).Start()
 	case "linux":
-		exec.Command("xdg-open", url).Start()
+		_ = exec.Command("xdg-open", url).Start()
 	case "windows":
-		exec.Command("cmd", "/c", "start", url).Start()
+		_ = exec.Command("cmd", "/c", "start", url).Start()
 	}
 }

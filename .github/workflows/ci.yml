@@ -60,7 +60,6 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
-    continue-on-error: true  # tech debt tracked in CLAUDE.md (nhooyr.io/websocket migration)
     steps:
       - name: Checkout
         uses: actions/checkout@v4

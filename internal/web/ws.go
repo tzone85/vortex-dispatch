@@ -51,7 +51,7 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[ws] accept error: %v", err)
 		return
 	}
-	defer conn.CloseNow()
+	defer func() { _ = conn.CloseNow() }() // best-effort connection close
 
 	h.addClient(conn)
 	defer h.removeClient(conn)
@@ -125,7 +125,7 @@ func (h *Hub) broadcast(ctx context.Context) {
 
 	for conn := range h.clients {
 		if err := wsjson.Write(ctx, conn, msg); err != nil {
-			conn.CloseNow()
+			_ = conn.CloseNow() // best-effort; we're already removing the client
 			delete(h.clients, conn)
 		}
 	}
@@ -157,7 +157,7 @@ func (h *Hub) closeAll() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for conn := range h.clients {
-		conn.Close(websocket.StatusGoingAway, "server shutting down")
+		_ = conn.Close(websocket.StatusGoingAway, "server shutting down") // best-effort on shutdown
 		delete(h.clients, conn)
 	}
 }

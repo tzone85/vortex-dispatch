@@ -28,6 +28,7 @@ func detectExistingCodebase(repoPath string) bool {
 	// Check for existing source files beyond scaffolding
 	sourceCount := 0
 	extensions := []string{".go", ".py", ".ts", ".js", ".rs", ".java", ".rb", ".php", ".swift", ".kt"}
+	//nolint:errcheck // best-effort source detector; callback handles per-path errors
 	filepath.Walk(repoPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			// Skip hidden dirs and vendor/node_modules

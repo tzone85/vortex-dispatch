@@ -80,11 +80,11 @@ func scrubHallucinationsFromWorktree(worktreePath string) int {
 		// Re-stage and amend the commit
 		addCmd := exec.Command("git", "add", "-A")
 		addCmd.Dir = worktreePath
-		addCmd.Run()
+		_ = addCmd.Run() // best-effort stage; amend below surfaces real failures
 
 		commitCmd := exec.Command("git", "commit", "--amend", "--no-edit")
 		commitCmd.Dir = worktreePath
-		commitCmd.Run()
+		_ = commitCmd.Run() // best-effort amend
 
 		log.Printf("[sanitize] amended commit: cleaned %d file(s) with hallucination preamble", cleaned)
 	}
@@ -220,6 +220,7 @@ func validateGoProject(dir string) error {
 
 func validatePythonProject(dir string) error {
 	var files []string
+	//nolint:errcheck // best-effort py-file enumeration; callback ignores per-path errors
 	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || filepath.Ext(path) != ".py" {
 			return nil

@@ -433,10 +433,10 @@ Closing summary (24 PRs merged across the bulletproofing pass):
 50. ~~YAML criterion path containment + sql_query_returns read-only gate (sqlsafety package split out of cli)~~ — DONE (PR #68).
 51. ~~Prompt file 0o644 → 0o600 (registry.go + tmux_runner.go)~~ — DONE (this commit). Prompt content carrying DSNs / WAVE_CONTEXT / acceptance criteria no longer readable by non-owner users on a shared dispatch host.
 52. **YAML pipe/semicolon caveat** — DOCUMENTED. `ValidateConfigShellCommand` blocks command substitution but deliberately allows `|`, `;`, `&&` for legitimate multi-step QA commands. An operator who copy-pastes a malicious vxd.yaml can still chain `; curl evil` — this is a documented operator trust boundary, not an oversight. The blocklist is one of three layers; the others are: (a) commands run only when the operator explicitly invokes a requirement that triggers QA, (b) the dashboard auth gate prevents remote requirement submission.
+53. ~~Errcheck cleanup + lint job blocking~~ — DONE. `golangci-lint` now reports **0 issues** across the project (`-default standard`, ~5 minute timeout). 44 silent event-store / projection-store `Append`/`Project` failures across `internal/cli` + `internal/engine` now log with full story-ID context; 15 dangerous `f.Write`/`db.Exec`/artifact-store sites now return wrapped errors; best-effort cleanup sites carry explicit `_ =` discards with one-line rationale; `.golangci.yml` excludes benign noise (`fmt.Fprint*` to stdout, `(io.Closer).Close`, HTTP body close, tabwriter Flush) and widens the test-file exemption to cover all linters. The `lint` job in `.github/workflows/ci.yml` lost its `continue-on-error: true` — it is now a blocking gate.
 
 ### Still open (tracked, not security-blocking)
 
-- Production errcheck cleanup (~51 hits) — gate for flipping lint job to blocking.
 - Coverage roadmap: cli (65.6%), config (70.9%), improve (73%), state (78.2%) → 80%+.
 - `sanitize.DetectPromptInjection` pattern expansion — structural `<untrusted_content>` wrapping is the durable defence and is already applied where it matters.
 29. **Ephemeral DBs for agents** — COMPLETE as of 2026-05-22. SHIPPED:

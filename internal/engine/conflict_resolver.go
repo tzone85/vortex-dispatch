@@ -102,7 +102,7 @@ func (cr *ConflictResolver) RebaseWithResolution(ctx context.Context, storyID, w
 	for round := 0; round < cr.maxRounds; round++ {
 		files, fErr := vxdgit.ConflictedFiles(worktreePath)
 		if fErr != nil {
-			vxdgit.RebaseAbort(worktreePath)
+			_ = vxdgit.RebaseAbort(worktreePath) // best-effort cleanup; original error is what matters
 			return fmt.Errorf("list conflicted files: %w", fErr)
 		}
 
@@ -114,7 +114,7 @@ func (cr *ConflictResolver) RebaseWithResolution(ctx context.Context, storyID, w
 				return nil
 			}
 			if !vxdgit.IsConflict(contErr) {
-				vxdgit.RebaseAbort(worktreePath)
+				_ = vxdgit.RebaseAbort(worktreePath) // best-effort cleanup; original error is what matters
 				return contErr
 			}
 			continue
@@ -134,7 +134,7 @@ func (cr *ConflictResolver) RebaseWithResolution(ctx context.Context, storyID, w
 			isBin, _ := vxdgit.IsBinaryConflict(worktreePath, file)
 			if isBin {
 				if rErr := cr.handleBinaryConflict(storyID, worktreePath, absPath, file); rErr != nil {
-					vxdgit.RebaseAbort(worktreePath)
+					_ = vxdgit.RebaseAbort(worktreePath) // best-effort cleanup; original error is what matters
 					return rErr
 				}
 				continue
@@ -142,7 +142,7 @@ func (cr *ConflictResolver) RebaseWithResolution(ctx context.Context, storyID, w
 
 			content, rErr := os.ReadFile(absPath)
 			if rErr != nil {
-				vxdgit.RebaseAbort(worktreePath)
+				_ = vxdgit.RebaseAbort(worktreePath) // best-effort cleanup; original error is what matters
 				return fmt.Errorf("read conflicted file %s: %w", file, rErr)
 			}
 
@@ -159,7 +159,7 @@ func (cr *ConflictResolver) RebaseWithResolution(ctx context.Context, storyID, w
 					resolved, rErr = cr.resolveFileTechLead(ctx, file, string(content), tlCtx)
 					if rErr != nil {
 						cr.emitEscalationEvent(storyID, file, "tech_lead_failed")
-						vxdgit.RebaseAbort(worktreePath)
+						_ = vxdgit.RebaseAbort(worktreePath) // best-effort cleanup; original error is what matters
 						if llm.IsFatalAPIError(rErr) {
 							log.Printf("[conflict-resolver] FATAL: Tech Lead API error for %s: %v", storyID, rErr)
 						}
@@ -168,7 +168,7 @@ func (cr *ConflictResolver) RebaseWithResolution(ctx context.Context, storyID, w
 					cr.emitEscalationEvent(storyID, file, "tech_lead_resolved")
 				} else if seniorErr != nil {
 					// No tech lead available and senior failed.
-					vxdgit.RebaseAbort(worktreePath)
+					_ = vxdgit.RebaseAbort(worktreePath) // best-effort cleanup; original error is what matters
 					if llm.IsFatalAPIError(seniorErr) {
 						log.Printf("[conflict-resolver] FATAL: API error during conflict resolution for %s: %v", storyID, seniorErr)
 					}
@@ -186,7 +186,7 @@ func (cr *ConflictResolver) RebaseWithResolution(ctx context.Context, storyID, w
 			// Outer else: !needsTechLead && seniorErr == nil — senior succeeded normally.
 
 			if wErr := os.WriteFile(absPath, []byte(resolved), 0o644); wErr != nil {
-				vxdgit.RebaseAbort(worktreePath)
+				_ = vxdgit.RebaseAbort(worktreePath) // best-effort cleanup; original error is what matters
 				return fmt.Errorf("write resolved %s: %w", file, wErr)
 			}
 		}
@@ -198,7 +198,7 @@ func (cr *ConflictResolver) RebaseWithResolution(ctx context.Context, storyID, w
 		remainingFiles, _ := vxdgit.ConflictedFiles(worktreePath)
 		if len(remainingFiles) > 0 {
 			if sErr := vxdgit.StageFiles(worktreePath, remainingFiles); sErr != nil {
-				vxdgit.RebaseAbort(worktreePath)
+				_ = vxdgit.RebaseAbort(worktreePath) // best-effort cleanup; original error is what matters
 				return fmt.Errorf("stage resolved files: %w", sErr)
 			}
 		}
@@ -211,7 +211,7 @@ func (cr *ConflictResolver) RebaseWithResolution(ctx context.Context, storyID, w
 		}
 
 		if !vxdgit.IsConflict(contErr) {
-			vxdgit.RebaseAbort(worktreePath)
+			_ = vxdgit.RebaseAbort(worktreePath) // best-effort cleanup; original error is what matters
 			return contErr
 		}
 
@@ -219,7 +219,7 @@ func (cr *ConflictResolver) RebaseWithResolution(ctx context.Context, storyID, w
 		log.Printf("[conflict-resolver] additional conflicts in next commit for %s, continuing", storyID)
 	}
 
-	vxdgit.RebaseAbort(worktreePath)
+	_ = vxdgit.RebaseAbort(worktreePath) // best-effort cleanup; resolution-exhausted error is what matters
 	return fmt.Errorf("conflict resolution exhausted after %d rounds", cr.maxRounds)
 }
 
@@ -464,7 +464,9 @@ func (cr *ConflictResolver) emitResolutionEvent(storyID string, files []string, 
 		"rounds": rounds,
 	})
 	if cr.eventStore != nil {
-		cr.eventStore.Append(evt)
+		if err := cr.eventStore.Append(evt); err != nil {
+			log.Printf("[conflict-resolver] append resolution event for %s: %v", storyID, err)
+		}
 	}
 }
 
@@ -474,7 +476,9 @@ func (cr *ConflictResolver) emitBinaryEvent(storyID, file string, eventType stat
 		"reason": reason,
 	})
 	if cr.eventStore != nil {
-		cr.eventStore.Append(evt)
+		if err := cr.eventStore.Append(evt); err != nil {
+			log.Printf("[conflict-resolver] append binary event for %s/%s: %v", storyID, file, err)
+		}
 	}
 }
 
@@ -484,6 +488,8 @@ func (cr *ConflictResolver) emitEscalationEvent(storyID, file, outcome string) {
 		"outcome": outcome,
 	})
 	if cr.eventStore != nil {
-		cr.eventStore.Append(evt)
+		if err := cr.eventStore.Append(evt); err != nil {
+			log.Printf("[conflict-resolver] append escalation event for %s/%s: %v", storyID, file, err)
+		}
 	}
 }

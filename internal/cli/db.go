@@ -238,7 +238,7 @@ Audit the connection's privileges accordingly.`,
 			if err != nil {
 				return fmt.Errorf("connect: %w", err)
 			}
-			defer conn.Close(ctx)
+			defer func() { _ = conn.Close(ctx) }() // best-effort cleanup
 
 			// Mutating + --write path: Exec is the correct verb for
 			// INSERT/UPDATE/DELETE/DDL because it returns rows-affected

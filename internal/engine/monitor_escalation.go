@@ -66,7 +66,9 @@ func (m *Monitor) handleManagerEscalation(ctx context.Context, story PlannedStor
 // optionally removing the worktree for a clean start.
 func (m *Monitor) executeRetryAction(storyID string, action ManagerAction, worktreePath string) {
 	if action.RetryConfig != nil && action.RetryConfig.WorktreeReset {
-		os.RemoveAll(worktreePath)
+		if err := os.RemoveAll(worktreePath); err != nil {
+			log.Printf("[manager] worktree-reset cleanup for %s: %v", storyID, err)
+		}
 	}
 
 	resetTier := 0
@@ -79,14 +81,22 @@ func (m *Monitor) executeRetryAction(storyID string, action ManagerAction, workt
 		"to_tier":   resetTier,
 		"reason":    "manager retry: " + action.Diagnosis,
 	})
-	m.eventStore.Append(evt)
-	m.projStore.Project(evt)
+	if err := m.eventStore.Append(evt); err != nil {
+		log.Printf("[manager] append retry-escalation event for %s: %v", storyID, err)
+	}
+	if err := m.projStore.Project(evt); err != nil {
+		log.Printf("[manager] project retry-escalation event for %s: %v", storyID, err)
+	}
 
 	resetEvt := state.NewEvent(state.EventStoryReviewFailed, "manager", storyID, map[string]any{
 		"reason": "manager retry with fixes",
 	})
-	m.eventStore.Append(resetEvt)
-	m.projStore.Project(resetEvt)
+	if err := m.eventStore.Append(resetEvt); err != nil {
+		log.Printf("[manager] append retry-reset event for %s: %v", storyID, err)
+	}
+	if err := m.projStore.Project(resetEvt); err != nil {
+		log.Printf("[manager] project retry-reset event for %s: %v", storyID, err)
+	}
 }
 
 // executeRewriteAction emits a STORY_REWRITTEN event to update the story
@@ -116,8 +126,12 @@ func (m *Monitor) executeRewriteAction(storyID string, action ManagerAction) {
 		"changes": changes,
 		"reason":  action.Diagnosis,
 	})
-	m.eventStore.Append(evt)
-	m.projStore.Project(evt)
+	if err := m.eventStore.Append(evt); err != nil {
+		log.Printf("[manager] append rewrite event for %s: %v", storyID, err)
+	}
+	if err := m.projStore.Project(evt); err != nil {
+		log.Printf("[manager] project rewrite event for %s: %v", storyID, err)
+	}
 }
 
 // executeSplitAction validates and applies a split, creating child stories
@@ -168,8 +182,12 @@ func (m *Monitor) executeSplitAction(ctx context.Context, storyID string, action
 			"owned_files":         child.OwnedFiles,
 			"split_depth":         storyData.SplitDepth + 1,
 		})
-		m.eventStore.Append(childEvt)
-		m.projStore.Project(childEvt)
+		if err := m.eventStore.Append(childEvt); err != nil {
+			log.Printf("[manager] append child-created event for %s: %v", child.ID, err)
+		}
+		if err := m.projStore.Project(childEvt); err != nil {
+			log.Printf("[manager] project child-created event for %s: %v", child.ID, err)
+		}
 	}
 
 	// Emit STORY_SPLIT for the parent.
@@ -181,8 +199,12 @@ func (m *Monitor) executeSplitAction(ctx context.Context, storyID string, action
 		"child_story_ids": childIDs,
 		"reason":          action.Diagnosis,
 	})
-	m.eventStore.Append(splitEvt)
-	m.projStore.Project(splitEvt)
+	if err := m.eventStore.Append(splitEvt); err != nil {
+		log.Printf("[manager] append split event for %s: %v", storyID, err)
+	}
+	if err := m.projStore.Project(splitEvt); err != nil {
+		log.Printf("[manager] project split event for %s: %v", storyID, err)
+	}
 
 	// Mutate the DAG to replace the parent with children.
 	m.escalation.ApplySplit(
@@ -202,8 +224,12 @@ func (m *Monitor) escalateToTier(storyID string, tier int, reason string) {
 		"to_tier":   tier,
 		"reason":    reason,
 	})
-	m.eventStore.Append(evt)
-	m.projStore.Project(evt)
+	if err := m.eventStore.Append(evt); err != nil {
+		log.Printf("[monitor] append tier-escalation event for %s: %v", storyID, err)
+	}
+	if err := m.projStore.Project(evt); err != nil {
+		log.Printf("[monitor] project tier-escalation event for %s: %v", storyID, err)
+	}
 }
 
 // handleTechLeadEscalation handles tier-3 stories by calling the Planner's
@@ -292,8 +318,12 @@ func (m *Monitor) handleTechLeadEscalation(ctx context.Context, story PlannedSto
 			"owned_files":         child.OwnedFiles,
 			"split_depth":         storyData.SplitDepth + 1,
 		})
-		m.eventStore.Append(childEvt)
-		m.projStore.Project(childEvt)
+		if err := m.eventStore.Append(childEvt); err != nil {
+			log.Printf("[tech-lead] append child-created event for %s: %v", child.ID, err)
+		}
+		if err := m.projStore.Project(childEvt); err != nil {
+			log.Printf("[tech-lead] project child-created event for %s: %v", child.ID, err)
+		}
 	}
 
 	childIDs := make([]string, len(children))
@@ -304,8 +334,12 @@ func (m *Monitor) handleTechLeadEscalation(ctx context.Context, story PlannedSto
 		"child_story_ids": childIDs,
 		"reason":          "tech lead re-plan",
 	})
-	m.eventStore.Append(splitEvt)
-	m.projStore.Project(splitEvt)
+	if err := m.eventStore.Append(splitEvt); err != nil {
+		log.Printf("[tech-lead] append split event for %s: %v", storyID, err)
+	}
+	if err := m.projStore.Project(splitEvt); err != nil {
+		log.Printf("[tech-lead] project split event for %s: %v", storyID, err)
+	}
 
 	// Build sequential dependency edges for re-planned stories.
 	var depEdges [][]string

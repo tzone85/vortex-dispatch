@@ -812,8 +812,12 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 					integFail := state.NewEvent(state.EventStoryIntegrationFailed, "monitor", storyID, map[string]any{
 						"error": buildErr.Error(),
 					})
-					m.eventStore.Append(integFail)
-					m.projStore.Project(integFail)
+					if appErr := m.eventStore.Append(integFail); appErr != nil {
+						log.Printf("[pipeline] append STORY_INTEGRATION_FAILED for %s: %v", storyID, appErr)
+					}
+					if projErr := m.projStore.Project(integFail); projErr != nil {
+						log.Printf("[pipeline] project STORY_INTEGRATION_FAILED for %s: %v", storyID, projErr)
+					}
 					m.techLeadFixer.DispatchIntegrationFix(pipelineCtx, storyID, repoDir, buildErr.Error())
 				}
 			}
@@ -1076,9 +1080,12 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 			if fixReq != "" {
 				// Write the fix requirement for manual or auto re-dispatch
 				fixPath := filepath.Join(repoDir, ".vxd-fix-gaps.md")
-				os.WriteFile(fixPath, []byte(fixReq), 0644)
-				log.Printf("[verify] fix requirement written to %s", fixPath)
-				log.Printf("[verify] run 'vxd req --file .vxd-fix-gaps.md --godmode' to auto-fix gaps")
+				if err := os.WriteFile(fixPath, []byte(fixReq), 0644); err != nil {
+					log.Printf("[verify] failed to write fix requirement to %s: %v", fixPath, err)
+				} else {
+					log.Printf("[verify] fix requirement written to %s", fixPath)
+					log.Printf("[verify] run 'vxd req --file .vxd-fix-gaps.md --godmode' to auto-fix gaps")
+				}
 			}
 		} else {
 			log.Printf("[verify] cycle 1 clean — no critical gaps found")
@@ -1093,8 +1100,12 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 
 		// Mark requirement complete.
 		compEvt := state.NewEvent(state.EventReqCompleted, "monitor", "", map[string]any{"id": rc.ReqID})
-		m.eventStore.Append(compEvt)
-		m.projStore.Project(compEvt)
+		if appErr := m.eventStore.Append(compEvt); appErr != nil {
+			log.Printf("[pipeline] append REQ_COMPLETED for %s: %v", rc.ReqID, appErr)
+		}
+		if projErr := m.projStore.Project(compEvt); projErr != nil {
+			log.Printf("[pipeline] project REQ_COMPLETED for %s: %v", rc.ReqID, projErr)
+		}
 		return nil
 	}
 
@@ -1253,10 +1264,15 @@ func (m *Monitor) handleManagerEscalation(ctx context.Context, story PlannedStor
 
 	log.Printf("[manager] %s: diagnosis=%q action=%s", storyID, action.Diagnosis, action.Action)
 
-	// Persist the diagnosis for post-mortem review.
+	// Persist the diagnosis for post-mortem review. A write failure here
+	// shouldn't block the escalation flow (the diagnosis is also in the
+	// log via the line above), but operators want to know if the file
+	// path is broken (read-only mount, no logDir, etc.).
 	logPath := filepath.Join(logDir, storyID+"-manager.log")
-	os.WriteFile(logPath, []byte(fmt.Sprintf("Diagnosis: %s\nCategory: %s\nAction: %s\n",
-		action.Diagnosis, action.Category, action.Action)), 0o644)
+	if err := os.WriteFile(logPath, fmt.Appendf(nil, "Diagnosis: %s\nCategory: %s\nAction: %s\n",
+		action.Diagnosis, action.Category, action.Action), 0o644); err != nil {
+		log.Printf("[manager] persist diagnosis for %s to %s: %v", storyID, logPath, err)
+	}
 
 	switch action.Action {
 	case "retry":
@@ -1834,8 +1850,14 @@ func pullBaseAfterMerge(repoDir, baseBranch string) {
 // If the stash itself fails it skips the pull cleanly rather than logging
 // a noisy "failed" message that implies a real error.
 func gitPullWithStash(repoDir, branch string) {
-	// Check for dirty working tree.
-	statusOut, err := exec.Command("git", "status", "--porcelain").Output()
+	// Check for dirty working tree — MUST be run in repoDir or the dirty
+	// check is performed in the daemon's CWD (the VXD source repo, often
+	// clean) instead of the user's project. Without Dir, a real dirty
+	// tree was reported clean, the ff-pull failed, and we logged
+	// "pull non-fatal" while the project sat broken.
+	statusCmd := exec.Command("git", "status", "--porcelain")
+	statusCmd.Dir = repoDir
+	statusOut, err := statusCmd.Output()
 	statusOut2 := ""
 	if err == nil {
 		statusOut2 = strings.TrimSpace(string(statusOut))
@@ -1898,7 +1920,9 @@ func ensureGitignorePatterns(worktreePath string) {
 	}
 
 	appendix := "\n# VXD agent artifacts (auto-added)\n" + strings.Join(toAdd, "\n") + "\n"
-	os.WriteFile(giPath, append(existing, []byte(appendix)...), 0o644)
+	if err := os.WriteFile(giPath, append(existing, []byte(appendix)...), 0o644); err != nil {
+		log.Printf("[gitignore] failed to update %s: %v", giPath, err)
+	}
 }
 
 // captureFileTree returns a compact listing of tracked files in the worktree.

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/tzone85/vortex-dispatch/internal/agent"
 	"github.com/tzone85/vortex-dispatch/internal/artifact"
@@ -144,13 +145,17 @@ func (e *Executor) spawn(repoDir string, a Assignment, story PlannedStory) Spawn
 	// Provision ephemeral devdb for this story if a Lifecycle is configured.
 	// Runs after worktree creation so WriteEnvFiles has a real directory.
 	// Failure is non-fatal: a fallback notice is written and the spawn continues.
-	// TODO: thread a real ctx through spawn() once the signature is refactored.
+	// The 60s bound is the devdb provisioning SLA — without it, a hung
+	// Docker daemon would block this goroutine (and the executor's pipeline
+	// lock) indefinitely.
 	if e.lifecycle != nil {
 		project := filepath.Base(e.projectDir)
 		if e.projectDir == "" || project == "." {
 			project = "default"
 		}
-		provisioned, err := e.lifecycle.Provision(context.Background(), a.StoryID, project, worktreePath)
+		provCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		provisioned, err := e.lifecycle.Provision(provCtx, a.StoryID, project, worktreePath)
+		cancel()
 		if err != nil {
 			log.Printf("[executor] devdb provision failed for %s: %v", a.StoryID, err)
 			_ = devdb.WriteFallbackNotice(worktreePath, err)

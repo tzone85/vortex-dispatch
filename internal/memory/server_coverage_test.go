@@ -10,8 +10,8 @@ import (
 
 	"net/http/httptest"
 
-	"nhooyr.io/websocket"
-	"nhooyr.io/websocket/wsjson"
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
 )
 
 // newTestServerWithOpportunities creates a test server that also has

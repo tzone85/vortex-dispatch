@@ -91,8 +91,10 @@ func TestRunDispatchPreflight_NotSkipped(t *testing.T) {
 
 func TestRunDispatchPreflight_SkipFlagTrue(t *testing.T) {
 	cmd := newReqCmd()
-	cmd.PersistentFlags().Bool("skip-preflight", false, "")
-	cmd.PersistentFlags().Set("skip-preflight", "true")
+	// Use Flags() (not PersistentFlags()) so the value is visible to
+	// runDispatchPreflight without going through cobra.Execute(), which
+	// is what triggers mergePersistentFlags in real usage.
+	cmd.Flags().Bool("skip-preflight", true, "")
 
 	err := runDispatchPreflight(cmd)
 	if err != nil {

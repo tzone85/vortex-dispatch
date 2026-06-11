@@ -95,7 +95,14 @@ func (s *Server) Start(ctx context.Context) error {
 	url := fmt.Sprintf("http://%s", addr)
 	browserURL := fmt.Sprintf("%s/?%s=%s", url, web.NonceQueryParam, nonce)
 	log.Printf("Memory dashboard running at %s", url)
-	log.Printf("Memory dashboard auth token: %s (paste with `Authorization: Bearer ...`)", token)
+	// Redact most of the token in the log; the full value lives in
+	// ~/.vxd/dashboard.token at mode 0o600. Operators run
+	// `cat ~/.vxd/dashboard.token` if they need the full bearer.
+	short := token
+	if len(short) > 8 {
+		short = short[:8]
+	}
+	log.Printf("Memory dashboard auth token: %s… (full value at ~/.vxd/dashboard.token; use `Authorization: Bearer <token>`)", short)
 	if !s.NoOpen {
 		openBrowser(browserURL)
 	}

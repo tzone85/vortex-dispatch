@@ -99,7 +99,10 @@ func evaluateOne(c Criterion, workDir, output string) CriterionResult {
 		return CriterionResult{Criterion: c, Passed: passed, Detail: detail}
 
 	case CriterionFileExists:
-		path := resolvePath(workDir, c.Path)
+		path, perr := resolvePath(workDir, c.Path)
+		if perr != nil {
+			return CriterionResult{Criterion: c, Passed: false, Detail: perr.Error()}
+		}
 		_, err := os.Stat(path)
 		passed := err == nil
 		detail := fmt.Sprintf("file %s exists", c.Path)
@@ -109,7 +112,10 @@ func evaluateOne(c Criterion, workDir, output string) CriterionResult {
 		return CriterionResult{Criterion: c, Passed: passed, Detail: detail}
 
 	case CriterionFileContains:
-		path := resolvePath(workDir, c.Path)
+		path, perr := resolvePath(workDir, c.Path)
+		if perr != nil {
+			return CriterionResult{Criterion: c, Passed: false, Detail: perr.Error()}
+		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return CriterionResult{
@@ -126,7 +132,10 @@ func evaluateOne(c Criterion, workDir, output string) CriterionResult {
 		return CriterionResult{Criterion: c, Passed: passed, Detail: detail}
 
 	case CriterionFileNotEmpty:
-		path := resolvePath(workDir, c.Path)
+		path, perr := resolvePath(workDir, c.Path)
+		if perr != nil {
+			return CriterionResult{Criterion: c, Passed: false, Detail: perr.Error()}
+		}
 		fi, err := os.Stat(path)
 		if err != nil {
 			return CriterionResult{
@@ -169,9 +178,37 @@ func evaluateOne(c Criterion, workDir, output string) CriterionResult {
 	}
 }
 
-func resolvePath(workDir, path string) string {
-	if filepath.IsAbs(path) {
-		return path
+// resolvePath joins a criterion path against the story worktree and
+// REFUSES to escape that worktree. The threat model is a malicious or
+// misconfigured `vxd.yaml` whose `path:` reads `/etc/shadow` or
+// `../../../home/op/.ssh/id_ed25519` — the criterion's Detail field
+// flows back through the WebSocket `command_result` response and would
+// expose host file contents to anyone with dashboard read access.
+//
+// Rules:
+//   - Absolute paths are rejected outright.
+//   - After joining with workDir, the cleaned result must remain a
+//     descendant of the cleaned workDir.
+//   - Both checks operate on cleaned forms so `foo/../../etc/shadow`
+//     collapses to `/etc/shadow` (rejected) instead of being silently
+//     normalised into the worktree by the OS at open time.
+func resolvePath(workDir, p string) (string, error) {
+	if p == "" {
+		return "", fmt.Errorf("criterion path is empty")
 	}
-	return filepath.Join(workDir, path)
+	if filepath.IsAbs(p) {
+		return "", fmt.Errorf("criterion path %q is absolute; must be relative to the story worktree", p)
+	}
+	cleanWork, err := filepath.Abs(workDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve workdir %q: %w", workDir, err)
+	}
+	joined := filepath.Join(cleanWork, p)
+	clean := filepath.Clean(joined)
+	// `cleanWork` is already cleaned and absolute. clean must equal it
+	// (the workdir itself) or sit underneath as <workdir>/something.
+	if clean != cleanWork && !strings.HasPrefix(clean, cleanWork+string(os.PathSeparator)) {
+		return "", fmt.Errorf("criterion path %q escapes the story worktree", p)
+	}
+	return clean, nil
 }

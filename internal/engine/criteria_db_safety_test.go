@@ -1,0 +1,69 @@
+package engine
+
+import (
+	"strings"
+	"testing"
+)
+
+// TestEvaluateSQLQueryReturns_RejectsMutatingSQL pins the
+// sqlsafety.ValidateSQLForReadOnly gate on the YAML criterion path.
+// Without it, a malicious vxd.yaml entry like:
+//
+//	qa.success_criteria:
+//	  - kind: sql_query_returns
+//	    sql: "DROP TABLE users; SELECT 1"
+//
+// would execute against the story devdb. With the gate the criterion
+// fails fast with a rejection message and the DB is untouched. We
+// don't need a real Postgres for this test — the gate runs before any
+// connection is opened.
+func TestEvaluateSQLQueryReturns_RejectsMutatingSQL(t *testing.T) {
+	cases := []struct {
+		name string
+		sql  string
+		want string
+	}{
+		{"plain DROP", "DROP TABLE users", "not read-only"},
+		{"INSERT", "INSERT INTO t VALUES (1)", "not read-only"},
+		{"multi-stmt with SELECT prefix", "SELECT 1; DROP TABLE t", "multi-statement"},
+		{"WITH cte that deletes", "WITH x AS (DELETE FROM t RETURNING *) SELECT * FROM x", "not read-only"},
+		{"EXPLAIN ANALYZE INSERT", "EXPLAIN ANALYZE INSERT INTO t VALUES (1)", "not read-only"},
+		{"empty after stripping comments", "-- only comment\n", "empty after stripping"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			res := evaluateSQLQueryReturns(
+				Criterion{Kind: CriterionSQLQueryReturns, SQL: c.sql},
+				t.TempDir(),
+			)
+			if res.Passed {
+				t.Fatalf("expected rejection, got pass with detail %q", res.Detail)
+			}
+			if !strings.Contains(res.Detail, c.want) {
+				t.Errorf("detail = %q, want substring %q", res.Detail, c.want)
+			}
+		})
+	}
+}
+
+func TestEvaluateSQLQueryReturns_AcceptsBareSelectShapes(t *testing.T) {
+	// These survive the safety gate (they pass classifier + multi-stmt
+	// checks). The follow-up `readDatabaseURL` step then fails because
+	// no devdb is provisioned in t.TempDir(), so the criterion returns
+	// "no .vxd-db/connect.env" — not the rejection message. That's the
+	// signal the SQL gate accepted the input.
+	for _, sql := range []string{
+		"SELECT 1",
+		"SHOW search_path",
+		"VALUES (1), (2)",
+		"TABLE foo",
+	} {
+		res := evaluateSQLQueryReturns(
+			Criterion{Kind: CriterionSQLQueryReturns, SQL: sql},
+			t.TempDir(),
+		)
+		if strings.Contains(res.Detail, "rejected unsafe SQL") {
+			t.Errorf("SQL %q wrongly rejected: %s", sql, res.Detail)
+		}
+	}
+}

@@ -1,6 +1,7 @@
 package secrets
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -49,10 +50,14 @@ func NewVaultProvider(cfg VaultConfig) *VaultProvider {
 
 // Get fetches the secret value for key from the configured Vault path.
 // Vault KV v2 stores secrets as a map at /v1/{mount}/data/{path}.
-func (p *VaultProvider) Get(key string) (string, error) {
+//
+// The HTTP request is bound to ctx, so cancelling the caller's context
+// tears down the in-flight request immediately rather than waiting out
+// the client's 10 s safety timeout.
+func (p *VaultProvider) Get(ctx context.Context, key string) (string, error) {
 	url := fmt.Sprintf("%s/v1/%s/data/%s", p.addr, p.mountPath, p.secretPath)
 
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", fmt.Errorf("build request: %w", err)
 	}

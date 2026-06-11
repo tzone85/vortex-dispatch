@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -96,7 +97,7 @@ type stubProvider struct {
 	values map[string]string
 }
 
-func (s *stubProvider) Get(key string) (string, error) {
+func (s *stubProvider) Get(_ context.Context, key string) (string, error) {
 	if v, ok := s.values[key]; ok {
 		return v, nil
 	}

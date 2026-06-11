@@ -392,10 +392,20 @@ Known operational gates still required on first run:
 22. ~~SLA map accepts bare int + quoted string keys~~ — DONE (`299dc9a`)
 23. ~~Pre-clean `WAVE_CONTEXT.md`/`REQUIREMENT.md` before ff-pull~~ — DONE (`4c0c61c`)
 24. Re-planner guardrails — prevent hallucinated sub-stories during tier-3 splits — OPEN
-25. `nhooyr.io/websocket → coder/websocket` migration (84 SA1019 deprecations) — OPEN
-26. `monitor.go` 1806-line refactor (HIGH tech-debt finding from audit) — OPEN
+25. ~~`nhooyr.io/websocket → coder/websocket` migration~~ — DONE (PR #47, kills SA1019 deprecations in `internal/web` + `internal/memory`; lint job still `continue-on-error` until errcheck pass lands)
+26. `monitor.go` 2021-line refactor — OPEN (split plan written: monitor_config / monitor_polling / monitor_sla / monitor_post_execution / monitor_dispatch / monitor_escalation / monitor_git_hygiene / monitor_gitdiff; no behavioural change)
 27. Coverage roadmap: raise `cli` (65.6%), `config` (70.9%), `improve` (73%), `state` (78.2%) over 80% — OPEN
 28. Self-improve source-quality gap — research scrapers fetch news, not code-actionable signals — FEATURE REQUEST
+
+### Bulletproofing pass 2026-06-11
+
+Audit + hardening sprint that closed two CRITICAL security findings, killed long-standing CI lies, and unblocked the lint job.
+
+30. ~~`internal/cli` + `internal/improve` excluded from CI test matrix~~ — DONE (PR #46). CI used `grep -vE 'improve|internal/cli$'` to swallow failures; both packages now run with `-race -coverprofile -covermode=atomic ./...`. Root causes fixed: `runPreflight` called `os.Exit(1)` mid-test (replaced with returned error); `runReq` built planning client before checking `--dry-run`; two preflight tests used `PersistentFlags` without `Execute()` so the skip flag never propagated.
+31. ~~`TestWebSocket_Search` flake in `internal/memory`~~ — DONE (PR #45). `SearchMemPalace` had no context/timeout; on a primed MemPalace dev box, a broad query exceeded the WebSocket 5 s deadline. `SearchMemPalace(ctx, query)` now uses `exec.CommandContext`; `handleSearch` derives a 2 s child context; `searchFunc` is a test-injection hook; new regression test pins the bound.
+32. ~~Real defects flagged by static analysis~~ — DONE (PR #44). `wave_context.go` ineffassign (dead `diffStat` block — two wasted git calls per story); `conflict_resolver.go` unreachable `else if seniorErr != nil` branch (nilness); `complexityStyle` and `colorBgDark` unused symbols deleted; `TestExecuteFunction` (SA4031: function values are never nil) replaced with `TestRootCmd_HasAllSubcommands` that actually catches `init()` regressions; three SA9003 empty-branch test blocks removed; two ST1005 capitalized error strings lowercased.
+33. ~~Shell injection via env-var passthrough~~ — DONE (PR #48, CRITICAL). Four sites in `internal/runtime` (registry.go, cli_adapter.go, ssh_runner.go) used `fmt.Sprintf("export %s=%q; ", key, val)` to build shell prefixes. Go's `%q` leaves `$`, backticks, `!` active under sh — `cfg.EnvVars` values from session config (DevDB DSNs, YAML overrides) could inject commands. New `internal/runtime/env_exports.go` adds `ValidateEnvKey` (POSIX naming) + `BuildEnvExports` (single-quoted values via `QuoteShellArg`); 6 adversarial test cases pin the boundary.
+34. ~~`vxd db sql` arbitrary SQL execution~~ — DONE (PR #49, CRITICAL). Command ran any SQL via `conn.Query(ctx, args[1])` — on shared hosts, any local user could `DROP TABLE` someone else's devdb. New `internal/cli/sql_safety.go` adds a layered defence: (a) static classifier allows only SELECT/SHOW/VALUES/TABLE without `--write`; WITH and EXPLAIN require `--write` (CTE-DELETE-RETURNING and EXPLAIN ANALYZE INSERT bypasses); (b) multi-statement always rejected, even with `--write`; (c) read-only execution wraps the query in `BEGIN READ ONLY ... ROLLBACK` (`pgx.TxOptions{AccessMode: pgx.ReadOnly}`) so Postgres itself rejects mutations that slip past the classifier; (d) help text honest that side-effecting function calls are NOT blocked. 32 adversarial test cases including comment ambush, EXPLAIN ANALYZE INSERT, string-literal `;`.
 29. **Ephemeral DBs for agents** — COMPLETE as of 2026-05-22. SHIPPED:
     - SP1+SP3 (foundation + Docker provider)
     - SP4 (executor wiring, Lifecycle injection, orphan recovery, SLA-breach release, preflight checks)

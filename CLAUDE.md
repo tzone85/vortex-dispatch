@@ -393,7 +393,7 @@ Known operational gates still required on first run:
 23. ~~Pre-clean `WAVE_CONTEXT.md`/`REQUIREMENT.md` before ff-pull~~ — DONE (`4c0c61c`)
 24. ~~Re-planner guardrails — prevent hallucinated sub-stories during tier-3 splits~~ — DONE (PR #57). `internal/engine/replan_guards.go` adds lexical grounding: every candidate sub-story title+description must share at least one ≥5-char non-stopword token with the parent requirement/story text, else it's filtered with a logged reason. `ExtractLexicalAnchors` + `HasLexicalGrounding` are pure functions, 5 new tests pin the boundary.
 25. ~~`nhooyr.io/websocket → coder/websocket` migration~~ — DONE (PR #47, kills SA1019 deprecations in `internal/web` + `internal/memory`; lint job still `continue-on-error` until errcheck pass lands)
-26. `monitor.go` 2021-line refactor — OPEN (split plan written: monitor_config / monitor_polling / monitor_sla / monitor_post_execution / monitor_dispatch / monitor_escalation / monitor_git_hygiene / monitor_gitdiff; no behavioural change)
+26. ~~`monitor.go` 2021-line refactor~~ — DONE. Split into 8 sibling files under `package engine`: `monitor.go` (struct + setters + `RunContext`, 221), `monitor_polling.go` (133), `monitor_sla.go` (167), `monitor_post_execution.go` (538), `monitor_dispatch.go` (260), `monitor_escalation.go` (322), `monitor_git_hygiene.go` (363), `monitor_gitdiff.go` (123). Pure file split — no behavioural change; receivers + helpers unchanged; all 30 packages pass `go test ./... -count=1`.
 27. Coverage roadmap: raise `cli` (65.6%), `config` (70.9%), `improve` (73%), `state` (78.2%) over 80% — OPEN
 28. Self-improve source-quality gap — research scrapers fetch news, not code-actionable signals — FEATURE REQUEST
 
@@ -437,7 +437,6 @@ Closing summary (24 PRs merged across the bulletproofing pass):
 ### Still open (tracked, not security-blocking)
 
 - Production errcheck cleanup (~51 hits) — gate for flipping lint job to blocking.
-- `monitor.go` 2021-line refactor (split plan written: monitor_config / monitor_polling / monitor_sla / monitor_post_execution / monitor_dispatch / monitor_escalation / monitor_git_hygiene / monitor_gitdiff; no behavioural change).
 - Coverage roadmap: cli (65.6%), config (70.9%), improve (73%), state (78.2%) → 80%+.
 - `sanitize.DetectPromptInjection` pattern expansion — structural `<untrusted_content>` wrapping is the durable defence and is already applied where it matters.
 29. **Ephemeral DBs for agents** — COMPLETE as of 2026-05-22. SHIPPED:

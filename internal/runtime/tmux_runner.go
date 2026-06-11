@@ -28,7 +28,11 @@ func (r *TmuxRunner) Run(exec PreparedExecution) error {
 			fmt.Fprintf(os.Stderr, "warning: failed to create dir %s: %v\n", dir, err)
 			continue
 		}
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		// Setup files may carry prompt content with embedded secrets
+		// (DSNs from WAVE_CONTEXT, acceptance criteria with operator
+		// detail). Write 0o600 so non-owner users on a shared dispatch
+		// host can't read them.
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to write %s: %v\n", path, err)
 		}
 	}

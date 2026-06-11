@@ -10,7 +10,9 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"time"
 
@@ -34,7 +36,8 @@ type Server struct {
 	httpServer *http.Server
 	dagExport  *graph.DAGExport
 	startTime  time.Time
-	NoOpen     bool // skip opening browser on start
+	NoOpen     bool   // skip opening browser on start
+	TokenPath  string // path to dashboard auth token (defaults to ~/.vxd/dashboard.token); empty disables auth (NOT recommended outside tests)
 }
 
 func NewServer(es state.EventStore, ps *state.SQLiteStore, port int, filter state.ReqFilter) *Server {
@@ -79,12 +82,36 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("port %d is already in use. Try: vxd dashboard --web --port %d", s.port, s.port+1)
 	}
 
-	s.httpServer = &http.Server{Handler: mux}
+	// Auth: persistent bearer token + a per-process single-use bootstrap
+	// nonce. Browser auto-open carries only the nonce in its URL; the
+	// nonce is invalidated on first use, so browser history / logs /
+	// shoulder surfing can't replay it. The persistent token only
+	// travels in the Authorization header or the SameSite cookie.
+	tokenPath := s.TokenPath
+	if tokenPath == "" {
+		tokenPath = defaultDashboardTokenPath()
+	}
+	token, err := LoadOrGenerateToken(tokenPath)
+	if err != nil {
+		return fmt.Errorf("dashboard token: %w", err)
+	}
+	nonce, err := generateToken()
+	if err != nil {
+		return fmt.Errorf("dashboard bootstrap nonce: %w", err)
+	}
+	handler := NewAuthMiddleware(AuthOptions{
+		Token:          token,
+		BootstrapNonce: nonce,
+	})(mux)
+
+	s.httpServer = &http.Server{Handler: handler}
 
 	url := fmt.Sprintf("http://%s", addr)
+	browserURL := fmt.Sprintf("%s/?%s=%s", url, NonceQueryParam, nonce)
 	log.Printf("Dashboard server running at %s", url)
+	log.Printf("Dashboard auth token: %s (paste with `Authorization: Bearer ...`)", token)
 	if !s.NoOpen {
-		openBrowser(url)
+		openBrowser(browserURL)
 	}
 
 	// Start hub broadcast loop
@@ -141,6 +168,19 @@ func buildHealthResponse(es state.EventStore, startTime time.Time) map[string]an
 		}
 	}
 	return resp
+}
+
+// defaultDashboardTokenPath returns the on-disk location of the bearer
+// token. We persist under the user's HOME so multiple `vxd dashboard`
+// invocations share one token across sessions (avoids printing a fresh
+// token every start). Falls back to a temp path if HOME is unset —
+// non-portable hosts shouldn't be locked out of their own dashboard.
+func defaultDashboardTokenPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return filepath.Join(os.TempDir(), "vxd-dashboard.token")
+	}
+	return filepath.Join(home, ".vxd", "dashboard.token")
 }
 
 func openBrowser(url string) {

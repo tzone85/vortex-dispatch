@@ -132,18 +132,19 @@ func (s *Server) Start(ctx context.Context) error {
 	return s.httpServer.Serve(listener)
 }
 
-// healthHandler returns a JSON status response for liveness probes
-// with operational telemetry (uptime, event counts, store stats).
-// Used by systemd, Docker, Kubernetes for health checks.
+// healthHandler returns a minimal JSON status response for liveness
+// probes. Telemetry (uptime, event counts, version) is deliberately
+// withheld from this UNAUTHENTICATED endpoint — those move to
+// authenticated /api/v1/metrics where bearer-token access is required.
+// A liveness probe only needs "is the process up", which is what 200 OK
+// already conveys.
 //
-// Method on Server (not bare function) so handler can access store state.
-// The bare healthHandler is kept for backward compatibility with tests
-// that don't construct a full Server.
+// Method on Server kept (not bare function) so future authenticated
+// telemetry endpoints can reach store state from the same receiver.
 func (s *Server) healthHandler(w http.ResponseWriter, _ *http.Request) {
-	resp := buildHealthResponse(s.eventStore, s.startTime)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 // healthHandler is the legacy bare-function form. Returns minimal status.

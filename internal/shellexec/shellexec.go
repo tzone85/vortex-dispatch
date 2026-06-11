@@ -2,6 +2,17 @@
 // user-supplied command string (`vxd.yaml` metric/migration commands, etc.).
 // On Unix this is "sh -c"; on Windows it is "cmd.exe /C". A user override is
 // possible via the VXD_SHELL env var ("VXD_SHELL=pwsh" → "pwsh -Command").
+//
+// SECURITY / TRUST BOUNDARY:
+//
+// VXD_SHELL substitutes the shell binary entirely. An attacker who can
+// write the host process environment (compromised .env loader, malicious
+// systemd unit, hijacked init script) can point it at an arbitrary binary
+// — but that attacker already controls the host process. This is an
+// operator trust boundary, NOT a config-file injection path: the value
+// is NEVER read from `vxd.yaml`, only from the live process environment.
+// Document this contract here so a future refactor that wires VXD_SHELL
+// to a YAML field will notice the gap.
 package shellexec
 
 import (

@@ -39,9 +39,11 @@ jobs:
         run: go vet ./...
 
       - name: Run tests
-        # -v on test failure to surface the failing test name (previous CI
-        # output buffered FAIL details).
-        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+        # -v emits per-test PASS/FAIL lines so the failing test name surfaces
+        # when go test would otherwise just print "exit status 1\nFAIL pkg".
+        # Verbose noise is the price of debuggability while we rebuild trust
+        # in the cli + improve packages. Drop -v after a few green runs.
+        run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
         env:
           # Defensive: strip subscription/agent env vars that could divert a
           # local-only test path. CI runners don't have them, but make it

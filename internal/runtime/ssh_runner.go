@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -12,7 +13,7 @@ import (
 type SSHRunner struct {
 	host       string   // user@host
 	keyFile    string   // path to SSH key (optional)
-	remoteDir  string   // remote working directory base
+	remoteDir  string   // remote working directory base — validated absolute POSIX
 	extraFlags []string // additional SSH flags
 }
 
@@ -20,27 +21,69 @@ type SSHRunner struct {
 type SSHConfig struct {
 	Host       string   `yaml:"host"`       // user@host
 	KeyFile    string   `yaml:"key_file"`   // path to private key
-	RemoteDir  string   `yaml:"remote_dir"` // remote base directory
+	RemoteDir  string   `yaml:"remote_dir"` // remote base directory (absolute POSIX path)
 	ExtraFlags []string `yaml:"extra_flags"`
 }
 
-// NewSSHRunner creates an SSHRunner with the given config.
-func NewSSHRunner(cfg SSHConfig) *SSHRunner {
+// defaultSSHRemoteDir is the fallback when SSHConfig.RemoteDir is empty.
+const defaultSSHRemoteDir = "/tmp/vxd-agent"
+
+// ValidateRemoteDir rejects remote_dir values that could traverse out of
+// the intended base. Remote hosts are POSIX, so cleaning is done with
+// path.Clean (forward-slash semantics) rather than filepath.Clean which
+// switches separator by host OS.
+//
+// Rejection is done against the ORIGINAL string: `path.Clean` collapses
+// `/var/lib/../../etc/cron.d` to `/etc/cron.d`, which is absolute and
+// looks safe — but the operator's intent is clearly traversal. Any
+// literal `..` segment in the raw input is rejected.
+//
+// Accepted: absolute POSIX path with no `..` segments. Empty is also
+// accepted — the caller substitutes the default.
+//
+// Rejected: relative paths and any input containing a `..` path segment.
+func ValidateRemoteDir(dir string) error {
+	if dir == "" {
+		return nil
+	}
+	if !strings.HasPrefix(dir, "/") {
+		return fmt.Errorf("ssh remote_dir must be an absolute POSIX path, got %q", dir)
+	}
+	for _, seg := range strings.Split(dir, "/") {
+		if seg == ".." {
+			return fmt.Errorf("ssh remote_dir must not contain `..` traversal segments, got %q", dir)
+		}
+	}
+	return nil
+}
+
+// NewSSHRunner creates an SSHRunner with the given config. Returns an
+// error if cfg.RemoteDir fails ValidateRemoteDir — without this check a
+// YAML-supplied `../../etc/cron.d` would traverse on the remote host.
+func NewSSHRunner(cfg SSHConfig) (*SSHRunner, error) {
+	if err := ValidateRemoteDir(cfg.RemoteDir); err != nil {
+		return nil, err
+	}
 	remoteDir := cfg.RemoteDir
 	if remoteDir == "" {
-		remoteDir = "/tmp/vxd-agent"
+		remoteDir = defaultSSHRemoteDir
+	} else {
+		remoteDir = path.Clean(remoteDir)
 	}
 	return &SSHRunner{
 		host:       cfg.Host,
 		keyFile:    cfg.KeyFile,
 		remoteDir:  remoteDir,
 		extraFlags: cfg.ExtraFlags,
-	}
+	}, nil
 }
 
 // Run uploads setup files and starts the execution on the remote machine.
 func (r *SSHRunner) Run(pe PreparedExecution) error {
-	remoteWorkDir := filepath.Join(r.remoteDir, pe.SessionName)
+	// Use path.Join (POSIX-only) rather than filepath.Join — the remote is
+	// always POSIX. filepath.Join would use the LOCAL OS separator, which
+	// is wrong on Windows hosts dispatching to Linux remotes.
+	remoteWorkDir := path.Join(r.remoteDir, pe.SessionName)
 
 	// Create remote directory.
 	if err := r.sshExec("mkdir", "-p", remoteWorkDir); err != nil {
@@ -55,7 +98,7 @@ func (r *SSHRunner) Run(pe PreparedExecution) error {
 		}
 		defer os.Remove(tmpFile)
 
-		remotePath := filepath.Join(remoteWorkDir, filepath.Base(localPath))
+		remotePath := path.Join(remoteWorkDir, filepath.Base(localPath))
 		if err := r.scpTo(tmpFile, remotePath); err != nil {
 			return fmt.Errorf("scp setup file %s: %w", localPath, err)
 		}
@@ -89,7 +132,7 @@ func (r *SSHRunner) SendInput(sessionID string, input string) error {
 
 // ReadOutput reads the last N lines from the remote log file.
 func (r *SSHRunner) ReadOutput(sessionID string, lines int) (string, error) {
-	logPath := filepath.Join(r.remoteDir, sessionID, "agent.log")
+	logPath := path.Join(r.remoteDir, sessionID, "agent.log")
 	cmd := r.buildSSHCmd("tail", fmt.Sprintf("-%d", lines), logPath)
 	out, err := cmd.CombinedOutput()
 	if err != nil {

@@ -80,6 +80,15 @@ func NewSSHRunner(cfg SSHConfig) (*SSHRunner, error) {
 
 // Run uploads setup files and starts the execution on the remote machine.
 func (r *SSHRunner) Run(pe PreparedExecution) error {
+	// Validate SessionName before composing the remote work directory.
+	// Terminate/ReadOutput/IsAlive already do this; Run was the
+	// remaining inconsistency the final audit caught. A regression in
+	// the ID-generation path that produced a session name containing
+	// `&&`, spaces, or shell metas would otherwise break out of the
+	// `cd %s` argument below.
+	if err := ValidateSessionName(pe.SessionName); err != nil {
+		return fmt.Errorf("ssh run: %w", err)
+	}
 	// Use path.Join (POSIX-only) rather than filepath.Join — the remote is
 	// always POSIX. filepath.Join would use the LOCAL OS separator, which
 	// is wrong on Windows hosts dispatching to Linux remotes.

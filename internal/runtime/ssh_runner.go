@@ -61,11 +61,9 @@ func (r *SSHRunner) Run(pe PreparedExecution) error {
 		}
 	}
 
-	// Build env exports.
-	var envExports string
-	for key, val := range pe.Env {
-		envExports += fmt.Sprintf("export %s=%q; ", key, val)
-	}
+	// Build env exports — values are POSIX single-quoted so attacker-
+	// controlled DSNs or YAML config cannot inject shell commands.
+	envExports := BuildEnvExports(pe.Env)
 
 	// Execute command remotely in background (nohup + disown).
 	remoteCmd := fmt.Sprintf("cd %s && %s nohup sh -c %q > /dev/null 2>&1 &",

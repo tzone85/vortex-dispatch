@@ -150,11 +150,20 @@ func RequireToken(token string, next http.Handler) http.Handler {
 
 func (a *authenticator) wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// `Referrer-Policy: no-referrer` keeps any URL noise (including
-		// the one-time bootstrap nonce on first load) out of outbound
-		// Referer headers. Defence-in-depth; the nonce is single-use
-		// anyway.
-		w.Header().Set("Referrer-Policy", "no-referrer")
+		// Defence-in-depth response headers applied to every response.
+		// `Referrer-Policy` keeps URL noise (one-time bootstrap nonce)
+		// out of outbound Referer headers. The OWASP-baseline trio
+		// (X-Frame-Options, X-Content-Type-Options, CSP) defends a
+		// browser-facing operator against clickjacking, MIME-sniffing,
+		// and script injection on the dashboard pages themselves.
+		// Strict-Transport-Security is opt-in to TLS-only deployments
+		// via a behind-a-proxy header — we don't set it on the
+		// plain-HTTP listener.
+		h := w.Header()
+		h.Set("Referrer-Policy", "no-referrer")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none'")
 
 		if _, ok := authBypassedPaths[r.URL.Path]; ok {
 			next.ServeHTTP(w, r)
@@ -176,20 +185,20 @@ func (a *authenticator) wrap(next http.Handler) http.Handler {
 		// the nonce so the URL can't replay.
 		if q := r.URL.Query().Get(NonceQueryParam); q != "" {
 			if a.tryConsumeNonce(q) {
+				// Secure flag is conditional: on a plain-HTTP localhost
+				// listener the browser would drop a Secure cookie on
+				// every subsequent request, breaking auth silently. We
+				// detect HTTPS — direct TLS or X-Forwarded-Proto from a
+				// reverse proxy — and only then assert Secure. Reverse-
+				// proxied deployments still get the full protection.
+				secure := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 				http.SetCookie(w, &http.Cookie{
 					Name:     TokenCookieName,
 					Value:    a.token,
 					Path:     "/",
 					HttpOnly: true,
 					SameSite: http.SameSiteStrictMode,
-					// Secure: cookie travels over TLS only. The dashboard
-					// binds to localhost today (plain HTTP), but operators
-					// often front it with an HTTPS reverse proxy. Without
-					// Secure, the browser would happily send the cookie
-					// over BOTH the HTTPS proxy AND any plain HTTP
-					// connection — leaking the session token if the
-					// operator mistakenly browses the HTTP address.
-					Secure: true,
+					Secure:   secure,
 				})
 				next.ServeHTTP(w, r)
 				return

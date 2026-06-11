@@ -163,7 +163,7 @@ func (cr *ConflictResolver) RebaseWithResolution(ctx context.Context, storyID, w
 						if llm.IsFatalAPIError(rErr) {
 							log.Printf("[conflict-resolver] FATAL: Tech Lead API error for %s: %v", storyID, rErr)
 						}
-						return fmt.Errorf("Tech Lead resolve %s: %w", file, rErr)
+						return fmt.Errorf("tech lead resolve %s: %w", file, rErr)
 					}
 					cr.emitEscalationEvent(storyID, file, "tech_lead_resolved")
 				} else if seniorErr != nil {
@@ -175,10 +175,8 @@ func (cr *ConflictResolver) RebaseWithResolution(ctx context.Context, storyID, w
 					return fmt.Errorf("LLM resolve %s: %w", file, seniorErr)
 				}
 				// If needsTechLead but senior succeeded and no tech lead: use senior result.
-			} else if seniorErr != nil {
-				vxdgit.RebaseAbort(worktreePath)
-				return fmt.Errorf("LLM resolve %s: %w", file, seniorErr)
 			}
+			// Outer else: !needsTechLead && seniorErr == nil — senior succeeded normally.
 
 			if wErr := os.WriteFile(absPath, []byte(resolved), 0o644); wErr != nil {
 				vxdgit.RebaseAbort(worktreePath)
@@ -369,7 +367,7 @@ resolved file content — no explanations, no markdown fences.`,
 	resolved := stripCodeFences(resp.Content)
 
 	if strings.Contains(resolved, "<<<<<<<") || strings.Contains(resolved, ">>>>>>>") {
-		return "", fmt.Errorf("Tech Lead output still contains conflict markers")
+		return "", fmt.Errorf("tech lead output still contains conflict markers")
 	}
 
 	return resolved, nil

@@ -136,9 +136,19 @@ func newDBSQLCmd() *cobra.Command {
 		Short: "Run a one-shot SQL query against a DB",
 		Long: `Run a one-shot SQL query against an agent-provisioned database.
 
-Read-only by default: only SELECT, WITH, EXPLAIN, SHOW, VALUES, and TABLE
-queries are allowed. Use --write to allow INSERT / UPDATE / DELETE / DDL.
-Multi-statement queries are always rejected.`,
+Defense layers (in order):
+
+  1. Static classifier accepts only SELECT, SHOW, VALUES, TABLE without
+     --write. WITH (CTEs can wrap DELETE RETURNING) and EXPLAIN (ANALYZE
+     actually runs the statement) require --write.
+  2. Multi-statement queries are ALWAYS rejected, even with --write.
+  3. The read-only path executes the query inside a BEGIN READ ONLY
+     transaction and ROLLBACKs at the end, so Postgres itself rejects
+     any data-modifying statement that slipped past the static check.
+
+Caveat: a READ ONLY transaction does NOT block side-effecting function
+calls (e.g. pg_terminate_backend, lo_unlink, user functions that write).
+Audit the connection's privileges accordingly.`,
 		Args:         cobra.ExactArgs(2),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -168,9 +178,9 @@ Multi-statement queries are always rejected.`,
 			}
 			defer conn.Close(ctx)
 
-			// Mutating queries bypass the rows path because Exec is the
-			// correct verb and returns rows-affected. Read-only queries
-			// keep the existing tabular output.
+			// Mutating + --write path: Exec is the correct verb for
+			// INSERT/UPDATE/DELETE/DDL because it returns rows-affected
+			// and doesn't need a row cursor.
 			if writeFlag && ClassifyQuery(query) == QueryMutating {
 				tag, err := conn.Exec(ctx, query)
 				if err != nil {
@@ -180,7 +190,17 @@ Multi-statement queries are always rejected.`,
 				return nil
 			}
 
-			rows, err := conn.Query(ctx, query)
+			// Read-only path: run inside a READ ONLY transaction so
+			// Postgres rejects any mutation that survived the static
+			// classifier — CTE-DELETE-RETURNING, EXPLAIN ANALYZE INSERT,
+			// trigger-fired writes, etc.
+			tx, err := conn.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+			if err != nil {
+				return fmt.Errorf("begin read-only tx: %w", err)
+			}
+			defer tx.Rollback(ctx) //nolint:errcheck
+
+			rows, err := tx.Query(ctx, query)
 			if err != nil {
 				return fmt.Errorf("query: %w", err)
 			}
@@ -206,7 +226,7 @@ Multi-statement queries are always rejected.`,
 			return rows.Err()
 		},
 	}
-	cmd.Flags().Bool("write", false, "allow mutating SQL (INSERT/UPDATE/DELETE/DDL); read-only otherwise")
+	cmd.Flags().Bool("write", false, "allow mutating SQL (INSERT/UPDATE/DELETE/DDL/WITH/EXPLAIN); read-only otherwise")
 	return cmd
 }
 

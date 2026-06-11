@@ -346,7 +346,12 @@ func (s *SQLiteStore) GetStory(id string) (Story, error) {
 		story.MergedAt = mergedAt.Time
 	}
 	if ownedFilesJSON != "" {
-		json.Unmarshal([]byte(ownedFilesJSON), &story.OwnedFiles)
+		if uerr := json.Unmarshal([]byte(ownedFilesJSON), &story.OwnedFiles); uerr != nil {
+			// Corrupt owned_files leaves the dispatcher blind to file
+			// ownership → potential races between parallel stories. Surface
+			// the row + JSON so operators can rebuild from events.jsonl.
+			log.Printf("[projector] unmarshal owned_files for story %s: %v (raw=%q)", id, uerr, ownedFilesJSON)
+		}
 	}
 	if story.OwnedFiles == nil {
 		story.OwnedFiles = []string{}
@@ -397,7 +402,9 @@ func (s *SQLiteStore) ListStories(filter StoryFilter) ([]Story, error) {
 			story.MergedAt = mergedAt.Time
 		}
 		if ownedFilesJSON != "" {
-			json.Unmarshal([]byte(ownedFilesJSON), &story.OwnedFiles)
+			if uerr := json.Unmarshal([]byte(ownedFilesJSON), &story.OwnedFiles); uerr != nil {
+				log.Printf("[projector] unmarshal owned_files for story %s: %v (raw=%q)", story.ID, uerr, ownedFilesJSON)
+			}
 		}
 		if story.OwnedFiles == nil {
 			story.OwnedFiles = []string{}
@@ -519,6 +526,12 @@ func (s *SQLiteStore) decodePayload(evt Event) map[string]any {
 	}
 	var m map[string]any
 	if err := json.Unmarshal(evt.Payload, &m); err != nil {
+		// A corrupt payload silently fell through as an empty map; downstream
+		// projections then read empty strings for required fields like
+		// req_id / title and wrote partial rows. Log the corruption so
+		// operators see the event type + story ID instead of just an
+		// empty projection.
+		log.Printf("[projector] decode payload for %s/%s: %v", evt.Type, evt.StoryID, err)
 		return map[string]any{}
 	}
 	return m

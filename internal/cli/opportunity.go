@@ -145,11 +145,13 @@ func runOppPropose(cmd *cobra.Command, args []string) error {
 	fmt.Println(draft)
 
 	// Update pipeline
-	improve.UpdateOpportunityField(pipelinePath(), id, func(opp improve.Opportunity) improve.Opportunity {
+	if _, err := improve.UpdateOpportunityField(pipelinePath(), id, func(opp improve.Opportunity) improve.Opportunity {
 		opp.ProposalDraft = draft
 		opp.Status = improve.StatusProposalDrafted
 		return opp
-	})
+	}); err != nil {
+		return fmt.Errorf("update opportunity pipeline: %w", err)
+	}
 
 	return nil
 }

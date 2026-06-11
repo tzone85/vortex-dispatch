@@ -243,19 +243,19 @@ func FormatMetrics(m PipelineMetrics) string {
 
 	b.WriteString("=== VXD Pipeline Metrics ===\n\n")
 
-	b.WriteString(fmt.Sprintf("Requirements:  %d total, %d completed\n", m.TotalRequirements, m.CompletedRequirements))
-	b.WriteString(fmt.Sprintf("Stories:       %d total, %d merged, %d escalated\n", m.TotalStories, m.StoriesMerged, m.StoriesEscalated))
-	b.WriteString(fmt.Sprintf("First-pass:    %.0f%% (stories that passed review+QA without retries)\n", m.FirstPassRate))
-	b.WriteString(fmt.Sprintf("Avg time:      %s per story\n", formatDuration(m.AvgTotalTime)))
+	fmt.Fprintf(&b, "Requirements:  %d total, %d completed\n", m.TotalRequirements, m.CompletedRequirements)
+	fmt.Fprintf(&b, "Stories:       %d total, %d merged, %d escalated\n", m.TotalStories, m.StoriesMerged, m.StoriesEscalated)
+	fmt.Fprintf(&b, "First-pass:    %.0f%% (stories that passed review+QA without retries)\n", m.FirstPassRate)
+	fmt.Fprintf(&b, "Avg time:      %s per story\n", formatDuration(m.AvgTotalTime))
 
 	if m.TotalToolCalls > 0 {
 		b.WriteString("\nAgent Activity:\n")
-		b.WriteString(fmt.Sprintf("  Tool calls:   %d\n", m.TotalToolCalls))
-		b.WriteString(fmt.Sprintf("  File edits:   %d\n", m.TotalFileEdits))
-		b.WriteString(fmt.Sprintf("  File creates: %d\n", m.TotalFileCreates))
-		b.WriteString(fmt.Sprintf("  Commands:     %d\n", m.TotalCommands))
-		b.WriteString(fmt.Sprintf("  Test runs:    %d\n", m.TotalTests))
-		b.WriteString(fmt.Sprintf("  Errors:       %d\n", m.TotalErrors))
+		fmt.Fprintf(&b, "  Tool calls:   %d\n", m.TotalToolCalls)
+		fmt.Fprintf(&b, "  File edits:   %d\n", m.TotalFileEdits)
+		fmt.Fprintf(&b, "  File creates: %d\n", m.TotalFileCreates)
+		fmt.Fprintf(&b, "  Commands:     %d\n", m.TotalCommands)
+		fmt.Fprintf(&b, "  Test runs:    %d\n", m.TotalTests)
+		fmt.Fprintf(&b, "  Errors:       %d\n", m.TotalErrors)
 	}
 
 	if len(m.EscalationsPerTier) > 0 {
@@ -267,14 +267,14 @@ func FormatMetrics(m PipelineMetrics) string {
 				if tier < len(tierName) {
 					name = tierName[tier]
 				}
-				b.WriteString(fmt.Sprintf("  Tier %d (%s): %d\n", tier, name, count))
+				fmt.Fprintf(&b, "  Tier %d (%s): %d\n", tier, name, count)
 			}
 		}
 	}
 
 	if m.SLABreaches > 0 {
-		b.WriteString(fmt.Sprintf("\nSLA breaches: %d (%.0f%% of stories)\n",
-			m.SLABreaches, m.SLABreachRate*100))
+		fmt.Fprintf(&b, "\nSLA breaches: %d (%.0f%% of stories)\n",
+			m.SLABreaches, m.SLABreachRate*100)
 	} else {
 		b.WriteString("\nSLA breaches: 0\n")
 	}
@@ -286,9 +286,9 @@ func FormatMetrics(m PipelineMetrics) string {
 			if len(title) > 50 {
 				title = title[:50] + "..."
 			}
-			b.WriteString(fmt.Sprintf("  [%s] %s\n", rs.Status, title))
-			b.WriteString(fmt.Sprintf("    Stories: %d | Merged: %d | First-pass: %.0f%% | Escalations: %d | SLA breaches: %d | Duration: %s\n",
-				rs.StoryCount, rs.MergedCount, rs.FirstPassRate, rs.EscalationCount, rs.SLABreaches, formatDuration(rs.TotalDuration)))
+			fmt.Fprintf(&b, "  [%s] %s\n", rs.Status, title)
+			fmt.Fprintf(&b, "    Stories: %d | Merged: %d | First-pass: %.0f%% | Escalations: %d | SLA breaches: %d | Duration: %s\n",
+				rs.StoryCount, rs.MergedCount, rs.FirstPassRate, rs.EscalationCount, rs.SLABreaches, formatDuration(rs.TotalDuration))
 			for _, ss := range rs.Stories {
 				stTitle := ss.Title
 				if len(stTitle) > 40 {
@@ -298,17 +298,17 @@ func FormatMetrics(m PipelineMetrics) string {
 				if ss.Duration > 0 {
 					dur = fmt.Sprintf(" [%s]", formatDuration(ss.Duration))
 				}
-				b.WriteString(fmt.Sprintf("      • [%s] (complexity %d)%s %s\n", ss.Status, ss.Complexity, dur, stTitle))
+				fmt.Fprintf(&b, "      • [%s] (complexity %d)%s %s\n", ss.Status, ss.Complexity, dur, stTitle)
 			}
 			if rs.DBMetrics.TotalDBs > 0 {
 				b.WriteString("    Databases:\n")
-				b.WriteString(fmt.Sprintf("      Total: %d (active: %d, deleted: %d, retained: %d, failed: %d)\n",
+				fmt.Fprintf(&b, "      Total: %d (active: %d, deleted: %d, retained: %d, failed: %d)\n",
 					rs.DBMetrics.TotalDBs, rs.DBMetrics.ActiveDBs, rs.DBMetrics.DeletedDBs,
-					rs.DBMetrics.RetainedDBs, rs.DBMetrics.FailedDBs))
+					rs.DBMetrics.RetainedDBs, rs.DBMetrics.FailedDBs)
 				hours := rs.DBMetrics.TotalDurationSec / 3600.0
-				b.WriteString(fmt.Sprintf("      DB-hours: %.2f\n", hours))
+				fmt.Fprintf(&b, "      DB-hours: %.2f\n", hours)
 				if rs.DBMetrics.Provider != "" {
-					b.WriteString(fmt.Sprintf("      Provider: %s\n", rs.DBMetrics.Provider))
+					fmt.Fprintf(&b, "      Provider: %s\n", rs.DBMetrics.Provider)
 				}
 			}
 		}

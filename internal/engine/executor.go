@@ -287,7 +287,10 @@ func (e *Executor) spawn(repoDir string, a Assignment, story PlannedStory) Spawn
 
 	// Build log path for post-mortem diagnosis
 	logDir := filepath.Join(execExpandHome(e.config.Workspace.StateDir), "logs")
-	os.MkdirAll(logDir, 0o755)
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		result.Error = fmt.Errorf("create log dir %s: %w", logDir, err)
+		return result
+	}
 	logFile := filepath.Join(logDir, a.StoryID+".log")
 
 	// Spawn the runtime session — use Adapter/Runner if configured,
@@ -320,13 +323,15 @@ func (e *Executor) spawn(repoDir string, a Assignment, story PlannedStory) Spawn
 
 	// Write launch config artifact for reproducibility.
 	if e.artifactStore != nil {
-		e.artifactStore.Write(a.StoryID, artifact.TypeLaunchConfig, artifact.LaunchConfig{
+		if err := e.artifactStore.Write(a.StoryID, artifact.TypeLaunchConfig, artifact.LaunchConfig{
 			StoryID:   a.StoryID,
 			Runtime:   rtName,
 			Model:     modelCfg.Model,
 			Prompt:    goalPrompt,
 			WaveBrief: waveContext,
-		})
+		}); err != nil {
+			log.Printf("[executor] persist launch-config artifact for %s: %v", a.StoryID, err)
+		}
 	}
 
 	// Emit STORY_STARTED event with tier and role so AttemptTracker can

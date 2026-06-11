@@ -151,7 +151,9 @@ func (c *CLIRuntime) BuildCommand(cfg SessionConfig) (string, error) {
 		// session config. Write 0o600 (and 0o700 on the dir) so other
 		// users on a shared dispatch host can't read them.
 		promptDir := filepath.Join(cfg.WorkDir, ".vxd-prompts")
-		os.MkdirAll(promptDir, 0o700)
+		if err := os.MkdirAll(promptDir, 0o700); err != nil {
+			return "", fmt.Errorf("create prompt dir: %w", err)
+		}
 		promptFile := filepath.Join(promptDir, "prompt.txt")
 		if err := os.WriteFile(promptFile, []byte(prompt), 0o600); err != nil {
 			return "", fmt.Errorf("write prompt file: %w", err)

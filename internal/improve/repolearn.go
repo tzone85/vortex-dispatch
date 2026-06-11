@@ -247,8 +247,12 @@ func StoreLearnings(dir string, learnings []Learning) error {
 		if err != nil {
 			continue
 		}
-		f.Write(data)
-		f.Write([]byte("\n"))
+		if _, err := f.Write(data); err != nil {
+			return fmt.Errorf("write learning: %w", err)
+		}
+		if _, err := f.Write([]byte("\n")); err != nil {
+			return fmt.Errorf("write learning newline: %w", err)
+		}
 	}
 	return nil
 }

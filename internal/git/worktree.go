@@ -20,23 +20,23 @@ func CreateWorktree(repoDir, worktreePath, branch string) error {
 			return nil // valid worktree — reuse it
 		}
 		// Broken or empty worktree — remove it
-		os.RemoveAll(worktreePath)
+		_ = os.RemoveAll(worktreePath) // best-effort cleanup
 	}
 
 	// Prune stale worktree references from .git/worktrees
 	prune := exec.Command("git", "worktree", "prune")
 	prune.Dir = repoDir
-	prune.Run()
+	_ = prune.Run() // best-effort cleanup; failure surfaces in the next add
 
 	// Delete the branch if it lingers from a previous failed attempt
 	delBranch := exec.Command("git", "branch", "-D", branch)
 	delBranch.Dir = repoDir
-	delBranch.Run()
+	_ = delBranch.Run() // best-effort; "not found" is a normal case here
 
 	// Delete the remote tracking reference if it exists (e.g. origin/<branch>)
 	delRemote := exec.Command("git", "branch", "-dr", "origin/"+branch)
 	delRemote.Dir = repoDir
-	delRemote.Run()
+	_ = delRemote.Run() // best-effort; absence is normal
 
 	// Create fresh worktree with new branch
 	cmd := exec.Command("git", "worktree", "add", "-b", branch, worktreePath)

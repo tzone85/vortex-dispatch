@@ -3,6 +3,7 @@ package engine
 import (
 	"crypto/sha256"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/tzone85/vortex-dispatch/internal/runtime"
@@ -61,11 +62,15 @@ func (w *Watchdog) Check(sessionName string, rt runtime.Runtime) CheckResult {
 
 	switch status {
 	case runtime.StatusPermissionPrompt:
-		rt.SendInput(sessionName, "Y")
+		if err := rt.SendInput(sessionName, "Y"); err != nil {
+			log.Printf("[watchdog] send Y to %s: %v", sessionName, err)
+		}
 		result.Action = "permission_bypass"
 
 	case runtime.StatusPlanMode:
-		rt.SendInput(sessionName, "Escape")
+		if err := rt.SendInput(sessionName, "Escape"); err != nil {
+			log.Printf("[watchdog] send Escape to %s: %v", sessionName, err)
+		}
 		result.Action = "plan_escape"
 
 	case runtime.StatusTerminated, runtime.StatusDone:
@@ -94,10 +99,12 @@ func (w *Watchdog) Check(sessionName string, rt runtime.Runtime) CheckResult {
 			if elapsed.Seconds() >= float64(w.config.StuckThresholdS) {
 				result.Status = runtime.StatusStuck
 				result.Action = "stuck_detected"
-				w.eventStore.Append(state.NewEvent(state.EventAgentStuck, "", "", map[string]any{
+				if err := w.eventStore.Append(state.NewEvent(state.EventAgentStuck, "", "", map[string]any{
 					"session_name": sessionName,
 					"stuck_for_s":  int(elapsed.Seconds()),
-				}))
+				})); err != nil {
+					log.Printf("[watchdog] append agent-stuck event for %s: %v", sessionName, err)
+				}
 			}
 		}
 	}

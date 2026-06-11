@@ -166,7 +166,7 @@ func (p *Provider) Create(ctx context.Context, opts devdb.CreateOpts) (devdb.DB,
 	if err != nil {
 		return devdb.DB{}, err
 	}
-	defer pg.Close(ctx)
+	defer func() { _ = pg.Close(ctx) }() // best-effort cleanup
 	if err := pg.CreateDB(ctx, opts.Name); err != nil {
 		return devdb.DB{}, fmt.Errorf("docker create: %w", err)
 	}
@@ -182,7 +182,7 @@ func (p *Provider) Fork(ctx context.Context, template string, opts devdb.CreateO
 	if err != nil {
 		return devdb.DB{}, err
 	}
-	defer pg.Close(ctx)
+	defer func() { _ = pg.Close(ctx) }() // best-effort cleanup
 
 	// Mark the source as a template (idempotent — Postgres tolerates UPDATE
 	// of datistemplate to its current value).
@@ -203,7 +203,7 @@ func (p *Provider) Delete(ctx context.Context, dbID string) error {
 	if err != nil {
 		return err
 	}
-	defer pg.Close(ctx)
+	defer func() { _ = pg.Close(ctx) }() // best-effort cleanup
 	if err := pg.KillConnections(ctx, dbID); err != nil {
 		return fmt.Errorf("docker kill conns %s: %w", dbID, err)
 	}
@@ -261,7 +261,7 @@ func (p *Provider) List(ctx context.Context) ([]devdb.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer pg.Close(ctx)
+	defer func() { _ = pg.Close(ctx) }() // best-effort cleanup
 	names, err := pg.ListDBsWithPrefix(ctx, devdb.PrefixVXD+"-")
 	if err != nil {
 		return nil, fmt.Errorf("docker list: %w", err)
@@ -280,7 +280,7 @@ func (p *Provider) Schema(ctx context.Context, dbID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer pg.Close(ctx)
+	defer func() { _ = pg.Close(ctx) }() // best-effort cleanup
 	return DumpSchema(ctx, pg)
 }
 

@@ -106,7 +106,9 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 
 	// Persist the diff as an artifact for post-mortem inspection.
 	if m.artifactStore != nil {
-		m.artifactStore.WriteRaw(storyID, artifact.TypeGitDiff, diff)
+		if err := m.artifactStore.WriteRaw(storyID, artifact.TypeGitDiff, diff); err != nil {
+			log.Printf("[pipeline] persist git-diff artifact for %s: %v", storyID, err)
+		}
 	}
 
 	// 1. Code Review
@@ -163,10 +165,12 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 		}
 		// Persist review result as artifact.
 		if m.artifactStore != nil {
-			m.artifactStore.Write(storyID, artifact.TypeReviewResult, map[string]any{
+			if err := m.artifactStore.Write(storyID, artifact.TypeReviewResult, map[string]any{
 				"passed":  result.Passed,
 				"summary": result.Summary,
-			})
+			}); err != nil {
+				log.Printf("[pipeline] persist review artifact for %s: %v", storyID, err)
+			}
 		}
 
 		log.Printf("[pipeline] review passed for %s", storyID)
@@ -196,10 +200,12 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 		}
 		// Persist QA result as artifact.
 		if m.artifactStore != nil {
-			m.artifactStore.Write(storyID, artifact.TypeQAResult, map[string]any{
+			if err := m.artifactStore.Write(storyID, artifact.TypeQAResult, map[string]any{
 				"passed": result.Passed,
 				"checks": result.Checks,
-			})
+			}); err != nil {
+				log.Printf("[pipeline] persist QA artifact for %s: %v", storyID, err)
+			}
 		}
 
 		log.Printf("[pipeline] QA passed for %s", storyID)
@@ -510,14 +516,22 @@ func (m *Monitor) resetStoryToDraft(storyID, fromAgent, reason string) {
 			"to_tier":   nextTier,
 			"reason":    reason,
 		})
-		m.eventStore.Append(escEvt)
-		m.projStore.Project(escEvt)
+		if err := m.eventStore.Append(escEvt); err != nil {
+			log.Printf("[pipeline] append escalation event for %s: %v", storyID, err)
+		}
+		if err := m.projStore.Project(escEvt); err != nil {
+			log.Printf("[pipeline] project escalation event for %s: %v", storyID, err)
+		}
 		// Also reset to draft so the dispatcher picks it up at the new tier.
 		resetEvt := state.NewEvent(state.EventStoryReviewFailed, fromAgent, storyID, map[string]any{
 			"reason": fmt.Sprintf("escalated to tier %d: %s", nextTier, reason),
 		})
-		m.eventStore.Append(resetEvt)
-		m.projStore.Project(resetEvt)
+		if err := m.eventStore.Append(resetEvt); err != nil {
+			log.Printf("[pipeline] append escalation-reset event for %s: %v", storyID, err)
+		}
+		if err := m.projStore.Project(resetEvt); err != nil {
+			log.Printf("[pipeline] project escalation-reset event for %s: %v", storyID, err)
+		}
 		return
 	}
 
@@ -531,8 +545,12 @@ func (m *Monitor) resetStoryToDraft(storyID, fromAgent, reason string) {
 	evt := state.NewEvent(state.EventStoryReviewFailed, fromAgent, storyID, map[string]any{
 		"reason": reason,
 	})
-	m.eventStore.Append(evt)
-	m.projStore.Project(evt)
+	if err := m.eventStore.Append(evt); err != nil {
+		log.Printf("[pipeline] append reset event for %s: %v", storyID, err)
+	}
+	if err := m.projStore.Project(evt); err != nil {
+		log.Printf("[pipeline] project reset event for %s: %v", storyID, err)
+	}
 }
 
 // dispatchNextWave determines which stories are now ready (dependencies met)

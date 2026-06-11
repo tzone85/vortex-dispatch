@@ -180,16 +180,22 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 				"total_stories": len(stories),
 				"reason":        "no dispatchable stories — escalation tiers exhausted",
 			})
-			m.eventStore.Append(stallEvt)
+			if err := m.eventStore.Append(stallEvt); err != nil {
+				log.Printf("[monitor] append PIPELINE_STALLED event: %v", err)
+			}
 
 			// Notify via webhook if configured
 			if m.notifier != nil {
-				go m.notifier.Notify(ctx, notify.Message{
-					Title:     fmt.Sprintf("VXD STALLED: %s", rc.ReqID),
-					Body:      fmt.Sprintf("%d stories stuck, all escalation tiers exhausted.\nRun: vxd resume %s --godmode", pendingCount, rc.ReqID),
-					Severity:  "error",
-					EventType: "PIPELINE_STALLED",
-				})
+				go func() {
+					if err := m.notifier.Notify(ctx, notify.Message{
+						Title:     fmt.Sprintf("VXD STALLED: %s", rc.ReqID),
+						Body:      fmt.Sprintf("%d stories stuck, all escalation tiers exhausted.\nRun: vxd resume %s --godmode", pendingCount, rc.ReqID),
+						Severity:  "error",
+						EventType: "PIPELINE_STALLED",
+					}); err != nil {
+						log.Printf("[monitor] PIPELINE_STALLED notify failed: %v", err)
+					}
+				}()
 			}
 		} else {
 			log.Printf("[auto-resume] no stories ready for next wave (dependencies not met)")

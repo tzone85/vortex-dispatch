@@ -96,7 +96,7 @@ func countProjectStories(vxdRoot, projectName string) (total, merged int) {
 	if err != nil {
 		return 0, 0
 	}
-	defer ps.Close()
+	defer func() { _ = ps.Close() }() // best-effort cleanup
 
 	allStories, err := ps.ListStories(state.StoryFilter{})
 	if err != nil {

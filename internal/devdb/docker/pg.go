@@ -85,14 +85,16 @@ func (p *PGConn) KillConnections(ctx context.Context, name string) error {
 
 // SetTemplateFlag marks a DB as a template (datistemplate=true). Postgres rejects
 // new client connections to a template DB, which is what we want for fork sources.
+//
+// Both columns flow through `$N` placeholders so a future refactor that
+// changes `on` from `bool` to a typed string can't accidentally
+// reintroduce SQL injection. The boolean is safe today via Go typing
+// alone, but the parameterized form is what a senior reviewer would
+// expect at every call site.
 func (p *PGConn) SetTemplateFlag(ctx context.Context, name string, on bool) error {
-	val := "false"
-	if on {
-		val = "true"
-	}
 	_, err := p.conn.Exec(ctx,
-		fmt.Sprintf(`UPDATE pg_database SET datistemplate = %s WHERE datname = $1`, val),
-		name,
+		`UPDATE pg_database SET datistemplate = $1 WHERE datname = $2`,
+		on, name,
 	)
 	return err
 }

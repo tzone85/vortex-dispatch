@@ -12,7 +12,13 @@ import (
 
 // CreateBackup creates a tar.gz archive of the state directory.
 // Returns the path to the created archive.
-func CreateBackup(stateDir, outputDir string) (string, error) {
+//
+// Close errors on the tar/gzip/file writers are surfaced as the function
+// return value. Deferred Close in the old form silently swallowed
+// gzip.Writer.Close, which is exactly when the FINAL compressed bytes
+// are flushed — a failure there produced a truncated .tar.gz reported
+// as success.
+func CreateBackup(stateDir, outputDir string) (retPath string, retErr error) {
 	entries, err := os.ReadDir(stateDir)
 	if err != nil {
 		return "", fmt.Errorf("read state dir: %w", err)
@@ -27,13 +33,30 @@ func CreateBackup(stateDir, outputDir string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("create archive: %w", err)
 	}
-	defer outFile.Close()
-
 	gzWriter := gzip.NewWriter(outFile)
-	defer gzWriter.Close()
-
 	tarWriter := tar.NewWriter(gzWriter)
-	defer tarWriter.Close()
+
+	// Close in reverse order — tar finalises trailer, gzip flushes
+	// compressed footer, file closes the descriptor. Each Close error
+	// short-circuits the rest because a failure at the inner layer makes
+	// the outer ones meaningless.
+	defer func() {
+		if cerr := tarWriter.Close(); cerr != nil && retErr == nil {
+			retErr = fmt.Errorf("close tar writer: %w", cerr)
+		}
+		if cerr := gzWriter.Close(); cerr != nil && retErr == nil {
+			retErr = fmt.Errorf("close gzip writer: %w", cerr)
+		}
+		if cerr := outFile.Close(); cerr != nil && retErr == nil {
+			retErr = fmt.Errorf("close archive file: %w", cerr)
+		}
+		// If we surfaced a Close error, leave the half-written file
+		// behind under the original path — callers should not see a
+		// "success" path string with a corrupt archive at it.
+		if retErr != nil {
+			retPath = ""
+		}
+	}()
 
 	for _, entry := range entries {
 		if entry.IsDir() {

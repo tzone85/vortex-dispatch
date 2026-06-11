@@ -173,8 +173,15 @@ func (cr *ConflictResolver) RebaseWithResolution(ctx context.Context, storyID, w
 						log.Printf("[conflict-resolver] FATAL: API error during conflict resolution for %s: %v", storyID, seniorErr)
 					}
 					return fmt.Errorf("LLM resolve %s: %w", file, seniorErr)
+				} else if needsTechLead {
+					// Senior succeeded but the round was integration-level
+					// (>3 files). Policy says escalate to Tech Lead — but
+					// no Tech Lead client is configured. We accept the
+					// senior result; emit an event so the audit log shows
+					// the downgrade rather than pretending the policy held.
+					cr.emitEscalationEvent(storyID, file, "downgraded_senior_only_no_tech_lead")
+					log.Printf("[conflict-resolver] %s: needsTechLead but techLeadClient nil — accepting senior result for %s", storyID, file)
 				}
-				// If needsTechLead but senior succeeded and no tech lead: use senior result.
 			}
 			// Outer else: !needsTechLead && seniorErr == nil — senior succeeded normally.
 

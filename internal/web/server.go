@@ -109,7 +109,11 @@ func (s *Server) Start(ctx context.Context) error {
 	url := fmt.Sprintf("http://%s", addr)
 	browserURL := fmt.Sprintf("%s/?%s=%s", url, NonceQueryParam, nonce)
 	log.Printf("Dashboard server running at %s", url)
-	log.Printf("Dashboard auth token: %s (paste with `Authorization: Bearer ...`)", token)
+	// Print only a short prefix so the full token does not land in
+	// launchd / systemd / Docker log drivers / log aggregators. The full
+	// token sits at ~/.vxd/dashboard.token (mode 0o600); operators run
+	// `cat ~/.vxd/dashboard.token` if they need it for curl.
+	log.Printf("Dashboard auth token: %s… (full value at ~/.vxd/dashboard.token; use `Authorization: Bearer <token>`)", redactTokenForLog(token))
 	if !s.NoOpen {
 		openBrowser(browserURL)
 	}
@@ -168,6 +172,16 @@ func buildHealthResponse(es state.EventStore, startTime time.Time) map[string]an
 		}
 	}
 	return resp
+}
+
+// redactTokenForLog returns the first 8 chars of the token followed by an
+// ellipsis. Keeps enough for operators to disambiguate sessions in logs
+// without printing the full bearer to stdout / stderr.
+func redactTokenForLog(token string) string {
+	if len(token) > 8 {
+		return token[:8]
+	}
+	return token
 }
 
 // defaultDashboardTokenPath returns the on-disk location of the bearer

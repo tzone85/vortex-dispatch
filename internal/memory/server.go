@@ -228,12 +228,21 @@ func (s *Server) handleListFindings(ctx context.Context, conn *websocket.Conn) {
 	wsjson.Write(ctx, conn, resp) //nolint:errcheck
 }
 
-// handleSearch runs a MemPalace search and returns results.
-func (s *Server) handleSearch(ctx context.Context, conn *websocket.Conn, query, date string) {
-	results, err := SearchMemPalace(query)
+// searchTimeout caps how long handleSearch waits for MemPalace. Bounded so the
+// WebSocket client always receives a `search_results` frame before its own
+// deadline elapses, even if MemPalace is slow or unresponsive.
+const searchTimeout = 2 * time.Second
+
+// handleSearch runs a MemPalace search and returns results. The search is
+// bounded by searchTimeout so a slow index never blocks the WebSocket loop;
+// on timeout/error an empty result set is returned to the client.
+func (s *Server) handleSearch(ctx context.Context, conn *websocket.Conn, query, _ string) {
+	searchCtx, cancel := context.WithTimeout(ctx, searchTimeout)
+	defer cancel()
+
+	results, err := SearchMemPalace(searchCtx, query)
 	if err != nil {
 		log.Printf("[memory/ws] mempalace search: %v", err)
-		// Return empty results on error
 		results = nil
 	}
 

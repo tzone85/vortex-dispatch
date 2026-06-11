@@ -16,19 +16,27 @@ const (
 	QueryMutating
 )
 
-// readOnlyLeadingKeywords are leading SQL keywords that cannot mutate
-// data on their own. WITH is included because CTEs (which always start
-// with WITH) finish with a SELECT in the common case; if the CTE ends
-// in INSERT/UPDATE/DELETE the gate falls back to false-positive-safe
-// behaviour (rejected as mutating). EXPLAIN and SHOW are read-only by
-// definition.
+// readOnlyLeadingKeywords are leading SQL keywords that the static
+// classifier accepts without --write. The list is deliberately narrow:
+//
+//   - WITH is NOT here: a CTE can wrap DELETE/UPDATE/INSERT … RETURNING
+//     and surface as a read-only-looking query. Operators wanting a CTE
+//     pass --write, which routes execution through a transaction whose
+//     READ ONLY mode lets Postgres itself reject any mutation.
+//   - EXPLAIN is NOT here: `EXPLAIN ANALYZE INSERT INTO ...` actually
+//     runs the underlying statement. Same routing as WITH.
+//
+// Even for the keywords below, the read-only path executes inside a
+// `BEGIN READ ONLY ... ROLLBACK` transaction so Postgres enforces the
+// promise at the protocol level. Side-effecting *function calls* (e.g.
+// `SELECT pg_terminate_backend(...)`) are NOT blocked by READ ONLY;
+// the --write flag and SQL parser don't catch those either, and the
+// command's Long help calls this out explicitly.
 var readOnlyLeadingKeywords = map[string]struct{}{
-	"SELECT":  {},
-	"WITH":    {},
-	"EXPLAIN": {},
-	"SHOW":    {},
-	"VALUES":  {},
-	"TABLE":   {}, // TABLE foo; is shorthand for SELECT * FROM foo
+	"SELECT": {},
+	"SHOW":   {},
+	"VALUES": {},
+	"TABLE":  {}, // TABLE foo; is shorthand for SELECT * FROM foo
 }
 
 // IsMultiStatement reports whether the query contains more than one

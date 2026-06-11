@@ -14,11 +14,19 @@ func TestClassifyQuery(t *testing.T) {
 		{"select", "SELECT 1", QueryReadOnly},
 		{"select lowercase", "select * from foo", QueryReadOnly},
 		{"select with leading whitespace", "   \n  SELECT 1", QueryReadOnly},
-		{"explain", "EXPLAIN SELECT 1", QueryReadOnly},
 		{"show", "SHOW search_path", QueryReadOnly},
-		{"with cte", "WITH a AS (SELECT 1) SELECT * FROM a", QueryReadOnly},
 		{"values", "VALUES (1), (2)", QueryReadOnly},
 		{"table shorthand", "TABLE foo", QueryReadOnly},
+
+		// CTEs and EXPLAIN are flagged as mutating so they can only run
+		// through --write. WITH can wrap DELETE … RETURNING; EXPLAIN
+		// ANALYZE actually runs the wrapped statement. The --write
+		// SELECT path still runs under BEGIN READ ONLY so Postgres
+		// rejects mutations at the protocol level.
+		{"with cte rejected (could be DELETE RETURNING)", "WITH a AS (DELETE FROM t RETURNING *) SELECT * FROM a", QueryMutating},
+		{"with cte select-only also rejected statically", "WITH a AS (SELECT 1) SELECT * FROM a", QueryMutating},
+		{"explain bare rejected", "EXPLAIN SELECT 1", QueryMutating},
+		{"explain analyze rejected", "EXPLAIN ANALYZE INSERT INTO t VALUES (1)", QueryMutating},
 
 		{"insert", "INSERT INTO t VALUES (1)", QueryMutating},
 		{"update", "UPDATE t SET x=1", QueryMutating},

@@ -19,6 +19,8 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+
+	"github.com/tzone85/vortex-dispatch/internal/web"
 )
 
 //go:embed static/*
@@ -31,7 +33,8 @@ type Server struct {
 	port             int
 	httpServer       *http.Server
 	opportunitiesDir string
-	NoOpen           bool // skip opening browser on start
+	NoOpen           bool   // skip opening browser on start
+	TokenPath        string // dashboard auth token path; empty = default ~/.vxd/dashboard.token
 }
 
 // NewServer creates a new memory dashboard server.
@@ -61,20 +64,40 @@ func (s *Server) Handler() http.Handler {
 
 // Start listens on the configured port, opens a browser, and blocks until ctx is cancelled.
 func (s *Server) Start(ctx context.Context) error {
-	handler := s.Handler()
-
 	addr := fmt.Sprintf("localhost:%d", s.port)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("port %d is already in use. Try: vxd memory --web --port %d", s.port, s.port+1)
 	}
 
+	// Auth: persistent bearer token shared with the main dashboard, plus
+	// a per-process single-use bootstrap nonce for the auto-opened
+	// browser. The persistent token never appears in any URL.
+	tokenPath := s.TokenPath
+	if tokenPath == "" {
+		tokenPath = defaultMemoryTokenPath()
+	}
+	token, err := web.LoadOrGenerateToken(tokenPath)
+	if err != nil {
+		return fmt.Errorf("memory dashboard token: %w", err)
+	}
+	nonce, err := web.GenerateBootstrapNonce()
+	if err != nil {
+		return fmt.Errorf("memory dashboard bootstrap nonce: %w", err)
+	}
+	handler := web.NewAuthMiddleware(web.AuthOptions{
+		Token:          token,
+		BootstrapNonce: nonce,
+	})(s.Handler())
+
 	s.httpServer = &http.Server{Handler: handler}
 
 	url := fmt.Sprintf("http://%s", addr)
+	browserURL := fmt.Sprintf("%s/?%s=%s", url, web.NonceQueryParam, nonce)
 	log.Printf("Memory dashboard running at %s", url)
+	log.Printf("Memory dashboard auth token: %s (paste with `Authorization: Bearer ...`)", token)
 	if !s.NoOpen {
-		openBrowser(url)
+		openBrowser(browserURL)
 	}
 
 	go func() {
@@ -85,6 +108,16 @@ func (s *Server) Start(ctx context.Context) error {
 	}()
 
 	return s.httpServer.Serve(listener)
+}
+
+// defaultMemoryTokenPath shares the dashboard token file with the main
+// `vxd dashboard`. One token unlocks both surfaces.
+func defaultMemoryTokenPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return filepath.Join(os.TempDir(), "vxd-dashboard.token")
+	}
+	return filepath.Join(home, ".vxd", "dashboard.token")
 }
 
 // handleWebSocket handles WebSocket connections for the memory dashboard.

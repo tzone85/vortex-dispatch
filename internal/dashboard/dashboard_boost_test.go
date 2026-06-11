@@ -58,11 +58,8 @@ func TestRenderStatusBar_ZeroWidth(t *testing.T) {
 		version:     "1.0",
 		lastRefresh: time.Now(),
 	}
-	bar := m.renderStatusBar()
-	// Should not panic with zero width
-	if bar == "" {
-		// Bar may be empty or have content, just shouldn't panic
-	}
+	// Should not panic with zero width. Bar may be empty or have content.
+	_ = m.renderStatusBar()
 }
 
 // --- renderStories with scroll offset ---

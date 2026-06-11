@@ -145,10 +145,15 @@ func (c *CLIRuntime) BuildCommand(cfg SessionConfig) (string, error) {
 		prompt = cfg.SystemPrompt + "\n\n---\n\n" + cfg.Goal
 	}
 	if prompt != "" {
+		// Prompt files carry goal text + system context + WAVE_CONTEXT
+		// + acceptance criteria, any of which may include DSNs, internal
+		// requirement details, or operator env values injected into the
+		// session config. Write 0o600 (and 0o700 on the dir) so other
+		// users on a shared dispatch host can't read them.
 		promptDir := filepath.Join(cfg.WorkDir, ".vxd-prompts")
-		os.MkdirAll(promptDir, 0o755)
+		os.MkdirAll(promptDir, 0o700)
 		promptFile := filepath.Join(promptDir, "prompt.txt")
-		if err := os.WriteFile(promptFile, []byte(prompt), 0o644); err != nil {
+		if err := os.WriteFile(promptFile, []byte(prompt), 0o600); err != nil {
 			return "", fmt.Errorf("write prompt file: %w", err)
 		}
 		// Use single quotes around $(cat ...) to avoid nested double-quote

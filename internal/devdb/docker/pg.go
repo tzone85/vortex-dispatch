@@ -34,23 +34,43 @@ func (p *PGConn) Close(ctx context.Context) error {
 	return p.conn.Close(ctx)
 }
 
-// CreateDB runs CREATE DATABASE "<name>". Caller is responsible for naming validation.
+// CreateDB runs CREATE DATABASE "<name>".
+//
+// Names are defence-in-depth-validated via devdb.IsValid and quoted via
+// pgx.Identifier so embedded `"` is handled with Postgres' `""` doubling
+// — not Go's `%q` backslash escaping, which Postgres would reject.
 func (p *PGConn) CreateDB(ctx context.Context, name string) error {
-	_, err := p.conn.Exec(ctx, fmt.Sprintf(`CREATE DATABASE %q`, name))
+	if !devdb.IsValid(name) {
+		return fmt.Errorf("invalid db name %q (must match devdb.IsValid)", name)
+	}
+	_, err := p.conn.Exec(ctx, fmt.Sprintf(`CREATE DATABASE %s`, pgx.Identifier{name}.Sanitize()))
 	return err
 }
 
 // CreateDBFromTemplate runs CREATE DATABASE "<name>" WITH TEMPLATE "<template>".
+// Both names are validated and Postgres-quoted (pgx.Identifier).
 // Caller must ensure no active connections to template (use SetTemplateFlag first).
 func (p *PGConn) CreateDBFromTemplate(ctx context.Context, name, template string) error {
-	_, err := p.conn.Exec(ctx, fmt.Sprintf(`CREATE DATABASE %q WITH TEMPLATE %q`, name, template))
+	if !devdb.IsValid(name) {
+		return fmt.Errorf("invalid db name %q (must match devdb.IsValid)", name)
+	}
+	if !devdb.IsValid(template) {
+		return fmt.Errorf("invalid template name %q (must match devdb.IsValid)", template)
+	}
+	_, err := p.conn.Exec(ctx,
+		fmt.Sprintf(`CREATE DATABASE %s WITH TEMPLATE %s`,
+			pgx.Identifier{name}.Sanitize(),
+			pgx.Identifier{template}.Sanitize()))
 	return err
 }
 
 // DropDB runs DROP DATABASE IF EXISTS "<name>".
 // Existing connections are NOT terminated here; call KillConnections first.
 func (p *PGConn) DropDB(ctx context.Context, name string) error {
-	_, err := p.conn.Exec(ctx, fmt.Sprintf(`DROP DATABASE IF EXISTS %q`, name))
+	if !devdb.IsValid(name) {
+		return fmt.Errorf("invalid db name %q (must match devdb.IsValid)", name)
+	}
+	_, err := p.conn.Exec(ctx, fmt.Sprintf(`DROP DATABASE IF EXISTS %s`, pgx.Identifier{name}.Sanitize()))
 	return err
 }
 

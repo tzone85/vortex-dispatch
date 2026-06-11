@@ -92,20 +92,23 @@ func runReq(cmd *cobra.Command, args []string) error {
 	defer s.Close()
 
 	// Planning tries API first (handles large prompts), falls back to CLI
-	// if API fails (no credits, auth issues, etc.).
+	// if API fails (no credits, auth issues, etc.). Dry-run skips the real
+	// client entirely so the command stays runnable in CI / sandboxed envs
+	// where no LLM is reachable.
 	godmode, _ := cmd.Flags().GetBool("godmode")
 	if !godmode {
 		godmode = s.Config.Planning.Godmode
 	}
-	client, err := buildPlanningClient(s.Config.Models.TechLead.Provider, godmode)
-	if err != nil {
-		return err
-	}
-
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	var client llm.Client
 	if dryRun {
 		client = llm.NewDryRunClient(500 * time.Millisecond)
 		fmt.Fprintf(cmd.OutOrStdout(), "[DRY RUN] Using simulated LLM responses\n")
+	} else {
+		client, err = buildPlanningClient(s.Config.Models.TechLead.Provider, godmode)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Generate requirement ID

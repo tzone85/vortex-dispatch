@@ -1223,8 +1223,10 @@ func TestResolveProject_EnvVar(t *testing.T) {
 
 func TestRunDispatchPreflight_Skipped(t *testing.T) {
 	cmd := &cobra.Command{}
-	cmd.PersistentFlags().Bool("skip-preflight", false, "")
-	cmd.PersistentFlags().Set("skip-preflight", "true")
+	// Use Flags() so the value is visible to runDispatchPreflight without
+	// going through cobra.Execute() (which is what triggers
+	// mergePersistentFlags in real usage).
+	cmd.Flags().Bool("skip-preflight", true, "")
 
 	err := runDispatchPreflight(cmd)
 	if err != nil {

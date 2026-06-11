@@ -247,6 +247,13 @@ func TestWebSocket_ListFindings(t *testing.T) {
 }
 
 func TestWebSocket_Search(t *testing.T) {
+	// Inject a deterministic searchFunc so the test does not depend on the
+	// real `mempalace` binary or its index size. Without this the handler
+	// can take longer than the test deadline on a primed dev box.
+	withSearchFunc(t, func(ctx context.Context, query string) ([]SearchResult, error) {
+		return []SearchResult{{Wing: "test", Room: "ws", Text: query, Similarity: 0.9}}, nil
+	})
+
 	s := newTestServer(t)
 	handler := s.Handler()
 	ts := httptest.NewServer(handler)
@@ -266,7 +273,6 @@ func TestWebSocket_Search(t *testing.T) {
 	var initMsg ServerMessage
 	wsjson.Read(ctx, conn, &initMsg) //nolint:errcheck
 
-	// Send search (will fail since mempalace isn't installed, but shouldn't crash)
 	searchMsg := ClientMessage{Type: "search", Query: "security", Date: "2026-04-08"}
 	if err := wsjson.Write(ctx, conn, searchMsg); err != nil {
 		t.Fatalf("Write search: %v", err)
@@ -282,9 +288,74 @@ func TestWebSocket_Search(t *testing.T) {
 	if searchResp.Query != "security" {
 		t.Errorf("expected query=security, got %q", searchResp.Query)
 	}
-	// Results may be nil if mempalace isn't installed -- that's fine
+	if len(searchResp.Results) != 1 {
+		t.Errorf("expected 1 injected result, got %d", len(searchResp.Results))
+	}
 
 	conn.Close(websocket.StatusNormalClosure, "done")
+}
+
+// TestWebSocket_Search_SlowSearchRespectsTimeout pins the regression: when the
+// underlying MemPalace search blocks past the handler's bound, the WebSocket
+// client still receives a `search_results` frame (with empty results) — it does
+// not hang until the client's own deadline.
+func TestWebSocket_Search_SlowSearchRespectsTimeout(t *testing.T) {
+	withSearchFunc(t, func(ctx context.Context, query string) ([]SearchResult, error) {
+		// Block until the handler cancels searchCtx (searchTimeout), then
+		// return ctx.Err — mimics a stuck mempalace process.
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
+
+	s := newTestServer(t)
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	wsURL := "ws" + ts.URL[4:] + "/ws"
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	defer cancel()
+
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer conn.CloseNow()
+
+	var initMsg ServerMessage
+	wsjson.Read(ctx, conn, &initMsg) //nolint:errcheck
+
+	start := time.Now()
+	if err := wsjson.Write(ctx, conn, ClientMessage{Type: "search", Query: "anything"}); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	var resp ServerMessage
+	if err := wsjson.Read(ctx, conn, &resp); err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	elapsed := time.Since(start)
+
+	if resp.Type != "search_results" {
+		t.Errorf("expected search_results, got %q", resp.Type)
+	}
+	if len(resp.Results) != 0 {
+		t.Errorf("expected empty results on timeout, got %d", len(resp.Results))
+	}
+	// Handler bound is searchTimeout (2s); allow generous slack for CI scheduler.
+	if elapsed > 4*time.Second {
+		t.Errorf("handler did not honor searchTimeout: elapsed %v", elapsed)
+	}
+
+	conn.Close(websocket.StatusNormalClosure, "done")
+}
+
+// withSearchFunc swaps the package-level searchFunc for the duration of the test
+// and restores it on cleanup. Not safe for parallel use of the same package var.
+func withSearchFunc(t *testing.T, fn func(context.Context, string) ([]SearchResult, error)) {
+	t.Helper()
+	original := searchFunc
+	searchFunc = fn
+	t.Cleanup(func() { searchFunc = original })
 }
 
 func TestWebSocket_SelectDate_NoData(t *testing.T) {

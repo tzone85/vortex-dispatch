@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/tzone85/vortex-dispatch/internal/shellexec"
+	"github.com/tzone85/vortex-dispatch/internal/sqlsafety"
 )
 
 // readDatabaseURL returns the DATABASE_URL value from .vxd-db/connect.env in workDir,
@@ -104,10 +105,21 @@ func evaluateSchemaChanged(c Criterion, workDir string) CriterionResult {
 
 // evaluateSQLQueryReturns runs the configured SQL against the story DB.
 // Passes if the query returns at least one row, OR exactly ExpectedRows rows when set.
+//
+// The YAML-supplied SQL flows through the same read-only gate that
+// protects `vxd db sql`: only SELECT/SHOW/VALUES/TABLE are accepted
+// (no --write override here — this is a QA criterion, not a CLI
+// command), multi-statement is rejected, and execution wraps in a
+// pgx ReadOnly transaction so Postgres itself blocks DDL/DML that
+// slipped past the classifier.
 func evaluateSQLQueryReturns(c Criterion, workDir string) CriterionResult {
 	if c.SQL == "" {
 		return CriterionResult{Criterion: c, Passed: false,
 			Detail: "sql_query_returns requires `sql` field"}
+	}
+	if err := sqlsafety.ValidateSQLForReadOnly(c.SQL, false); err != nil {
+		return CriterionResult{Criterion: c, Passed: false,
+			Detail: fmt.Sprintf("sql_query_returns: rejected unsafe SQL: %v", err)}
 	}
 	dsn := readDatabaseURL(workDir)
 	if dsn == "" {
@@ -122,7 +134,13 @@ func evaluateSQLQueryReturns(c Criterion, workDir string) CriterionResult {
 			Detail: fmt.Sprintf("sql_query_returns: pgx connect failed: %v", err)}
 	}
 	defer conn.Close(ctx)
-	rows, err := conn.Query(ctx, c.SQL)
+	tx, err := conn.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return CriterionResult{Criterion: c, Passed: false,
+			Detail: fmt.Sprintf("sql_query_returns: begin read-only tx failed: %v", err)}
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	rows, err := tx.Query(ctx, c.SQL)
 	if err != nil {
 		return CriterionResult{Criterion: c, Passed: false,
 			Detail: fmt.Sprintf("sql_query_returns: query failed: %v", err)}

@@ -15,6 +15,12 @@ import (
 	"github.com/tzone85/vortex-dispatch/internal/shellexec"
 )
 
+// metricLastFloatRe extracts the last numeric token from arbitrary
+// command output for the `last_float` metric kind. Hoisted to package
+// level — ParseMetric is on the hot evaluation path and the old form
+// re-compiled this regex on every call.
+var metricLastFloatRe = regexp.MustCompile(`-?\d+(?:\.\d+)?`)
+
 // Tiebreaker is the LLM-based judge invoked when two scores fall within
 // `tie_epsilon` of each other. Returns a nudge in [-1, +1] which the
 // harness scales by the configured epsilon.
@@ -117,8 +123,7 @@ func ParseMetric(p config.AutoresearchMetricParser, output string, exitCode int)
 		return v, nil
 
 	case "last_float":
-		fre := regexp.MustCompile(`-?\d+(?:\.\d+)?`)
-		all := fre.FindAllString(output, -1)
+		all := metricLastFloatRe.FindAllString(output, -1)
 		if len(all) == 0 {
 			return 0, errors.New("last_float: no numeric token in output")
 		}

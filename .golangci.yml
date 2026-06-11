@@ -1,0 +1,17 @@
+# golangci-lint config — goal is "lint is blocking and fast on real
+# defects".
+
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+  exclusions:
+    rules:
+      # Test bodies routinely ignore Close/Append on temp stores —
+      # failures show up as actual test assertions anyway.
+      - path: _test\.go
+        linters:
+          - errcheck

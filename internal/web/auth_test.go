@@ -9,6 +9,8 @@ import (
 	"testing"
 )
 
+// ─── LoadOrGenerateToken ─────────────────────────────────────────────────
+
 func TestLoadOrGenerateToken_EnvOverride(t *testing.T) {
 	t.Setenv("VXD_DASHBOARD_TOKEN", "from-env-override")
 	tok, err := LoadOrGenerateToken(filepath.Join(t.TempDir(), "tok"))
@@ -67,6 +69,37 @@ func TestLoadOrGenerateToken_GeneratesAndPersists(t *testing.T) {
 	}
 }
 
+// ─── NewAuthMiddleware: panic-safe + AllowUnauthenticated ────────────────
+
+func TestNewAuthMiddleware_PanicsOnEmptyToken(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic on empty token without AllowUnauthenticated, got none")
+		}
+	}()
+	_ = NewAuthMiddleware(AuthOptions{Token: ""})
+}
+
+func TestNewAuthMiddleware_AllowUnauthenticatedExplicit(t *testing.T) {
+	mw := NewAuthMiddleware(AuthOptions{AllowUnauthenticated: true})
+	h := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/v1/requirements")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("AllowUnauthenticated: status = %d, want 200", resp.StatusCode)
+	}
+}
+
+// ─── RequireToken — bypass paths + missing/wrong token ───────────────────
+
 func TestRequireToken_AllowsBypassPaths(t *testing.T) {
 	h := RequireToken("the-token", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -92,7 +125,6 @@ func TestRequireToken_RejectsMissingAndWrongToken(t *testing.T) {
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	// Missing entirely.
 	resp, err := http.Get(srv.URL + "/api/v1/requirements")
 	if err != nil {
 		t.Fatal(err)
@@ -105,7 +137,6 @@ func TestRequireToken_RejectsMissingAndWrongToken(t *testing.T) {
 		t.Errorf("expected WWW-Authenticate Bearer hint, got %q", resp.Header.Get("WWW-Authenticate"))
 	}
 
-	// Wrong header.
 	req, _ := http.NewRequest("GET", srv.URL+"/api/v1/requirements", nil)
 	req.Header.Set("Authorization", "Bearer wrong-token")
 	resp, err = http.DefaultClient.Do(req)
@@ -117,6 +148,8 @@ func TestRequireToken_RejectsMissingAndWrongToken(t *testing.T) {
 		t.Errorf("wrong token: status = %d, want 401", resp.StatusCode)
 	}
 }
+
+// ─── Bearer header path ──────────────────────────────────────────────────
 
 func TestRequireToken_AcceptsBearerHeader(t *testing.T) {
 	h := RequireToken("the-token", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -137,31 +170,7 @@ func TestRequireToken_AcceptsBearerHeader(t *testing.T) {
 	}
 }
 
-func TestRequireToken_AcceptsQueryParamAndSetsCookie(t *testing.T) {
-	h := RequireToken("the-token", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	srv := httptest.NewServer(h)
-	defer srv.Close()
-
-	resp, err := http.Get(srv.URL + "/?token=the-token")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("query token: status = %d, want 200", resp.StatusCode)
-	}
-	var foundCookie bool
-	for _, c := range resp.Cookies() {
-		if c.Name == TokenCookieName && c.Value == "the-token" {
-			foundCookie = true
-		}
-	}
-	if !foundCookie {
-		t.Errorf("expected %s cookie set on successful query-token auth", TokenCookieName)
-	}
-}
+// ─── Cookie path ─────────────────────────────────────────────────────────
 
 func TestRequireToken_AcceptsCookie(t *testing.T) {
 	h := RequireToken("the-token", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -182,21 +191,94 @@ func TestRequireToken_AcceptsCookie(t *testing.T) {
 	}
 }
 
-func TestRequireToken_EmptyTokenDisablesAuth(t *testing.T) {
-	// Defensive escape hatch — empty token means no auth check. Intended
-	// for "you got it wrong in main, don't lock yourself out" diagnostics.
-	h := RequireToken("", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+// ─── Single-use bootstrap nonce ──────────────────────────────────────────
+
+func newNonceMiddleware(token, nonce string) http.Handler {
+	mw := NewAuthMiddleware(AuthOptions{Token: token, BootstrapNonce: nonce})
+	return mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+}
+
+func TestBootstrapNonce_FirstUseSetsCookieAndSucceeds(t *testing.T) {
+	srv := httptest.NewServer(newNonceMiddleware("the-token", "one-shot-nonce"))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/?bootstrap=one-shot-nonce")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("first bootstrap: status = %d, want 200", resp.StatusCode)
+	}
+
+	var foundCookie bool
+	for _, c := range resp.Cookies() {
+		if c.Name == TokenCookieName && c.Value == "the-token" {
+			foundCookie = true
+		}
+	}
+	if !foundCookie {
+		t.Error("expected cookie set after first bootstrap")
+	}
+}
+
+func TestBootstrapNonce_SecondUseFails(t *testing.T) {
+	srv := httptest.NewServer(newNonceMiddleware("the-token", "one-shot-nonce"))
+	defer srv.Close()
+
+	first, err := http.Get(srv.URL + "/?bootstrap=one-shot-nonce")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.Body.Close()
+	if first.StatusCode != http.StatusOK {
+		t.Fatalf("first bootstrap: status = %d", first.StatusCode)
+	}
+
+	// Replay the same URL — clean client, no cookie carried over.
+	second, err := http.Get(srv.URL + "/?bootstrap=one-shot-nonce")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second.Body.Close()
+	if second.StatusCode != http.StatusUnauthorized {
+		t.Errorf("replayed bootstrap: status = %d, want 401", second.StatusCode)
+	}
+}
+
+func TestBootstrapNonce_WrongNonceFails(t *testing.T) {
+	srv := httptest.NewServer(newNonceMiddleware("the-token", "real-nonce"))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/?bootstrap=wrong-nonce")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("wrong nonce: status = %d, want 401", resp.StatusCode)
+	}
+}
+
+// ─── Referrer-Policy header on every authenticated response ──────────────
+
+func TestRequireToken_SetsReferrerPolicy(t *testing.T) {
+	h := RequireToken("the-token", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/api/v1/requirements")
+	req, _ := http.NewRequest("GET", srv.URL+"/api/v1/requirements", nil)
+	req.Header.Set("Authorization", "Bearer the-token")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("empty token: status = %d, want 200", resp.StatusCode)
+	if got := resp.Header.Get("Referrer-Policy"); got != "no-referrer" {
+		t.Errorf("Referrer-Policy = %q, want no-referrer", got)
 	}
 }

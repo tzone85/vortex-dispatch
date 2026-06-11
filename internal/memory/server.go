@@ -70,8 +70,9 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("port %d is already in use. Try: vxd memory --web --port %d", s.port, s.port+1)
 	}
 
-	// Auth: reuse the dashboard bearer-token model so a single token
-	// gates both the /vxd dashboard and /vxd memory --web surfaces.
+	// Auth: persistent bearer token shared with the main dashboard, plus
+	// a per-process single-use bootstrap nonce for the auto-opened
+	// browser. The persistent token never appears in any URL.
 	tokenPath := s.TokenPath
 	if tokenPath == "" {
 		tokenPath = defaultMemoryTokenPath()
@@ -80,12 +81,19 @@ func (s *Server) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("memory dashboard token: %w", err)
 	}
-	handler := web.RequireToken(token, s.Handler())
+	nonce, err := web.GenerateBootstrapNonce()
+	if err != nil {
+		return fmt.Errorf("memory dashboard bootstrap nonce: %w", err)
+	}
+	handler := web.NewAuthMiddleware(web.AuthOptions{
+		Token:          token,
+		BootstrapNonce: nonce,
+	})(s.Handler())
 
 	s.httpServer = &http.Server{Handler: handler}
 
 	url := fmt.Sprintf("http://%s", addr)
-	browserURL := fmt.Sprintf("%s/?%s=%s", url, web.TokenQueryParam, token)
+	browserURL := fmt.Sprintf("%s/?%s=%s", url, web.NonceQueryParam, nonce)
 	log.Printf("Memory dashboard running at %s", url)
 	log.Printf("Memory dashboard auth token: %s (paste with `Authorization: Bearer ...`)", token)
 	if !s.NoOpen {

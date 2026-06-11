@@ -9,16 +9,19 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // TokenCookieName is the cookie set on the first authenticated request so
 // the browser session carries the token without exposing it in every URL.
 const TokenCookieName = "vxd_dashboard_token"
 
-// TokenQueryParam is the URL query parameter accepted on the initial
-// browser load to bootstrap the cookie. Subsequent requests are
-// expected to use the Authorization header or the cookie.
-const TokenQueryParam = "token"
+// NonceQueryParam is the URL query parameter that carries a SINGLE-USE
+// bootstrap nonce. The server validates the nonce once, invalidates it,
+// and sets the persistent token cookie. The persistent token itself
+// never travels in a URL — keeps it out of browser history, shoulder-
+// surfing, and any leaked Referer headers.
+const NonceQueryParam = "bootstrap"
 
 // authBypassedPaths are unauthenticated endpoints — typically liveness
 // probes. Anything else is rejected without a valid token.
@@ -68,26 +71,91 @@ func generateToken() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
-// RequireToken wraps next with a bearer-token check. Requests that match
-// authBypassedPaths skip the check entirely. The check accepts the token
-// in any of three places, in order:
+// GenerateBootstrapNonce returns a 32-byte crypto/rand hex string suitable
+// for AuthOptions.BootstrapNonce. Exported so other packages (memory
+// dashboard) can build a one-shot URL bootstrap without re-implementing.
+func GenerateBootstrapNonce() (string, error) { return generateToken() }
+
+// AuthOptions configures NewAuthMiddleware.
+type AuthOptions struct {
+	// Token is the persistent bearer token. Required unless
+	// AllowUnauthenticated is true. NewAuthMiddleware PANICS if both are
+	// unset — silent fail-open auth is a documented anti-pattern.
+	Token string
+
+	// BootstrapNonce, if set, is a single-use 32-byte hex string the
+	// server accepts via ?bootstrap=X to set the cookie. Used for the
+	// auto-opened browser flow so the persistent token never appears in
+	// any URL. Invalidated on first successful use.
+	BootstrapNonce string
+
+	// AllowUnauthenticated is the EXPLICIT escape hatch. Set true only
+	// when a caller deliberately wants no auth (test harnesses or "I
+	// locked myself out of the dashboard" diagnostics). The middleware
+	// short-circuits to the inner handler in that case.
+	AllowUnauthenticated bool
+}
+
+// authenticator binds token + single-use nonce together and serializes
+// nonce consumption.
+type authenticator struct {
+	token         string
+	tokenBytes    []byte
+	nonce         string
+	nonceMu       sync.Mutex
+	nonceConsumed bool
+}
+
+// NewAuthMiddleware returns middleware that enforces opts.Token on every
+// request except authBypassedPaths. Token is accepted via, in priority:
 //
 //  1. Authorization: Bearer <token>
-//  2. ?token=<token> query param (first browser load only; on success
-//     the token is also set as a same-site cookie for subsequent requests)
-//  3. The TokenCookieName cookie
+//  2. ?bootstrap=<single-use-nonce> — sets the cookie and is invalidated
+//     so the same URL cannot replay.
+//  3. The TokenCookieName cookie (set on a successful bootstrap).
 //
-// Constant-time comparison avoids leaking timing info about partial
-// match length.
-func RequireToken(token string, next http.Handler) http.Handler {
-	if token == "" {
-		// Defensive: empty token disables auth. NewServer is expected to
-		// fatal before reaching here, but be explicit so a misconfigured
-		// caller doesn't silently expose endpoints.
-		return next
+// Constant-time comparison avoids leaking timing info.
+//
+// Panics when opts.Token is empty AND opts.AllowUnauthenticated is false.
+// Silent fail-open is treated as misconfiguration, not a feature.
+func NewAuthMiddleware(opts AuthOptions) func(http.Handler) http.Handler {
+	if opts.Token == "" && !opts.AllowUnauthenticated {
+		panic("web.NewAuthMiddleware: empty Token requires explicit AllowUnauthenticated=true; refusing to start an unauthenticated dashboard")
 	}
-	want := []byte(token)
+	if opts.AllowUnauthenticated {
+		return func(next http.Handler) http.Handler {
+			return next
+		}
+	}
+	a := &authenticator{
+		token:      opts.Token,
+		tokenBytes: []byte(opts.Token),
+		nonce:      opts.BootstrapNonce,
+	}
+	return a.wrap
+}
+
+// RequireToken is a thin compatibility wrapper for callers that don't
+// need the bootstrap-nonce flow. Equivalent to NewAuthMiddleware with
+// only Token set (or AllowUnauthenticated when token is empty — only
+// the AllowUnauthenticated path is explicit; empty token still panics
+// in NewAuthMiddleware, mirroring the safety guarantee).
+func RequireToken(token string, next http.Handler) http.Handler {
+	mw := NewAuthMiddleware(AuthOptions{
+		Token:                token,
+		AllowUnauthenticated: token == "",
+	})
+	return mw(next)
+}
+
+func (a *authenticator) wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// `Referrer-Policy: no-referrer` keeps any URL noise (including
+		// the one-time bootstrap nonce on first load) out of outbound
+		// Referer headers. Defence-in-depth; the nonce is single-use
+		// anyway.
+		w.Header().Set("Referrer-Policy", "no-referrer")
+
 		if _, ok := authBypassedPaths[r.URL.Path]; ok {
 			next.ServeHTTP(w, r)
 			return
@@ -97,19 +165,20 @@ func RequireToken(token string, next http.Handler) http.Handler {
 		if header := r.Header.Get("Authorization"); header != "" {
 			if strings.HasPrefix(header, "Bearer ") {
 				got := []byte(strings.TrimPrefix(header, "Bearer "))
-				if subtle.ConstantTimeCompare(got, want) == 1 {
+				if subtle.ConstantTimeCompare(got, a.tokenBytes) == 1 {
 					next.ServeHTTP(w, r)
 					return
 				}
 			}
 		}
 
-		// 2. ?token query param (bootstrap browser session).
-		if q := r.URL.Query().Get(TokenQueryParam); q != "" {
-			if subtle.ConstantTimeCompare([]byte(q), want) == 1 {
+		// 2. Single-use bootstrap nonce. Sets the cookie + invalidates
+		// the nonce so the URL can't replay.
+		if q := r.URL.Query().Get(NonceQueryParam); q != "" {
+			if a.tryConsumeNonce(q) {
 				http.SetCookie(w, &http.Cookie{
 					Name:     TokenCookieName,
-					Value:    token,
+					Value:    a.token,
 					Path:     "/",
 					HttpOnly: true,
 					SameSite: http.SameSiteStrictMode,
@@ -119,9 +188,9 @@ func RequireToken(token string, next http.Handler) http.Handler {
 			}
 		}
 
-		// 3. Cookie set by a previous successful ?token bootstrap.
+		// 3. Cookie set by a previous successful bootstrap.
 		if c, err := r.Cookie(TokenCookieName); err == nil && c.Value != "" {
-			if subtle.ConstantTimeCompare([]byte(c.Value), want) == 1 {
+			if subtle.ConstantTimeCompare([]byte(c.Value), a.tokenBytes) == 1 {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -130,4 +199,21 @@ func RequireToken(token string, next http.Handler) http.Handler {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="vxd-dashboard"`)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	})
+}
+
+// tryConsumeNonce returns true iff the supplied nonce matches AND has
+// not been consumed. On a successful match the stored nonce is cleared
+// so subsequent loads of the same URL fail.
+func (a *authenticator) tryConsumeNonce(provided string) bool {
+	a.nonceMu.Lock()
+	defer a.nonceMu.Unlock()
+	if a.nonceConsumed || a.nonce == "" || provided == "" {
+		return false
+	}
+	if subtle.ConstantTimeCompare([]byte(provided), []byte(a.nonce)) != 1 {
+		return false
+	}
+	a.nonceConsumed = true
+	a.nonce = ""
+	return true
 }

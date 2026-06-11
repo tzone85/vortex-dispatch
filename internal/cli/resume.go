@@ -134,8 +134,12 @@ func runResume(cmd *cobra.Command, args []string) error {
 			"req_id": reqID,
 			"mode":   mode,
 		})
-		s.Events.Append(modeEvt)
-		s.Proj.Project(modeEvt)
+		if err := s.Events.Append(modeEvt); err != nil {
+			return fmt.Errorf("append review-mode event: %w", err)
+		}
+		if err := s.Proj.Project(modeEvt); err != nil {
+			return fmt.Errorf("project review-mode event: %w", err)
+		}
 	}
 
 	// Plan approval gate
@@ -212,15 +216,23 @@ func runResume(cmd *cobra.Command, args []string) error {
 				evt := state.NewEvent(state.EventStoryReset, "recovery", issue.StoryID, map[string]any{
 					"reason": issue.Detail,
 				})
-				s.Events.Append(evt)
-				s.Proj.Project(evt)
+				if err := s.Events.Append(evt); err != nil {
+					log.Printf("[resume] append story-reset event for %s: %v", issue.StoryID, err)
+				}
+				if err := s.Proj.Project(evt); err != nil {
+					log.Printf("[resume] project story-reset event for %s: %v", issue.StoryID, err)
+				}
 			}
 		}
 		recoveryEvt := state.NewEvent(state.EventRecoveryCompleted, "system", "", map[string]any{
 			"issues_found": len(recoveryIssues),
 		})
-		s.Events.Append(recoveryEvt)
-		s.Proj.Project(recoveryEvt)
+		if err := s.Events.Append(recoveryEvt); err != nil {
+			log.Printf("[resume] append recovery-completed event: %v", err)
+		}
+		if err := s.Proj.Project(recoveryEvt); err != nil {
+			log.Printf("[resume] project recovery-completed event: %v", err)
+		}
 	}
 
 	// Recover orphaned devdb instances left behind by previously crashed pipelines.

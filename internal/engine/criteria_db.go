@@ -76,7 +76,7 @@ func evaluateSchemaChanged(c Criterion, workDir string) CriterionResult {
 		return CriterionResult{Criterion: c, Passed: false,
 			Detail: fmt.Sprintf("schema_changed: pgx connect failed: %v", err)}
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }() // best-effort cleanup
 
 	current, err := dumpSchemaText(ctx, conn)
 	if err != nil {
@@ -133,7 +133,7 @@ func evaluateSQLQueryReturns(c Criterion, workDir string) CriterionResult {
 		return CriterionResult{Criterion: c, Passed: false,
 			Detail: fmt.Sprintf("sql_query_returns: pgx connect failed: %v", err)}
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }() // best-effort cleanup
 	tx, err := conn.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return CriterionResult{Criterion: c, Passed: false,
@@ -196,7 +196,7 @@ func dumpSchemaText(ctx context.Context, conn *pgx.Conn) (string, error) {
 			b.WriteString("\nTABLE " + key + "\n")
 			curr = key
 		}
-		b.WriteString(fmt.Sprintf("  %s %s (nullable=%s)\n", col, dtype, nullable))
+		fmt.Fprintf(&b, "  %s %s (nullable=%s)\n", col, dtype, nullable)
 	}
 	return b.String(), rows.Err()
 }

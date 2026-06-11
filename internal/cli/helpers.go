@@ -85,7 +85,7 @@ func loadStores(cmd *cobra.Command) (stores, error) {
 
 	ps, err := state.NewSQLiteStore(filepath.Join(projectDir, "vxd.db"))
 	if err != nil {
-		es.Close()
+		_ = es.Close() // best-effort cleanup; original error is what matters
 		return stores{}, fmt.Errorf("open projection store: %w", err)
 	}
 
@@ -104,13 +104,15 @@ func loadStores(cmd *cobra.Command) (stores, error) {
 	}, nil
 }
 
-// Close releases both stores.
+// Close releases both stores. Errors are intentionally ignored: callers
+// invoke this via defer at process-exit boundaries where there is nowhere
+// useful to report a close failure.
 func (s stores) Close() {
 	if s.Events != nil {
-		s.Events.Close()
+		_ = s.Events.Close()
 	}
 	if s.Proj != nil {
-		s.Proj.Close()
+		_ = s.Proj.Close()
 	}
 }
 

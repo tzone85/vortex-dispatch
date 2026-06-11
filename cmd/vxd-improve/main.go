@@ -100,7 +100,7 @@ func main() {
 		// Skip implementation for non-actionable findings (competitor intel, news)
 		if !sf.Actionable {
 			log.Printf("  [proposed] %s (intelligence only, not actionable)", sf.Title)
-			auditLog.Append(improve.AuditEntry{
+			if err := auditLog.Append(improve.AuditEntry{
 				RunID:       runID,
 				FindingID:   fmt.Sprintf("f-%s-%03d", date, i+1),
 				Source:      sf.SourceURL,
@@ -111,7 +111,9 @@ func main() {
 				Risk:        sf.Risk,
 				Disposition: "proposed",
 				Reasoning:   sf.Reasoning,
-			})
+			}); err != nil {
+				log.Printf("  audit log append (proposed): %v", err)
+			}
 			summary.PRsProposed++
 			continue
 		}
@@ -135,7 +137,7 @@ func main() {
 			summary.Errors = append(summary.Errors, fmt.Sprintf("[%s] %s: %s", result.Disposition, sf.Title, result.Error))
 		}
 
-		auditLog.Append(improve.AuditEntry{
+		if err := auditLog.Append(improve.AuditEntry{
 			RunID:          runID,
 			FindingID:      fmt.Sprintf("f-%s-%03d", date, i+1),
 			Source:         sf.SourceURL,
@@ -153,7 +155,9 @@ func main() {
 			Reasoning:      sf.Reasoning,
 			SecurityReview: af.SecurityReview,
 			LicenseCheck:   af.LicenseCheck,
-		})
+		}); err != nil {
+			log.Printf("  audit log append (%s): %v", result.Disposition, err)
+		}
 
 		log.Printf("  [%s] %s", result.Disposition, sf.Title)
 	}
@@ -252,12 +256,14 @@ func main() {
 
 		// Update pipeline with proposal data
 		for _, opp := range proposalResults {
-			improve.UpdateOpportunityField(pipelinePath, opp.ID, func(existing improve.Opportunity) improve.Opportunity {
+			if _, err := improve.UpdateOpportunityField(pipelinePath, opp.ID, func(existing improve.Opportunity) improve.Opportunity {
 				existing.ProposalDraft = opp.ProposalDraft
 				existing.ProposalDraftedAt = opp.ProposalDraftedAt
 				existing.Status = improve.StatusProposalDrafted
 				return existing
-			})
+			}); err != nil {
+				log.Printf("  update opportunity %s: %v", opp.ID, err)
+			}
 		}
 	} else if !cfg.ActiveBidding {
 		log.Println("  Observation mode — no proposals drafted (set VXD_ACTIVE_BIDDING=true to enable)")

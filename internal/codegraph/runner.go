@@ -187,13 +187,16 @@ func parseStatus(raw string) (*GraphInfo, error) {
 			continue
 		}
 		key, val := strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+		// Sscanf errors are intentionally ignored: missing/malformed
+		// numeric fields fall through with the count at 0, which is the
+		// correct fallback for an incomplete code-graph stats output.
 		switch key {
 		case "Nodes":
-			fmt.Sscanf(val, "%d", &info.NodeCount)
+			_, _ = fmt.Sscanf(val, "%d", &info.NodeCount)
 		case "Edges":
-			fmt.Sscanf(val, "%d", &info.EdgeCount)
+			_, _ = fmt.Sscanf(val, "%d", &info.EdgeCount)
 		case "Files":
-			fmt.Sscanf(val, "%d", &info.FileCount)
+			_, _ = fmt.Sscanf(val, "%d", &info.FileCount)
 		case "Languages":
 			info.Languages = strings.Split(val, ", ")
 		case "Last updated":

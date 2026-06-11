@@ -176,7 +176,7 @@ func checkTests(repoDir string) (passing, failing, total int) {
 		for _, line := range strings.Split(output, "\n") {
 			if strings.Contains(line, "Tests:") && strings.Contains(line, "passed") {
 				// Parse "Tests: X failed, Y passed, Z total"
-				fmt.Sscanf(line, "Tests: %d failed, %d passed, %d total", &failing, &passing, &total)
+				_, _ = fmt.Sscanf(line, "Tests: %d failed, %d passed, %d total", &failing, &passing, &total) // partial parse keeps zero counters
 				break
 			}
 		}
@@ -215,6 +215,7 @@ func parseGoTestJSON(output string) (passing, failing, total int) {
 // scanForHallucinations checks all source files for LLM preamble text.
 func scanForHallucinations(repoDir string) []string {
 	var found []string
+	//nolint:errcheck // best-effort hallucination scan; callback handles per-path errors
 	filepath.Walk(repoDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return nil
@@ -250,9 +251,9 @@ func cleanWorkspaceArtifacts(repoDir string) bool {
 		path := filepath.Join(repoDir, name)
 		if info, err := os.Stat(path); err == nil {
 			if info.IsDir() {
-				os.RemoveAll(path)
+				_ = os.RemoveAll(path) // best-effort artifact cleanup
 			} else {
-				os.Remove(path)
+				_ = os.Remove(path) // best-effort artifact cleanup
 			}
 			log.Printf("[verify] removed artifact: %s", name)
 			cleaned = true
@@ -262,10 +263,10 @@ func cleanWorkspaceArtifacts(repoDir string) bool {
 		// Commit the cleanup
 		addCmd := exec.Command("git", "add", "-A")
 		addCmd.Dir = repoDir
-		addCmd.Run()
+		_ = addCmd.Run() // best-effort; commit below covers the failure case
 		commitCmd := exec.Command("git", "commit", "-m", "chore: clean VXD workspace artifacts")
 		commitCmd.Dir = repoDir
-		commitCmd.Run()
+		_ = commitCmd.Run() // best-effort cleanup commit
 	}
 	return !cleaned // true means already clean
 }
@@ -278,16 +279,16 @@ func GapsToRequirement(gaps []VerificationGap, projectName string) string {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("# Fix Verification Gaps in %s\n\n", projectName))
+	fmt.Fprintf(&b, "# Fix Verification Gaps in %s\n\n", projectName)
 	b.WriteString("The following issues were found during post-completion verification.\n")
 	b.WriteString("Each must be fixed and verified.\n\n")
 
 	for i, g := range gaps {
-		b.WriteString(fmt.Sprintf("## %d. [%s] %s\n", i+1, strings.ToUpper(g.Severity), g.Detail))
+		fmt.Fprintf(&b, "## %d. [%s] %s\n", i+1, strings.ToUpper(g.Severity), g.Detail)
 		if g.File != "" {
-			b.WriteString(fmt.Sprintf("**File:** `%s`\n", g.File))
+			fmt.Fprintf(&b, "**File:** `%s`\n", g.File)
 		}
-		b.WriteString(fmt.Sprintf("**Category:** %s\n\n", g.Category))
+		fmt.Fprintf(&b, "**Category:** %s\n\n", g.Category)
 	}
 
 	b.WriteString("## Acceptance Criteria\n")

@@ -34,8 +34,12 @@ func runApprovePlan(cmd *cobra.Command, args []string) error {
 	evt := state.NewEvent(state.EventPlanApproved, "human", "", map[string]any{
 		"req_id": reqID,
 	})
-	s.Events.Append(evt)
-	s.Proj.Project(evt)
+	if err := s.Events.Append(evt); err != nil {
+		return fmt.Errorf("append plan-approved event: %w", err)
+	}
+	if err := s.Proj.Project(evt); err != nil {
+		return fmt.Errorf("project plan-approved event: %w", err)
+	}
 
 	fmt.Fprintf(cmd.OutOrStdout(), "Plan approved for %s. Run 'vxd resume %s' to start dispatch.\n", reqID, reqID)
 	return nil

@@ -212,7 +212,9 @@ func ApproveSource(path, url string) error {
 		if err != nil {
 			continue
 		}
-		f.Write(append(data, '\n'))
+		if _, err := f.Write(append(data, '\n')); err != nil {
+			return fmt.Errorf("write source: %w", err)
+		}
 	}
 	return f.Sync()
 }

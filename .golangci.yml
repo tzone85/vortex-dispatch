@@ -8,10 +8,36 @@ run:
 
 linters:
   default: standard
+  settings:
+    errcheck:
+      # Functions whose errors are uninteresting in production.
+      # All site-specific dangerous ignores must use //nolint:errcheck
+      # with a one-line rationale — never blanket-suppressed here.
+      exclude-functions:
+        # Writes to stdout/stderr/tabwriter — failures are unrecoverable
+        # and not actionable (the user already lost the message).
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - (*text/tabwriter.Writer).Flush
+        # Best-effort cleanup. Real failures show up via other paths
+        # (stale lock detection, retried operations).
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (*database/sql.DB).Close
+        - (*database/sql.Rows).Close
+        - (*database/sql.Stmt).Close
+        - (net/http.ResponseWriter).Write
+        # HTTP response body close: real errors surface as connection
+        # reset on next request.
+        - (*net/http.Response).Body.Close
   exclusions:
     rules:
       # Test bodies routinely ignore Close/Append on temp stores —
-      # failures show up as actual test assertions anyway.
+      # failures show up as actual test assertions anyway. We also
+      # skip staticcheck QF (quick-fix) refactor hints in tests; we
+      # prioritise test readability over micro-optimisations.
       - path: _test\.go
         linters:
           - errcheck
+          - staticcheck

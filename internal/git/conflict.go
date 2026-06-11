@@ -19,7 +19,7 @@ func StartRebase(worktreePath, upstream string) error {
 			return &ConflictError{Output: strings.TrimSpace(string(out))}
 		}
 		// Non-conflict failure — abort and return generic error.
-		abortRebase(worktreePath)
+		_ = abortRebase(worktreePath) // best-effort cleanup; original error is what matters
 		return fmt.Errorf("git rebase %s: %w (%s)", upstream, err, strings.TrimSpace(string(out)))
 	}
 	return nil
@@ -113,7 +113,7 @@ func isConflict(output string) bool {
 func abortRebase(worktreePath string) error {
 	cmd := exec.Command("git", "rebase", "--abort")
 	cmd.Dir = worktreePath
-	cmd.CombinedOutput()
+	_, _ = cmd.CombinedOutput() // best-effort; nothing actionable on failure
 	return nil
 }
 

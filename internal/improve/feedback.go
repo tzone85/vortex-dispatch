@@ -340,8 +340,8 @@ func generateInsightsFromRates(rates []SuccessRate) string {
 			} else if r.Total >= minSamplesForConfidence {
 				confidence = "medium"
 			}
-			sb.WriteString(fmt.Sprintf("- **%s**: %.0f%% success rate (%d/%d, %s confidence)\n",
-				value, pct, r.Successes, r.Total, confidence))
+			fmt.Fprintf(&sb, "- **%s**: %.0f%% success rate (%d/%d, %s confidence)\n",
+				value, pct, r.Successes, r.Total, confidence)
 			hasContent = true
 		}
 		sb.WriteString("\n")

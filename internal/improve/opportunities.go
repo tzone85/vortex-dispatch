@@ -240,7 +240,9 @@ func writeOpportunities(path string, opps []Opportunity) error {
 		if err != nil {
 			continue
 		}
-		f.Write(append(data, '\n'))
+		if _, err := f.Write(append(data, '\n')); err != nil {
+			return fmt.Errorf("write opportunity: %w", err)
+		}
 	}
 	return f.Sync()
 }
@@ -669,7 +671,8 @@ func (s *OpportunityScraper) findHNThreadID(ctx context.Context, now time.Time) 
 			Title    string `json:"title"`
 		} `json:"hits"`
 	}
-	json.NewDecoder(resp2.Body).Decode(&fallback)
+	// best-effort fallback decode; an empty fallback just falls through to the next strategy
+	_ = json.NewDecoder(resp2.Body).Decode(&fallback)
 
 	for _, hit := range fallback.Hits {
 		lower := strings.ToLower(hit.Title)

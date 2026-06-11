@@ -191,7 +191,7 @@ func (r *SSHRunner) Run(pe PreparedExecution) error {
 		if err := os.WriteFile(tmpFile, []byte(content), 0o600); err != nil {
 			return fmt.Errorf("write temp file: %w", err)
 		}
-		defer os.Remove(tmpFile)
+		defer func() { _ = os.Remove(tmpFile) }() // best-effort cleanup of the short-lived secret-bearing temp file
 
 		remotePath := path.Join(remoteWorkDir, filepath.Base(localPath))
 		if err := r.scpTo(tmpFile, remotePath); err != nil {

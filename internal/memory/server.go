@@ -136,7 +136,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[memory/ws] accept error: %v", err)
 		return
 	}
-	defer conn.CloseNow()
+	defer func() { _ = conn.CloseNow() }() // best-effort connection close
 
 	// Send initial timeline data
 	s.sendInit(r.Context(), conn)
@@ -369,9 +369,14 @@ func (s *Server) handleUpdateOpportunity(ctx context.Context, conn *websocket.Co
 			opp.Status = status
 		}
 		data, _ := json.Marshal(opp)
-		f.Write(append(data, '\n'))
+		if _, err := f.Write(append(data, '\n')); err != nil {
+			log.Printf("[memory/ws] write opportunity %s: %v", opp.ID, err)
+			return
+		}
 	}
-	f.Sync()
+	if err := f.Sync(); err != nil {
+		log.Printf("[memory/ws] sync opportunities: %v", err)
+	}
 
 	// Send updated list
 	s.handleListOpportunities(ctx, conn, "", "rank")
@@ -399,15 +404,25 @@ func (s *Server) handleLogRevenue(ctx context.Context, conn *websocket.Conn, id 
 		CumulativeTotal: newTotal,
 	}
 
-	os.MkdirAll(filepath.Dir(revenuePath), 0o755)
+	if err := os.MkdirAll(filepath.Dir(revenuePath), 0o755); err != nil {
+		log.Printf("[memory/ws] mkdir revenue dir: %v", err)
+		return
+	}
 	f, err := os.OpenFile(revenuePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		log.Printf("[memory/ws] open revenue: %v", err)
 		return
 	}
 	data, _ := json.Marshal(entry)
-	f.Write(append(data, '\n'))
-	f.Close()
+	if _, err := f.Write(append(data, '\n')); err != nil {
+		log.Printf("[memory/ws] write revenue entry: %v", err)
+		_ = f.Close()
+		return
+	}
+	if err := f.Close(); err != nil {
+		log.Printf("[memory/ws] close revenue: %v", err)
+		return
+	}
 
 	// Update opportunity status to won
 	s.handleUpdateOpportunity(ctx, conn, id, "won")
@@ -450,9 +465,14 @@ func (s *Server) handleApproveSource(ctx context.Context, conn *websocket.Conn, 
 			src.Status = "approved"
 		}
 		data, _ := json.Marshal(src)
-		f.Write(append(data, '\n'))
+		if _, err := f.Write(append(data, '\n')); err != nil {
+			log.Printf("[memory/ws] write source %s: %v", src.URL, err)
+			return
+		}
 	}
-	f.Sync()
+	if err := f.Sync(); err != nil {
+		log.Printf("[memory/ws] sync sources: %v", err)
+	}
 
 	// Send updated list
 	s.handleListOpportunities(ctx, conn, "", "rank")

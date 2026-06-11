@@ -57,11 +57,93 @@ func ValidateRemoteDir(dir string) error {
 	return nil
 }
 
+// dangerousSSHOptions are OpenSSH client options that allow arbitrary
+// local code execution. Any `-o name=value` or `-o name` element whose
+// option name appears here is rejected.
+//
+//   - ProxyCommand — runs the supplied binary before connecting.
+//   - LocalCommand — runs after auth completes.
+//   - PermitLocalCommand — enables LocalCommand.
+//   - KnownHostsCommand — runs to list known_hosts entries (RCE).
+//   - ProxyJump (`-J` shortcut) — chained ProxyCommand under the hood.
+//   - Match / Host — block-config injection.
+//
+// Common legitimate options (`StrictHostKeyChecking`, `UserKnownHostsFile`,
+// `ServerAliveInterval`, `ConnectTimeout`, etc.) remain allowed.
+var dangerousSSHOptions = map[string]struct{}{
+	"proxycommand":       {},
+	"localcommand":       {},
+	"permitlocalcommand": {},
+	"knownhostscommand":  {},
+	"proxyjump":          {},
+	"match":              {},
+	"host":               {},
+	"include":            {},
+}
+
+// dangerousSSHFlags are bare SSH client flags that are themselves
+// dangerous regardless of the option following them (`-F` substitutes
+// the entire client config; `-J` is the ProxyJump shortcut).
+var dangerousSSHFlags = map[string]struct{}{
+	"-F": {},
+	"-J": {},
+}
+
+// ValidateSSHExtraFlags rejects elements from ssh.extra_flags that
+// could turn the SSH command into local code execution. Specifically:
+//
+//   - `-F` and `-J` are rejected outright (config file injection + ProxyJump).
+//   - `-o name=value` or `-o name value` is rejected when `name` is on
+//     the dangerousSSHOptions set above (case-insensitive — OpenSSH
+//     matches option names case-insensitively).
+//
+// Common legitimate flags (`-p`, `-i`, `-4`, `-6`, `-T`, `-v`, `-q`,
+// `-C`) and benign `-o` options (StrictHostKeyChecking, UserKnownHosts-
+// File, ServerAliveInterval, etc.) remain allowed.
+func ValidateSSHExtraFlags(flags []string) error {
+	for i := 0; i < len(flags); i++ {
+		f := flags[i]
+		if _, bad := dangerousSSHFlags[f]; bad {
+			return fmt.Errorf("ssh.extra_flags[%d] %q is not permitted (could execute arbitrary local code via config substitution / ProxyJump)", i, f)
+		}
+		// -o name=value (combined) or -o name (next slot is value)
+		if f == "-o" && i+1 < len(flags) {
+			name := optionName(flags[i+1])
+			if _, bad := dangerousSSHOptions[strings.ToLower(name)]; bad {
+				return fmt.Errorf("ssh.extra_flags[%d:%d] -o %s is not permitted (executes arbitrary local code)", i, i+1, name)
+			}
+			i++ // skip value slot
+			continue
+		}
+		if strings.HasPrefix(f, "-o") && len(f) > 2 {
+			name := optionName(strings.TrimPrefix(f, "-o"))
+			if _, bad := dangerousSSHOptions[strings.ToLower(name)]; bad {
+				return fmt.Errorf("ssh.extra_flags[%d] %q is not permitted (executes arbitrary local code)", i, f)
+			}
+		}
+	}
+	return nil
+}
+
+// optionName extracts the bare option name from an SSH -o argument
+// (e.g. "ProxyCommand=foo" → "ProxyCommand", "StrictHostKeyChecking" →
+// "StrictHostKeyChecking"). Trims leading whitespace and equals values.
+func optionName(s string) string {
+	s = strings.TrimSpace(s)
+	if eq := strings.Index(s, "="); eq >= 0 {
+		s = s[:eq]
+	}
+	return s
+}
+
 // NewSSHRunner creates an SSHRunner with the given config. Returns an
-// error if cfg.RemoteDir fails ValidateRemoteDir — without this check a
-// YAML-supplied `../../etc/cron.d` would traverse on the remote host.
+// error if cfg.RemoteDir fails ValidateRemoteDir, or if cfg.ExtraFlags
+// contains a dangerous OpenSSH option flag (see ValidateSSHExtraFlags).
 func NewSSHRunner(cfg SSHConfig) (*SSHRunner, error) {
 	if err := ValidateRemoteDir(cfg.RemoteDir); err != nil {
+		return nil, err
+	}
+	if err := ValidateSSHExtraFlags(cfg.ExtraFlags); err != nil {
 		return nil, err
 	}
 	remoteDir := cfg.RemoteDir
@@ -101,8 +183,12 @@ func (r *SSHRunner) Run(pe PreparedExecution) error {
 
 	// Upload setup files via scp.
 	for localPath, content := range pe.SetupFiles {
+		// Setup files may carry prompt content (which can include the
+		// project's WAVE_CONTEXT, acceptance criteria, secrets pulled
+		// from the env). Write 0o600 so other users on the dispatch
+		// host cannot read them during the SCP window.
 		tmpFile := filepath.Join(os.TempDir(), filepath.Base(localPath))
-		if err := os.WriteFile(tmpFile, []byte(content), 0o644); err != nil {
+		if err := os.WriteFile(tmpFile, []byte(content), 0o600); err != nil {
 			return fmt.Errorf("write temp file: %w", err)
 		}
 		defer os.Remove(tmpFile)

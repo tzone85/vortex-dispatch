@@ -3,6 +3,7 @@ package autoresearch
 import (
 	cryptorand "crypto/rand"
 	"encoding/binary"
+	"log"
 	"math"
 	"math/rand"
 	"sync"
@@ -63,6 +64,13 @@ func NewBayesSampler(classes []ExperimentClass, priorAlpha, priorBeta float64) *
 func secureSeed() int64 {
 	var b [8]byte
 	if _, err := cryptorand.Read(b[:]); err != nil {
+		// crypto/rand.Read returning an error is extraordinarily rare on
+		// Unix (it would mean /dev/urandom is gone) but if it does, log
+		// loudly. The constant-1 fallback prevents the sampler from
+		// panicking at startup, but it also means Thompson sampling
+		// becomes fully deterministic for this process — operators need
+		// to know that has happened so they can investigate the host RNG.
+		log.Printf("[autoresearch] CRITICAL: crypto/rand.Read failed: %v — falling back to deterministic seed; Thompson sampling will be predictable for this process", err)
 		return 1
 	}
 	return int64(binary.LittleEndian.Uint64(b[:]))

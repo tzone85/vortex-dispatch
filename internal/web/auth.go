@@ -182,6 +182,14 @@ func (a *authenticator) wrap(next http.Handler) http.Handler {
 					Path:     "/",
 					HttpOnly: true,
 					SameSite: http.SameSiteStrictMode,
+					// Secure: cookie travels over TLS only. The dashboard
+					// binds to localhost today (plain HTTP), but operators
+					// often front it with an HTTPS reverse proxy. Without
+					// Secure, the browser would happily send the cookie
+					// over BOTH the HTTPS proxy AND any plain HTTP
+					// connection — leaking the session token if the
+					// operator mistakenly browses the HTTP address.
+					Secure: true,
 				})
 				next.ServeHTTP(w, r)
 				return

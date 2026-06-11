@@ -217,10 +217,36 @@ func TestBootstrapNonce_FirstUseSetsCookieAndSucceeds(t *testing.T) {
 	for _, c := range resp.Cookies() {
 		if c.Name == TokenCookieName && c.Value == "the-token" {
 			foundCookie = true
+			// Defence-in-depth attributes required by the security
+			// follow-up: HttpOnly + SameSite=Strict + Secure. Without
+			// Secure, a Mixed-Content reverse-proxy setup leaks the
+			// cookie over plain HTTP.
+			if !c.HttpOnly {
+				t.Error("session cookie must be HttpOnly")
+			}
+			if c.SameSite != http.SameSiteStrictMode {
+				t.Errorf("session cookie SameSite = %v, want Strict", c.SameSite)
+			}
+			if !c.Secure {
+				t.Error("session cookie must have Secure=true to avoid leaking over plain HTTP behind an HTTPS proxy")
+			}
 		}
 	}
 	if !foundCookie {
 		t.Error("expected cookie set after first bootstrap")
+	}
+}
+
+func TestRedactTokenForLog_TruncatesLongTokens(t *testing.T) {
+	got := redactTokenForLog("0123456789abcdef0123456789abcdef")
+	if got != "01234567" {
+		t.Errorf("redactTokenForLog long = %q, want 01234567 (8-char prefix)", got)
+	}
+	if got := redactTokenForLog("short"); got != "short" {
+		t.Errorf("redactTokenForLog short = %q, want short (passthrough)", got)
+	}
+	if got := redactTokenForLog(""); got != "" {
+		t.Errorf("redactTokenForLog empty = %q, want empty", got)
 	}
 }
 

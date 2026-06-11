@@ -2,6 +2,7 @@
 package memory
 
 import (
+	"context"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -16,18 +17,29 @@ type SearchResult struct {
 	Similarity float64 `json:"similarity"`
 }
 
-// SearchMemPalace runs the mempalace CLI and returns parsed results.
-func SearchMemPalace(query string) ([]SearchResult, error) {
+// searchFunc is the package-level hook used by SearchMemPalace. Tests swap it
+// to avoid depending on a real `mempalace` install and to inject latency for
+// timeout regression coverage.
+var searchFunc = runMemPalaceSearchExec
+
+// SearchMemPalace runs a MemPalace search bounded by ctx and returns parsed
+// results. Callers MUST pass a context with a deadline — without one a slow
+// MemPalace index can block the caller indefinitely.
+func SearchMemPalace(ctx context.Context, query string) ([]SearchResult, error) {
 	if query == "" {
 		return nil, nil
 	}
+	return searchFunc(ctx, query)
+}
 
-	cmd := exec.Command("python3", "-m", "mempalace", "search", query)
+// runMemPalaceSearchExec is the real implementation: shells out to
+// `python3 -m mempalace search <query>` under ctx control.
+func runMemPalaceSearchExec(ctx context.Context, query string) ([]SearchResult, error) {
+	cmd := exec.CommandContext(ctx, "python3", "-m", "mempalace", "search", query)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, err
 	}
-
 	return ParseSearchResults(string(out)), nil
 }
 

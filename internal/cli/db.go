@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tzone85/vortex-dispatch/internal/devdb"
 	"github.com/tzone85/vortex-dispatch/internal/devdb/docker"
+	"github.com/tzone85/vortex-dispatch/internal/sqlsafety"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
 
@@ -215,7 +216,7 @@ Audit the connection's privileges accordingly.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			writeFlag, _ := cmd.Flags().GetBool("write")
 			query := args[1]
-			if err := ValidateSQLForReadOnly(query, writeFlag); err != nil {
+			if err := sqlsafety.ValidateSQLForReadOnly(query, writeFlag); err != nil {
 				return err
 			}
 
@@ -242,7 +243,7 @@ Audit the connection's privileges accordingly.`,
 			// Mutating + --write path: Exec is the correct verb for
 			// INSERT/UPDATE/DELETE/DDL because it returns rows-affected
 			// and doesn't need a row cursor.
-			if writeFlag && ClassifyQuery(query) == QueryMutating {
+			if writeFlag && sqlsafety.ClassifyQuery(query) == sqlsafety.QueryMutating {
 				tag, err := conn.Exec(ctx, query)
 				if err != nil {
 					return fmt.Errorf("exec: %w", err)

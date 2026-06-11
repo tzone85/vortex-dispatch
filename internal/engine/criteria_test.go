@@ -225,17 +225,46 @@ func TestCriteriaFailureSummary_MultipleFailures(t *testing.T) {
 	}
 }
 
-func TestResolvePath_Absolute(t *testing.T) {
-	got := resolvePath("/work", "/absolute/path.txt")
-	if got != "/absolute/path.txt" {
-		t.Errorf("absolute path should be unchanged, got: %s", got)
+// TestResolvePath_RejectsAbsolute pins the security-critical change:
+// absolute YAML paths are no longer accepted because they let a
+// malicious vxd.yaml read /etc/shadow via file_contains.
+func TestResolvePath_RejectsAbsolute(t *testing.T) {
+	if _, err := resolvePath("/work", "/etc/shadow"); err == nil {
+		t.Error("absolute YAML path should be rejected")
+	}
+	if _, err := resolvePath("/work", "/absolute/path.txt"); err == nil {
+		t.Error("absolute YAML path should be rejected")
 	}
 }
 
-func TestResolvePath_Relative(t *testing.T) {
-	got := resolvePath("/work", "relative/path.txt")
-	expected := filepath.Join("/work", "relative/path.txt")
+func TestResolvePath_RejectsTraversal(t *testing.T) {
+	// `..` segments that resolve outside workDir must fail even though
+	// the raw relative form was supplied.
+	for _, bad := range []string{
+		"../etc/passwd",
+		"../../etc/shadow",
+		"foo/../../home/op/.ssh/id_ed25519",
+	} {
+		if _, err := resolvePath("/work", bad); err == nil {
+			t.Errorf("traversal path %q should be rejected", bad)
+		}
+	}
+}
+
+func TestResolvePath_AcceptsContainedRelative(t *testing.T) {
+	dir := t.TempDir()
+	got, err := resolvePath(dir, "relative/path.txt")
+	if err != nil {
+		t.Fatalf("resolvePath: %v", err)
+	}
+	expected, _ := filepath.Abs(filepath.Join(dir, "relative/path.txt"))
 	if got != expected {
 		t.Errorf("expected %s, got %s", expected, got)
+	}
+}
+
+func TestResolvePath_RejectsEmpty(t *testing.T) {
+	if _, err := resolvePath("/work", ""); err == nil {
+		t.Error("empty path should be rejected")
 	}
 }

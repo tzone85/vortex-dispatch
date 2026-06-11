@@ -99,11 +99,7 @@ func (a *CLIAdapter) Prepare(cfg SessionConfig) (PreparedExecution, error) {
 	// Prepend env exports. Unset ANTHROPIC_API_KEY so Claude Code uses
 	// the user's subscription (free) instead of exhausted API credits.
 	// Unset CLAUDECODE to prevent nested-session errors.
-	var envExports string
-	for key, val := range env {
-		envExports += fmt.Sprintf("export %s=%q; ", key, val)
-	}
-	cmdStr = envExports + "unset ANTHROPIC_API_KEY CLAUDECODE; " + cmdStr
+	cmdStr = BuildEnvExports(env) + "unset ANTHROPIC_API_KEY CLAUDECODE; " + cmdStr
 
 	// Add CLAUDE.md to setup files so agents don't brainstorm/plan.
 	if cfg.WorkDir != "" {

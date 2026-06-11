@@ -10,7 +10,9 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"time"
 
@@ -34,7 +36,8 @@ type Server struct {
 	httpServer *http.Server
 	dagExport  *graph.DAGExport
 	startTime  time.Time
-	NoOpen     bool // skip opening browser on start
+	NoOpen     bool   // skip opening browser on start
+	TokenPath  string // path to dashboard auth token (defaults to ~/.vxd/dashboard.token); empty disables auth (NOT recommended outside tests)
 }
 
 func NewServer(es state.EventStore, ps *state.SQLiteStore, port int, filter state.ReqFilter) *Server {
@@ -79,12 +82,29 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("port %d is already in use. Try: vxd dashboard --web --port %d", s.port, s.port+1)
 	}
 
-	s.httpServer = &http.Server{Handler: mux}
+	// Auth: load or generate a bearer token; wrap the mux so every
+	// endpoint except `/health` requires it. Without this, any local
+	// process can read pipeline state or mutate it via the API.
+	tokenPath := s.TokenPath
+	if tokenPath == "" {
+		tokenPath = defaultDashboardTokenPath()
+	}
+	token, err := LoadOrGenerateToken(tokenPath)
+	if err != nil {
+		return fmt.Errorf("dashboard token: %w", err)
+	}
+	handler := RequireToken(token, mux)
+
+	s.httpServer = &http.Server{Handler: handler}
 
 	url := fmt.Sprintf("http://%s", addr)
+	// The browser load needs the token in the URL once so the cookie
+	// gets bootstrapped. Subsequent requests go through the cookie.
+	browserURL := fmt.Sprintf("%s/?%s=%s", url, TokenQueryParam, token)
 	log.Printf("Dashboard server running at %s", url)
+	log.Printf("Dashboard auth token: %s (paste with `Authorization: Bearer ...`)", token)
 	if !s.NoOpen {
-		openBrowser(url)
+		openBrowser(browserURL)
 	}
 
 	// Start hub broadcast loop
@@ -141,6 +161,19 @@ func buildHealthResponse(es state.EventStore, startTime time.Time) map[string]an
 		}
 	}
 	return resp
+}
+
+// defaultDashboardTokenPath returns the on-disk location of the bearer
+// token. We persist under the user's HOME so multiple `vxd dashboard`
+// invocations share one token across sessions (avoids printing a fresh
+// token every start). Falls back to a temp path if HOME is unset —
+// non-portable hosts shouldn't be locked out of their own dashboard.
+func defaultDashboardTokenPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return filepath.Join(os.TempDir(), "vxd-dashboard.token")
+	}
+	return filepath.Join(home, ".vxd", "dashboard.token")
 }
 
 func openBrowser(url string) {

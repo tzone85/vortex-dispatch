@@ -1,10 +1,12 @@
 package secrets
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 )
 
 func TestEnvProvider_Get(t *testing.T) {
@@ -12,7 +14,7 @@ func TestEnvProvider_Get(t *testing.T) {
 	defer os.Unsetenv("TEST_SECRET_KEY")
 
 	p := NewEnvProvider()
-	val, err := p.Get("TEST_SECRET_KEY")
+	val, err := p.Get(context.Background(), "TEST_SECRET_KEY")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -24,7 +26,7 @@ func TestEnvProvider_Get(t *testing.T) {
 func TestEnvProvider_GetMissing(t *testing.T) {
 	os.Unsetenv("TEST_NONEXISTENT_KEY")
 	p := NewEnvProvider()
-	_, err := p.Get("TEST_NONEXISTENT_KEY")
+	_, err := p.Get(context.Background(), "TEST_NONEXISTENT_KEY")
 	if err == nil {
 		t.Error("expected error for missing env var")
 	}
@@ -35,7 +37,7 @@ func TestEnvProvider_GetEmptyButSet(t *testing.T) {
 	defer os.Unsetenv("TEST_EMPTY_KEY")
 
 	p := NewEnvProvider()
-	val, err := p.Get("TEST_EMPTY_KEY")
+	val, err := p.Get(context.Background(), "TEST_EMPTY_KEY")
 	if err != nil {
 		t.Fatalf("empty-but-set should not error: %v", err)
 	}
@@ -68,7 +70,7 @@ func TestVaultProvider_Get(t *testing.T) {
 		Token: "test-token",
 	})
 
-	val, err := p.Get("ANTHROPIC_API_KEY")
+	val, err := p.Get(context.Background(), "ANTHROPIC_API_KEY")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -82,7 +84,7 @@ func TestVaultProvider_GetUnreachable(t *testing.T) {
 		Addr:  "http://127.0.0.1:1", // unreachable
 		Token: "token",
 	})
-	_, err := p.Get("ANY")
+	_, err := p.Get(context.Background(), "ANY")
 	if err == nil {
 		t.Error("expected error for unreachable Vault")
 	}
@@ -96,9 +98,39 @@ func TestVaultProvider_GetMissingKey(t *testing.T) {
 	defer server.Close()
 
 	p := NewVaultProvider(VaultConfig{Addr: server.URL, Token: "t"})
-	_, err := p.Get("MISSING_KEY")
+	_, err := p.Get(context.Background(), "MISSING_KEY")
 	if err == nil {
 		t.Error("expected error for missing key")
+	}
+}
+
+// TestVaultProvider_GetRespectsCanceledContext verifies that a caller's
+// ctx cancellation tears down the request promptly — the original
+// hazard before this fix was a slow Vault stalling the goroutine until
+// the client's 10 s timeout fired regardless of caller context.
+func TestVaultProvider_GetRespectsCanceledContext(t *testing.T) {
+	// Server blocks until its context cancels (i.e., forever for the test's
+	// timeout). The Vault client will inherit the test's deadline via ctx.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	p := NewVaultProvider(VaultConfig{Addr: server.URL, Token: "t"})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err := p.Get(ctx, "ANY")
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected error from cancelled ctx, got nil")
+	}
+	// Must return before the 10 s client timeout (well under 1 s slack).
+	if elapsed > time.Second {
+		t.Errorf("Get did not honor ctx cancellation: elapsed %v", elapsed)
 	}
 }
 

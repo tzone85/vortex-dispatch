@@ -39,10 +39,15 @@ jobs:
         run: go vet ./...
 
       - name: Run tests
-        # internal/improve and internal/cli are excluded — chronic CI failures
-        # under investigation; both pass locally with `go test ./...`. Tracked
-        # in CLAUDE.md "Coverage roadmap" tech debt.
-        run: go test -race -coverprofile=coverage.out -covermode=atomic $(go list ./... | grep -vE 'improve|internal/cli$')
+        # -v on test failure to surface the failing test name (previous CI
+        # output buffered FAIL details).
+        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+        env:
+          # Defensive: strip subscription/agent env vars that could divert a
+          # local-only test path. CI runners don't have them, but make it
+          # explicit so future env additions don't break the suite.
+          ANTHROPIC_API_KEY: ""
+          CLAUDECODE: ""
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4

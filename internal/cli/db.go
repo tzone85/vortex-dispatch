@@ -131,12 +131,23 @@ func newDBConnectCmd() *cobra.Command {
 // --- sql ---
 
 func newDBSQLCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:          "sql <db-name> <query>",
-		Short:        "Run a one-shot SQL query against a DB",
+	cmd := &cobra.Command{
+		Use:   "sql <db-name> <query>",
+		Short: "Run a one-shot SQL query against a DB",
+		Long: `Run a one-shot SQL query against an agent-provisioned database.
+
+Read-only by default: only SELECT, WITH, EXPLAIN, SHOW, VALUES, and TABLE
+queries are allowed. Use --write to allow INSERT / UPDATE / DELETE / DDL.
+Multi-statement queries are always rejected.`,
 		Args:         cobra.ExactArgs(2),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			writeFlag, _ := cmd.Flags().GetBool("write")
+			query := args[1]
+			if err := ValidateSQLForReadOnly(query, writeFlag); err != nil {
+				return err
+			}
+
 			p, err := dbProviderFor(cmd)
 			if err != nil {
 				return err
@@ -156,7 +167,20 @@ func newDBSQLCmd() *cobra.Command {
 				return fmt.Errorf("connect: %w", err)
 			}
 			defer conn.Close(ctx)
-			rows, err := conn.Query(ctx, args[1])
+
+			// Mutating queries bypass the rows path because Exec is the
+			// correct verb and returns rows-affected. Read-only queries
+			// keep the existing tabular output.
+			if writeFlag && ClassifyQuery(query) == QueryMutating {
+				tag, err := conn.Exec(ctx, query)
+				if err != nil {
+					return fmt.Errorf("exec: %w", err)
+				}
+				fmt.Fprintln(cmd.OutOrStdout(), tag.String())
+				return nil
+			}
+
+			rows, err := conn.Query(ctx, query)
 			if err != nil {
 				return fmt.Errorf("query: %w", err)
 			}
@@ -182,6 +206,8 @@ func newDBSQLCmd() *cobra.Command {
 			return rows.Err()
 		},
 	}
+	cmd.Flags().Bool("write", false, "allow mutating SQL (INSERT/UPDATE/DELETE/DDL); read-only otherwise")
+	return cmd
 }
 
 // --- schema ---

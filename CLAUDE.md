@@ -177,7 +177,7 @@ devdb:  # planned — design spec complete, impl in SP1–SP6 PRs
 | `vxd db` | Manage ephemeral story databases (devdb). Provider set via `devdb.provider` in vxd.yaml. |
 | `vxd db list` | List all DBs known to the devdb provider |
 | `vxd db connect <db-name>` | Print psql connect command + DSN for a DB (alias: `psql`) |
-| `vxd db sql <db-name> "<query>"` | Run a one-shot SQL query against a DB |
+| `vxd db sql <db-name> "<query>"` | Run a one-shot SQL query against a DB (read-only by default; pass `--write` to allow INSERT/UPDATE/DELETE/DDL; multi-statement queries are always rejected) |
 | `vxd db schema <db-name>` | Print agent-friendly schema dump for a DB |
 | `vxd db delete <db-name>` | Delete a DB permanently (requires `--confirm`) |
 | `vxd db gc` | Run orphan recovery — scan for stale DBs and release old ones |

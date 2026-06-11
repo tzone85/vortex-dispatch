@@ -4,13 +4,19 @@
 package secrets
 
 import (
+	"context"
 	"fmt"
 	"os"
 )
 
 // Provider retrieves secrets by key.
+//
+// The context governs network-backed providers (Vault, AWS Secrets Manager,
+// etc.): callers cancelling ctx stop the underlying request promptly rather
+// than waiting for the provider's internal timeout. The EnvProvider ignores
+// ctx because the lookup is local and synchronous.
 type Provider interface {
-	Get(key string) (string, error)
+	Get(ctx context.Context, key string) (string, error)
 	Name() string
 }
 
@@ -23,9 +29,10 @@ func NewEnvProvider() *EnvProvider {
 	return &EnvProvider{}
 }
 
-// Get returns the value of the environment variable named by key.
-// Returns an error if the variable is unset (not just empty).
-func (p *EnvProvider) Get(key string) (string, error) {
+// Get returns the value of the environment variable named by key. Ignores
+// ctx — env lookups are local and synchronous. Returns an error if the
+// variable is unset (not just empty).
+func (p *EnvProvider) Get(_ context.Context, key string) (string, error) {
 	val, ok := os.LookupEnv(key)
 	if !ok {
 		return "", fmt.Errorf("env secret not found: %s", key)

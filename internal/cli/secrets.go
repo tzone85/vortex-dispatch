@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"context"
 	"log"
 	"os"
+	"time"
 
 	"github.com/tzone85/vortex-dispatch/internal/config"
 	"github.com/tzone85/vortex-dispatch/internal/secrets"
@@ -12,11 +14,28 @@ import (
 // Replaced with VaultProvider when config.Secrets.Provider == "vault".
 var secretsProvider secrets.Provider = secrets.NewEnvProvider()
 
+// secretsLookupTimeout caps each provider call. Env lookups complete in
+// microseconds; Vault has its own 10 s client timeout. This is an outer
+// guard that fires only when the provider itself stalls.
+const secretsLookupTimeout = 10 * time.Second
+
 // resolveAPIKey returns the secret value for the given name via the
 // configured secrets provider. Returns empty string if not found
 // (callers check for empty to mirror existing os.Getenv behavior).
+//
+// Uses an internal bounded context so a slow provider cannot block the
+// caller indefinitely. Prefer resolveAPIKeyCtx when a real request
+// context is in scope (CLI handlers via cmd.Context()).
 func resolveAPIKey(name string) string {
-	val, err := secretsProvider.Get(name)
+	ctx, cancel := context.WithTimeout(context.Background(), secretsLookupTimeout)
+	defer cancel()
+	return resolveAPIKeyCtx(ctx, name)
+}
+
+// resolveAPIKeyCtx is the context-aware lookup. Cancelling ctx cancels
+// the in-flight provider call.
+func resolveAPIKeyCtx(ctx context.Context, name string) string {
+	val, err := secretsProvider.Get(ctx, name)
 	if err != nil {
 		return ""
 	}

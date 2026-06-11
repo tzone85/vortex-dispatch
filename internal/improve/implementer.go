@@ -73,14 +73,14 @@ func (impl *Implementer) Implement(ctx context.Context, finding AnalyzedFinding,
 		log.Printf("[implementer] aborting %q: prompt-injection signal in %s", finding.Title, reason)
 		result.Disposition = "aborted"
 		result.Error = fmt.Sprintf("prompt-injection signal in %s field", reason)
-		impl.git("checkout", "main")
+		_ = impl.git("checkout", "main") // best-effort cleanup
 		return result
 	}
 
 	if err := impl.git("checkout", "-b", branch, "main"); err != nil {
 		result.Disposition = "aborted"
 		result.Error = fmt.Sprintf("create branch: %v", err)
-		impl.git("checkout", "main")
+		_ = impl.git("checkout", "main") // best-effort cleanup
 		return result
 	}
 
@@ -129,8 +129,8 @@ Work in the current directory.`, finding.Title, finding.SourceURL, finding.Imple
 		log.Printf("[implementer] claude failed for %q: %v\nOutput: %s", finding.Title, err, string(output))
 		result.Disposition = "aborted"
 		result.Error = fmt.Sprintf("claude: %v", err)
-		impl.git("checkout", "main")
-		impl.git("branch", "-D", branch)
+		_ = impl.git("checkout", "main")     // best-effort cleanup
+		_ = impl.git("branch", "-D", branch) // best-effort cleanup
 		return result
 	}
 
@@ -160,8 +160,8 @@ Work in the current directory.`, finding.Title, finding.SourceURL, finding.Imple
 			log.Printf("[implementer] gate %q failed for %q: %v", gate.name, finding.Title, err)
 			result.Disposition = "aborted"
 			result.Error = fmt.Sprintf("gate %s: %v", gate.name, err)
-			impl.git("checkout", "main")
-			impl.git("branch", "-D", branch)
+			_ = impl.git("checkout", "main")     // best-effort cleanup
+			_ = impl.git("branch", "-D", branch) // best-effort cleanup
 			return result
 		}
 	}
@@ -189,7 +189,7 @@ Work in the current directory.`, finding.Title, finding.SourceURL, finding.Imple
 
 	result.PRURL = prURL
 	result.Disposition = "implemented"
-	impl.git("checkout", "main")
+	_ = impl.git("checkout", "main") // best-effort return to base; PR already created
 
 	return result
 }

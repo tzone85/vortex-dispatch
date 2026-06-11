@@ -64,7 +64,9 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("initialize event store: %w", err)
 	}
-	es.Close()
+	if err := es.Close(); err != nil {
+		return fmt.Errorf("close event store: %w", err)
+	}
 
 	// Initialize projection store (SQLite)
 	dbPath := filepath.Join(vxdDir, "vxd.db")
@@ -72,7 +74,9 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("initialize projection store: %w", err)
 	}
-	ps.Close()
+	if err := ps.Close(); err != nil {
+		return fmt.Errorf("close projection store: %w", err)
+	}
 
 	fmt.Fprintf(out, "Initialized VXD workspace at %s\n", vxdDir)
 	fmt.Fprintf(out, "  Event store:      %s\n", eventsPath)

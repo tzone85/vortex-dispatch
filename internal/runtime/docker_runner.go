@@ -88,7 +88,7 @@ func (r *DockerRunner) Run(pe PreparedExecution) error {
 func (r *DockerRunner) Terminate(sessionID string) error {
 	// Stop the container (ignore error — it may already be stopped).
 	stop := execCommand("docker", "stop", sessionID)
-	stop.CombinedOutput()
+	_, _ = stop.CombinedOutput() // best-effort; rm below covers the real path
 
 	// Remove the container.
 	rm := execCommand("docker", "rm", "-f", sessionID)

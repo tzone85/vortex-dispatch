@@ -34,8 +34,12 @@ func runRejectPlan(cmd *cobra.Command, args []string) error {
 		"req_id":   reqID,
 		"feedback": feedback,
 	})
-	s.Events.Append(evt)
-	s.Proj.Project(evt)
+	if err := s.Events.Append(evt); err != nil {
+		return fmt.Errorf("append plan-rejected event: %w", err)
+	}
+	if err := s.Proj.Project(evt); err != nil {
+		return fmt.Errorf("project plan-rejected event: %w", err)
+	}
 
 	fmt.Fprintf(cmd.OutOrStdout(), "Plan rejected for %s.\nFeedback: %s\nRe-run 'vxd req' with updated requirement.\n", reqID, feedback)
 	return nil
@@ -72,8 +76,12 @@ func runReject(cmd *cobra.Command, args []string) error {
 		"story_id": storyID,
 		"feedback": feedback,
 	})
-	s.Events.Append(evt)
-	s.Proj.Project(evt)
+	if err := s.Events.Append(evt); err != nil {
+		return fmt.Errorf("append story-rejected event: %w", err)
+	}
+	if err := s.Proj.Project(evt); err != nil {
+		return fmt.Errorf("project story-rejected event: %w", err)
+	}
 
 	fmt.Fprintf(cmd.OutOrStdout(), "Rejected: %s\nFeedback: %s\nStory reset to draft for retry.\n", story.Title, feedback)
 	return nil

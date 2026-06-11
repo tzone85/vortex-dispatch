@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/tzone85/vortex-dispatch/internal/config"
@@ -54,10 +55,12 @@ func (r *Reaper) Reap(storyID, repoDir, worktreePath, branch string) (ReapResult
 		}
 		result.WorktreePruned = true
 
-		r.eventStore.Append(state.NewEvent(state.EventWorktreePruned, "reaper", storyID, map[string]any{
+		if err := r.eventStore.Append(state.NewEvent(state.EventWorktreePruned, "reaper", storyID, map[string]any{
 			"worktree_path": worktreePath,
 			"mode":          "immediate",
-		}))
+		})); err != nil {
+			log.Printf("[reaper] append worktree-pruned event for %s: %v", storyID, err)
+		}
 	} else {
 		result.Deferred = true
 	}
@@ -70,9 +73,11 @@ func (r *Reaper) Reap(storyID, repoDir, worktreePath, branch string) (ReapResult
 			}
 			result.BranchDeleted = true
 
-			r.eventStore.Append(state.NewEvent(state.EventBranchDeleted, "reaper", storyID, map[string]any{
+			if err := r.eventStore.Append(state.NewEvent(state.EventBranchDeleted, "reaper", storyID, map[string]any{
 				"branch": branch,
-			}))
+			})); err != nil {
+				log.Printf("[reaper] append branch-deleted event for %s: %v", storyID, err)
+			}
 		}
 	}
 
@@ -97,17 +102,21 @@ func (r *Reaper) GarbageCollect(repoDir string, branches []BranchInfo) (int, err
 			}
 			deleted++
 
-			r.eventStore.Append(state.NewEvent(state.EventBranchDeleted, "reaper", b.StoryID, map[string]any{
+			if err := r.eventStore.Append(state.NewEvent(state.EventBranchDeleted, "reaper", b.StoryID, map[string]any{
 				"branch": b.Name,
 				"reason": "gc_retention_expired",
-			}))
+			})); err != nil {
+				log.Printf("[reaper] append gc branch-deleted event for %s: %v", b.StoryID, err)
+			}
 		}
 	}
 
 	if deleted > 0 {
-		r.eventStore.Append(state.NewEvent(state.EventGCCompleted, "reaper", "", map[string]any{
+		if err := r.eventStore.Append(state.NewEvent(state.EventGCCompleted, "reaper", "", map[string]any{
 			"branches_deleted": deleted,
-		}))
+		})); err != nil {
+			log.Printf("[reaper] append gc-completed event: %v", err)
+		}
 	}
 
 	return deleted, nil

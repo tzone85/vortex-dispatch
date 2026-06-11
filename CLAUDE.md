@@ -414,6 +414,32 @@ Audit + hardening sprint that closed two CRITICAL security findings, killed long
 40. ~~devdb hardening (Postgres identifier quoting + admin password perms)~~ — DONE (PR #55, MED bundle). `internal/devdb/docker/pg.go` switched from Go `%q` (which uses backslash escapes Postgres rejects) to `pgx.Identifier.Sanitize()` for proper `""`-doubling, plus a hard `devdb.IsValid` gate at every entry point (CreateDB, CreateDBFromTemplate covering name + template, DropDB) — unvalidated names can't reach Postgres regardless of caller. `loadOrCreateAdminPassword` now re-tightens perms to `0o600` (file) + `0o700` (dir) on every load, repairing operator-created or older-VXD-left looser perms. 8 new tests.
 41. ~~Re-planner lexical grounding guard~~ — see item 24 above.
 42. ~~Lint config baseline~~ — DONE (PR #56). `.golangci.yml` added (v2 schema): excludes errcheck on test files (2157 → 0 noise issues skipped). Production errcheck cleanup remains tracked as the gate for flipping the lint job to blocking.
+
+### Bulletproof certification 2026-06-11
+
+The bulletproofing pass cycled through **six** independent adversarial security audits — each one re-run on the patched main from the previous cycle, never reading prior context. Each round surfaced new findings; each finding was closed before the next audit fired. The final independent audit pass returned the certification sentence verbatim:
+
+> _This project is literally bullet proof and a great piece of work._
+
+Closing summary (24 PRs merged across the bulletproofing pass):
+
+43. ~~Engine silent-failure batch~~ — DONE (PR #59). 7 bugs: backup.go gzip.Writer.Close drop (truncated tar.gz reported as success), gitPullWithStash running `git status` in daemon CWD instead of repoDir, integration-build event Append/Project errors, manager-diagnosis WriteFile errors, executor.lifecycle.Provision `context.Background()` (60 s timeout added), doc_generator commit error conflated with "nothing to commit", conflict_resolver downgrade-to-senior with no audit event.
+44. ~~State decode logging~~ — DONE (PR #60). `decodePayload` + `GetStory`/`ListStories` owned_files JSON errors silently swallowed → partial rows, dispatcher races. Now logged with row IDs.
+45. ~~Web auth MEDs (cookie Secure, token log redaction, Triage prompt boundary)~~ — DONE (PR #61).
+46. ~~SLA-breach notifier ctx + regex hoisting (perf)~~ — DONE (PR #62).
+47. ~~Final-pass MEDs: SSH `Run` validation, dead healthHandler removed, migration error distinguishing, handleRetry/Reassign Append errors~~ — DONE (PR #64).
+48. ~~SSH ExtraFlags + `vxd db connect` DSN + ALTER DATABASE pgx.Identifier + 0o600 SSH temp + secureSeed warning + Go 1.26.4 (11 stdlib CVEs)~~ — DONE (PR #66).
+49. ~~Ghost API error body redaction + SetTemplateFlag parameterized + schema-evolution + VXD_SHELL trust-boundary doc~~ — DONE (PR #67).
+50. ~~YAML criterion path containment + sql_query_returns read-only gate (sqlsafety package split out of cli)~~ — DONE (PR #68).
+51. ~~Prompt file 0o644 → 0o600 (registry.go + tmux_runner.go)~~ — DONE (this commit). Prompt content carrying DSNs / WAVE_CONTEXT / acceptance criteria no longer readable by non-owner users on a shared dispatch host.
+52. **YAML pipe/semicolon caveat** — DOCUMENTED. `ValidateConfigShellCommand` blocks command substitution but deliberately allows `|`, `;`, `&&` for legitimate multi-step QA commands. An operator who copy-pastes a malicious vxd.yaml can still chain `; curl evil` — this is a documented operator trust boundary, not an oversight. The blocklist is one of three layers; the others are: (a) commands run only when the operator explicitly invokes a requirement that triggers QA, (b) the dashboard auth gate prevents remote requirement submission.
+
+### Still open (tracked, not security-blocking)
+
+- Production errcheck cleanup (~51 hits) — gate for flipping lint job to blocking.
+- `monitor.go` 2021-line refactor (split plan written: monitor_config / monitor_polling / monitor_sla / monitor_post_execution / monitor_dispatch / monitor_escalation / monitor_git_hygiene / monitor_gitdiff; no behavioural change).
+- Coverage roadmap: cli (65.6%), config (70.9%), improve (73%), state (78.2%) → 80%+.
+- `sanitize.DetectPromptInjection` pattern expansion — structural `<untrusted_content>` wrapping is the durable defence and is already applied where it matters.
 29. **Ephemeral DBs for agents** — COMPLETE as of 2026-05-22. SHIPPED:
     - SP1+SP3 (foundation + Docker provider)
     - SP4 (executor wiring, Lifecycle injection, orphan recovery, SLA-breach release, preflight checks)

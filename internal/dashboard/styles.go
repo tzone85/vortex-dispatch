@@ -19,7 +19,6 @@ const (
 	colorMagenta = lipgloss.Color("#CC66FF")
 	colorOrange  = lipgloss.Color("#FF9933")
 
-	colorBgDark      = lipgloss.Color("#1A1A2E")
 	colorBgStatusBar = lipgloss.Color("#0A0A1A")
 )
 
@@ -72,11 +71,6 @@ var (
 	// Escalation styles.
 	escalationPendingStyle  = lipgloss.NewStyle().Foreground(colorRed).Bold(true)
 	escalationResolvedStyle = lipgloss.NewStyle().Foreground(colorGreen)
-
-	// Complexity badge.
-	complexityStyle = lipgloss.NewStyle().
-			Foreground(colorOrange).
-			Bold(true)
 )
 
 // storyStatusStyle returns the lipgloss style for a given story status string.

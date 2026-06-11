@@ -1441,15 +1441,31 @@ func TestPrintEstimateTable_Routes(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Execute function exists
+// Root command wiring — guards against an init() that forgets AddCommand calls.
 // ---------------------------------------------------------------------------
 
-func TestExecuteFunction(t *testing.T) {
-	// We just verify Execute() is callable; we won't actually run the root
-	// command because it would try to do real work.
-	fn := Execute
-	if fn == nil {
-		t.Error("Execute function is nil")
+func TestRootCmd_HasAllSubcommands(t *testing.T) {
+	// Every new newXxxCmd() in root.go init() must add to this expected set.
+	// Test fails fast if a subcommand is silently dropped during a refactor.
+	wanted := map[string]struct{}{
+		"init": {}, "req": {}, "status": {}, "pause": {}, "resume": {},
+		"agents": {}, "escalations": {}, "gc": {}, "config": {}, "events": {},
+		"dashboard": {}, "archive": {}, "memory": {}, "opportunity": {},
+		"metrics": {}, "projects": {}, "db": {}, "estimate": {}, "preflight": {},
+		"report": {}, "approve-plan": {}, "reject-plan": {}, "review": {},
+		"approve": {}, "reject": {}, "learn": {}, "backup": {}, "improve": {},
+		"autoresearch": {}, "logs": {},
+	}
+
+	got := make(map[string]struct{}, len(rootCmd.Commands()))
+	for _, sub := range rootCmd.Commands() {
+		got[sub.Name()] = struct{}{}
+	}
+
+	for name := range wanted {
+		if _, ok := got[name]; !ok {
+			t.Errorf("rootCmd missing subcommand %q", name)
+		}
 	}
 }
 

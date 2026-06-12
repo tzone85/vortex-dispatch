@@ -232,6 +232,15 @@ func emptyConfig() config.Config {
 	return config.Config{}
 }
 
+func TestDefaultStateDir_HonoursOverride(t *testing.T) {
+	prev := stateDirOverride
+	stateDirOverride = "/tmp/test-state-override"
+	defer func() { stateDirOverride = prev }()
+	if got := defaultStateDir(); got != "/tmp/test-state-override" {
+		t.Errorf("override ignored: got %q", got)
+	}
+}
+
 func TestDefaultStateDir_FallsBackToHome(t *testing.T) {
 	prev, had := os.LookupEnv("VXD_STATE_DIR")
 	t.Cleanup(func() {

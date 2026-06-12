@@ -124,8 +124,24 @@ func TestMustJSON_Unmarshalable(t *testing.T) {
 }
 
 func TestAuditDir_ContainsExpectedSuffix(t *testing.T) {
+	// Force the production CWD path (override empty) so we exercise
+	// the os.Getwd() branch, not the test override.
+	prev := auditDirOverride
+	auditDirOverride = ""
+	defer func() { auditDirOverride = prev }()
+
 	got := auditDir()
 	if !strings.HasSuffix(got, "docs/self-improvement") {
 		t.Errorf("got %q, want suffix docs/self-improvement", got)
+	}
+}
+
+func TestAuditDir_HonoursOverride(t *testing.T) {
+	prev := auditDirOverride
+	auditDirOverride = "/tmp/some-fixed-test-dir"
+	defer func() { auditDirOverride = prev }()
+
+	if got := auditDir(); got != "/tmp/some-fixed-test-dir" {
+		t.Errorf("override ignored: got %q", got)
 	}
 }

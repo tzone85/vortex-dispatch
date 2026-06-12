@@ -11,35 +11,31 @@ import (
 	"github.com/tzone85/vortex-dispatch/internal/improve"
 )
 
-// withChdir chdirs into the given dir for the duration of the test. The
-// improve commands read from $PWD/docs/self-improvement — we need control
-// over that.
-func withChdir(t *testing.T, dir string) {
+// withAuditDir overrides the package-level audit directory for the test's
+// lifetime. Replaces the older withChdir approach — chdir broke
+// parallel-test isolation and forced sequential execution.
+func withAuditDir(t *testing.T, dir string) {
 	t.Helper()
-	prev, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("chdir: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(prev) })
+	prev := auditDirOverride
+	auditDirOverride = dir
+	t.Cleanup(func() { auditDirOverride = prev })
 }
 
-// seedAuditDir creates docs/self-improvement under root, returns the
-// audit-dir path. Tests then append entries via NewAuditLog.
-func seedAuditDir(t *testing.T, root string) string {
+// seedAuditDir creates a fresh audit directory inside t.TempDir() and
+// installs it as the active override. Tests then append entries via
+// NewAuditLog(auditDir()).
+func seedAuditDir(t *testing.T) string {
 	t.Helper()
-	dir := filepath.Join(root, "docs", "self-improvement")
+	dir := filepath.Join(t.TempDir(), "docs", "self-improvement")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
+	withAuditDir(t, dir)
 	return dir
 }
 
 func TestRunImproveLog_EmptyAuditDir(t *testing.T) {
-	root := t.TempDir()
-	withChdir(t, root)
+	withAuditDir(t, filepath.Join(t.TempDir(), "docs", "self-improvement"))
 
 	cmd := newImproveLogCmd()
 	cmd.SetOut(&bytes.Buffer{})
@@ -51,9 +47,7 @@ func TestRunImproveLog_EmptyAuditDir(t *testing.T) {
 }
 
 func TestRunImproveLog_FiltersByDisposition(t *testing.T) {
-	root := t.TempDir()
-	withChdir(t, root)
-	dir := seedAuditDir(t, root)
+	dir := seedAuditDir(t)
 	log := improve.NewAuditLog(dir)
 
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -77,8 +71,7 @@ func TestRunImproveLog_FiltersByDisposition(t *testing.T) {
 }
 
 func TestRunImproveLog_InvalidSinceDate(t *testing.T) {
-	root := t.TempDir()
-	withChdir(t, root)
+	withAuditDir(t, filepath.Join(t.TempDir(), "docs", "self-improvement"))
 	cmd := newImproveLogCmd()
 	if err := cmd.Flags().Set("since", "not-a-date"); err != nil {
 		t.Fatalf("set flag: %v", err)
@@ -93,9 +86,7 @@ func TestRunImproveLog_InvalidSinceDate(t *testing.T) {
 }
 
 func TestRunImproveLog_SinceFilter(t *testing.T) {
-	root := t.TempDir()
-	withChdir(t, root)
-	dir := seedAuditDir(t, root)
+	dir := seedAuditDir(t)
 	log := improve.NewAuditLog(dir)
 
 	yesterday := time.Now().UTC().AddDate(0, 0, -1).Format(time.RFC3339)
@@ -120,9 +111,7 @@ func TestRunImproveLog_SinceFilter(t *testing.T) {
 }
 
 func TestRunImproveLog_JSONOutput(t *testing.T) {
-	root := t.TempDir()
-	withChdir(t, root)
-	dir := seedAuditDir(t, root)
+	dir := seedAuditDir(t)
 	log := improve.NewAuditLog(dir)
 	if err := log.Append(improve.AuditEntry{
 		RunID:       time.Now().UTC().Format(time.RFC3339),
@@ -143,9 +132,7 @@ func TestRunImproveLog_JSONOutput(t *testing.T) {
 }
 
 func TestRunImproveLog_ErrorsOnly(t *testing.T) {
-	root := t.TempDir()
-	withChdir(t, root)
-	dir := seedAuditDir(t, root)
+	dir := seedAuditDir(t)
 	log := improve.NewAuditLog(dir)
 	now := time.Now().UTC().Format(time.RFC3339)
 	for _, e := range []improve.AuditEntry{
@@ -166,8 +153,7 @@ func TestRunImproveLog_ErrorsOnly(t *testing.T) {
 }
 
 func TestRunImproveRuns_NoRunsDir(t *testing.T) {
-	root := t.TempDir()
-	withChdir(t, root)
+	withAuditDir(t, filepath.Join(t.TempDir(), "docs", "self-improvement"))
 	cmd := newImproveRunsCmd()
 	err := cmd.Execute()
 	if err == nil {
@@ -176,9 +162,7 @@ func TestRunImproveRuns_NoRunsDir(t *testing.T) {
 }
 
 func TestRunImproveRuns_WithSummaries(t *testing.T) {
-	root := t.TempDir()
-	withChdir(t, root)
-	runsDir := filepath.Join(seedAuditDir(t, root), "runs")
+	runsDir := filepath.Join(seedAuditDir(t), "runs")
 	if err := os.MkdirAll(runsDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -202,9 +186,7 @@ func TestRunImproveRuns_WithSummaries(t *testing.T) {
 }
 
 func TestRunImproveDetail_FoundEntry(t *testing.T) {
-	root := t.TempDir()
-	withChdir(t, root)
-	dir := seedAuditDir(t, root)
+	dir := seedAuditDir(t)
 	log := improve.NewAuditLog(dir)
 	now := time.Now().UTC().Format(time.RFC3339)
 	if err := log.Append(improve.AuditEntry{
@@ -232,9 +214,7 @@ func TestRunImproveDetail_FoundEntry(t *testing.T) {
 }
 
 func TestRunImproveDetail_NotFound(t *testing.T) {
-	root := t.TempDir()
-	withChdir(t, root)
-	seedAuditDir(t, root) // exists but empty
+	seedAuditDir(t) // exists but empty
 
 	cmd := newImproveDetailCmd()
 	cmd.SetArgs([]string{"f-missing"})
@@ -245,9 +225,7 @@ func TestRunImproveDetail_NotFound(t *testing.T) {
 }
 
 func TestRunImproveDetail_WithError(t *testing.T) {
-	root := t.TempDir()
-	withChdir(t, root)
-	dir := seedAuditDir(t, root)
+	dir := seedAuditDir(t)
 	log := improve.NewAuditLog(dir)
 	if err := log.Append(improve.AuditEntry{
 		RunID:          time.Now().UTC().Format(time.RFC3339),

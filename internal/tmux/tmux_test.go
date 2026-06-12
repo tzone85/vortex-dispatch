@@ -88,22 +88,14 @@ func TestSendKeysAndCapture(t *testing.T) {
 	}
 	defer tmux.KillSession(name)
 
-	// Give session time to start.
-	time.Sleep(500 * time.Millisecond)
+	waitForPaneReady(t, name, 3*time.Second)
 
-	err = tmux.SendKeys(name, "echo hello-vxd")
-	if err != nil {
+	if err := tmux.SendKeys(name, "echo hello-vxd"); err != nil {
 		t.Fatalf("send keys: %v", err)
 	}
 
-	// Give command time to execute.
-	time.Sleep(500 * time.Millisecond)
-
-	out, err := tmux.CapturePaneOutput(name, 10)
-	if err != nil {
-		t.Fatalf("capture: %v", err)
-	}
-
+	// Poll until echo has run instead of guessing how long it takes.
+	out := waitForPaneContains(t, name, "hello-vxd", 5*time.Second)
 	if !strings.Contains(out, "hello-vxd") {
 		t.Fatalf("expected 'hello-vxd' in output, got: %s", out)
 	}

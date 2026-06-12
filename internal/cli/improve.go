@@ -34,7 +34,15 @@ Run "vxd improve runs" to see daily run history.`)
 	return cmd
 }
 
+// auditDirOverride lets tests inject a known audit directory without
+// chdir'ing the whole process. Production code path uses CWD when this
+// is empty.
+var auditDirOverride string
+
 func auditDir() string {
+	if auditDirOverride != "" {
+		return auditDirOverride
+	}
 	cwd, _ := os.Getwd()
 	return filepath.Join(cwd, "docs", "self-improvement")
 }

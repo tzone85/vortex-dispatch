@@ -485,7 +485,15 @@ func openEventStore(cmd *cobra.Command) (state.EventStore, func(), error) {
 	return store, func() { _ = store.Close() }, nil
 }
 
+// stateDirOverride lets tests inject a known state directory without
+// touching the environment. Production code path checks VXD_STATE_DIR
+// then falls back to $HOME/.vxd when this is empty.
+var stateDirOverride string
+
 func defaultStateDir() string {
+	if stateDirOverride != "" {
+		return stateDirOverride
+	}
 	if v := os.Getenv("VXD_STATE_DIR"); v != "" {
 		return v
 	}

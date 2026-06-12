@@ -140,17 +140,3 @@ func TestRunResume_FlagsParse(t *testing.T) {
 	}
 }
 
-func contains(s, sub string) bool {
-	return len(sub) == 0 || (len(s) >= len(sub) && stringContains(s, sub))
-}
-
-// stringContains is a thin wrapper so the test file can keep its imports
-// minimal — strings.Contains would work equally well.
-func stringContains(s, sub string) bool {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
-}

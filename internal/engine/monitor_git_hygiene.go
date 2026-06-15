@@ -75,8 +75,15 @@ func autoCommit(worktreePath, storyID string) {
 // artifacts from appearing in PRs, which would overwrite the project's
 // real CLAUDE.md with the agent-directive version.
 func stripVXDArtifactsFromBranch(worktreePath, storyID string) {
+	// AGENTS.md is here alongside CLAUDE.md because VXD now dual-writes
+	// the agent directive to both files at spawn time (Codex / Gemini CLI
+	// look at AGENTS.md, Claude Code at CLAUDE.md). Without strip the
+	// agent-directive copy would be committed onto the story branch and
+	// overwrite the project's own AGENTS.md on merge — the same failure
+	// mode CLAUDE.md hit in the 2026-04-30 incident.
 	artifacts := []string{
 		"CLAUDE.md",
+		"AGENTS.md",
 		"WAVE_CONTEXT.md",
 		"REQUIREMENT.md",
 		".vxd-prompts",
@@ -330,6 +337,7 @@ func gitPullWithStash(repoDir, branch string) {
 func ensureGitignorePatterns(worktreePath string) {
 	vxdPatterns := []string{
 		"CLAUDE.md",
+		"AGENTS.md",
 		"WAVE_CONTEXT.md",
 		"REQUIREMENT.md",
 		"vxd.yaml",

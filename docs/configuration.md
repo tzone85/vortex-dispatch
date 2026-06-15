@@ -39,6 +39,8 @@ Binds each agent role to an LLM provider, model, and token limit. These models a
 
 > **Important:** These are **not** the models used by the spawned coding agents. The runtimes (Claude Code, Codex, Gemini CLI) authenticate via their own sessions — for Claude Code, that's your Max/Pro subscription via `claude login`. No API key is passed to spawned agents, so they run at no additional cost beyond your subscription. See [Getting Started — Authentication](getting-started.md#authentication) for details.
 
+Defaults shipped by `vxd init` (see `internal/config/loader.go DefaultConfig`):
+
 ```yaml
 models:
   tech_lead:
@@ -50,22 +52,28 @@ models:
     model: claude-sonnet-4-20250514
     max_tokens: 8000
   intermediate:
-    provider: anthropic
-    model: claude-haiku-4-5-20251001
+    provider: google
+    model: gemma-4-27b-it
     max_tokens: 4000
   junior:
-    provider: openai
-    model: gpt-4o-mini
+    provider: google
+    model: gemma-4-27b-it
     max_tokens: 4000
   qa:
     provider: anthropic
     model: claude-sonnet-4-20250514
     max_tokens: 8000
   supervisor:
+    provider: google
+    model: gemma-4-27b-it
+    max_tokens: 4000
+  manager:
     provider: anthropic
     model: claude-sonnet-4-20250514
-    max_tokens: 4000
+    max_tokens: 8000
 ```
+
+Defaults bias execution roles (junior/intermediate/supervisor) toward Gemma (free tier on Google AI Studio) and reserve Anthropic budget for verification roles (tech_lead/senior/qa/manager). Swap any role to OpenAI/Haiku/Sonnet — see the cost-optimised and quality-maximised examples below.
 
 | Role | Recommended Model | Why |
 |------|-------------------|-----|
@@ -130,7 +138,7 @@ Controls the Watchdog that monitors running agents.
 ```yaml
 monitor:
   poll_interval_ms: 10000         # Check agent output every 10 seconds
-  stuck_threshold_s: 600          # Agent is "stuck" if output unchanged for 10 minutes
+  stuck_threshold_s: 600          # Default: 10 minutes (matches loader DefaultConfig)
   context_freshness_tokens: 150000 # Warn when context window approaches limit
 ```
 

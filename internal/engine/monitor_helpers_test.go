@@ -31,8 +31,10 @@ func TestEnsureGitignorePatterns_ExistingPatterns(t *testing.T) {
 	dir := t.TempDir()
 	giPath := filepath.Join(dir, ".gitignore")
 
-	// Pre-create .gitignore with all patterns already present
-	existing := "CLAUDE.md\nWAVE_CONTEXT.md\nREQUIREMENT.md\nvxd.yaml\n.vxd-prompts/\n.serena/\nfirebase-debug.log\n"
+	// Pre-create .gitignore with all patterns already present (AGENTS.md
+	// was added alongside CLAUDE.md when VXD started dual-writing the
+	// agent directive for Codex/Gemini runtimes).
+	existing := "CLAUDE.md\nAGENTS.md\nWAVE_CONTEXT.md\nREQUIREMENT.md\nvxd.yaml\n.vxd-prompts/\n.serena/\nfirebase-debug.log\n"
 	os.WriteFile(giPath, []byte(existing), 0o644)
 
 	ensureGitignorePatterns(dir)

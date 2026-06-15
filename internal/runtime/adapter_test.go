@@ -34,6 +34,12 @@ func TestCLIAdapter_Prepare_BasicCommand(t *testing.T) {
 	if _, ok := exec.SetupFiles[dir+"/CLAUDE.md"]; !ok {
 		t.Error("setup files should include CLAUDE.md")
 	}
+	// AGENTS.md is the Codex / generic-agent CLI counterpart. The
+	// adapter dual-writes both files so non-Claude runtimes pick up
+	// the same directive without a separate code path.
+	if _, ok := exec.SetupFiles[dir+"/AGENTS.md"]; !ok {
+		t.Error("setup files should include AGENTS.md (Codex / generic-agent directive)")
+	}
 }
 
 func TestCLIAdapter_Prepare_RejectsUnsafeModel(t *testing.T) {

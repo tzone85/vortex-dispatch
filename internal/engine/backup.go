@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -58,41 +59,78 @@ func CreateBackup(stateDir, outputDir string) (retPath string, retErr error) {
 		}
 	}()
 
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
+	// Walk the state tree so nested directories (logs/, worktrees/,
+	// projects/<name>/, artifacts/) are archived too. Prior shallow
+	// implementation skipped every entry where IsDir() was true — the
+	// archive name "project state" was true only for top-level files;
+	// the SQLite WAL, per-project event logs, and artifact dumps were
+	// silently omitted. `_ = entries` keeps the early-error ReadDir
+	// behaviour (fail fast if the state dir itself is missing) without
+	// using the slice further.
+	_ = entries
+	if err := filepath.WalkDir(stateDir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
-		filePath := filepath.Join(stateDir, entry.Name())
-		if err := addFileToTar(tarWriter, filePath, entry.Name()); err != nil {
-			return "", fmt.Errorf("add %s to archive: %w", entry.Name(), err)
+		if path == stateDir {
+			return nil // skip the root itself; entries below get added relative
 		}
+		rel, err := filepath.Rel(stateDir, path)
+		if err != nil {
+			return err
+		}
+		return addEntryToTar(tarWriter, path, rel, d)
+	}); err != nil {
+		return "", fmt.Errorf("walk state dir: %w", err)
 	}
 
 	return archivePath, nil
 }
 
-func addFileToTar(tw *tar.Writer, filePath, name string) error {
-	f, err := os.Open(filePath)
+// addEntryToTar writes one file or directory entry to tw under `name`.
+// Directories are emitted as headers (no body) so consumers preserve
+// permissions and ordering. Symlinks emit a header pointing at their
+// target rather than dereferencing — a symlink to outside the state
+// dir is not in scope for the backup.
+func addEntryToTar(tw *tar.Writer, fullPath, name string, d fs.DirEntry) error {
+	info, err := d.Info()
 	if err != nil {
-		return err
+		return fmt.Errorf("stat %s: %w", fullPath, err)
 	}
-	defer f.Close()
 
-	info, err := f.Stat()
-	if err != nil {
-		return err
+	linkTarget := ""
+	if info.Mode()&os.ModeSymlink != 0 {
+		t, err := os.Readlink(fullPath)
+		if err != nil {
+			return fmt.Errorf("readlink %s: %w", fullPath, err)
+		}
+		linkTarget = t
 	}
 
-	header, err := tar.FileInfoHeader(info, "")
+	header, err := tar.FileInfoHeader(info, linkTarget)
 	if err != nil {
-		return err
+		return fmt.Errorf("tar header %s: %w", fullPath, err)
 	}
-	header.Name = name
+	header.Name = filepath.ToSlash(name)
+	if info.IsDir() {
+		header.Name += "/"
+	}
 
 	if err := tw.WriteHeader(header); err != nil {
-		return err
+		return fmt.Errorf("write tar header %s: %w", name, err)
 	}
 
-	_, err = io.Copy(tw, f)
-	return err
+	// Only regular files carry a body.
+	if !info.Mode().IsRegular() {
+		return nil
+	}
+	f, err := os.Open(fullPath)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", fullPath, err)
+	}
+	defer f.Close()
+	if _, err := io.Copy(tw, f); err != nil {
+		return fmt.Errorf("copy %s: %w", fullPath, err)
+	}
+	return nil
 }

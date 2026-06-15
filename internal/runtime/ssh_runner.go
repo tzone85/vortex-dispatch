@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -28,26 +29,42 @@ type SSHConfig struct {
 // defaultSSHRemoteDir is the fallback when SSHConfig.RemoteDir is empty.
 const defaultSSHRemoteDir = "/tmp/vxd-agent"
 
+// remoteDirCharset is the strict POSIX path subset accepted in
+// ssh.remote_dir. Everything outside this set — shell metacharacters
+// (`;`, `|`, `&`, `$`, backtick, `(`, `)`, `<`, `>`, `*`, `?`, `[`, `]`,
+// `\`, `'`, `"`, `~`, `!`, `#`, whitespace, control bytes) — is
+// rejected so the `cd %s && ...` interpolation in Run cannot escape the
+// `cd` argument. Allowed: forward-slash separators, ASCII alnum, `_`,
+// `-`, `.`.
+//
+// The dot is allowed because legitimate paths use it (`/var/lib/agent.runs`),
+// but interior `..` traversal segments are rejected separately below.
+var remoteDirCharset = regexp.MustCompile(`^[A-Za-z0-9_./-]+$`)
+
 // ValidateRemoteDir rejects remote_dir values that could traverse out of
-// the intended base. Remote hosts are POSIX, so cleaning is done with
-// path.Clean (forward-slash semantics) rather than filepath.Clean which
-// switches separator by host OS.
+// the intended base or smuggle shell metacharacters into the `cd %s &&`
+// interpolation used by Run. Remote hosts are POSIX, so cleaning is done
+// with path.Clean (forward-slash semantics) rather than filepath.Clean
+// which switches separator by host OS.
 //
-// Rejection is done against the ORIGINAL string: `path.Clean` collapses
-// `/var/lib/../../etc/cron.d` to `/etc/cron.d`, which is absolute and
-// looks safe — but the operator's intent is clearly traversal. Any
-// literal `..` segment in the raw input is rejected.
+// Rejection rules, applied to the ORIGINAL string (no normalisation):
 //
-// Accepted: absolute POSIX path with no `..` segments. Empty is also
-// accepted — the caller substitutes the default.
-//
-// Rejected: relative paths and any input containing a `..` path segment.
+//  1. Empty is accepted — the caller substitutes the default.
+//  2. Must begin with `/` (absolute POSIX path).
+//  3. Must match remoteDirCharset — no shell metas, no whitespace.
+//  4. No `..` path segment, even though Clean would collapse them;
+//     `/var/lib/../../etc/cron.d` cleans to `/etc/cron.d`, which is
+//     absolute and looks safe but the operator's intent is clearly
+//     traversal.
 func ValidateRemoteDir(dir string) error {
 	if dir == "" {
 		return nil
 	}
 	if !strings.HasPrefix(dir, "/") {
 		return fmt.Errorf("ssh remote_dir must be an absolute POSIX path, got %q", dir)
+	}
+	if !remoteDirCharset.MatchString(dir) {
+		return fmt.Errorf("ssh remote_dir contains characters outside the safe POSIX path set [A-Za-z0-9_./-], got %q", dir)
 	}
 	for _, seg := range strings.Split(dir, "/") {
 		if seg == ".." {
@@ -181,17 +198,34 @@ func (r *SSHRunner) Run(pe PreparedExecution) error {
 		return fmt.Errorf("create remote dir: %w", err)
 	}
 
+	// Create a per-session host-side staging directory. Previously every
+	// upload landed at `/tmp/<filename>` — two parallel sessions writing
+	// `/tmp/prompt.txt` would overwrite each other in the scp window:
+	// session A's prompt could be uploaded as session B's, or worse,
+	// session A's secret-bearing file could briefly carry session B's
+	// data on the dispatch host. The 0o700 mode prevents other users on
+	// the dispatch host from reading staged secrets.
+	stagingDir, err := os.MkdirTemp("", "vxd-ssh-"+pe.SessionName+"-")
+	if err != nil {
+		return fmt.Errorf("create scp staging dir: %w", err)
+	}
+	if err := os.Chmod(stagingDir, 0o700); err != nil {
+		_ = os.RemoveAll(stagingDir)
+		return fmt.Errorf("chmod scp staging dir: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(stagingDir) }() // best-effort cleanup of session-scoped scp staging
+
 	// Upload setup files via scp.
 	for localPath, content := range pe.SetupFiles {
 		// Setup files may carry prompt content (which can include the
 		// project's WAVE_CONTEXT, acceptance criteria, secrets pulled
-		// from the env). Write 0o600 so other users on the dispatch
-		// host cannot read them during the SCP window.
-		tmpFile := filepath.Join(os.TempDir(), filepath.Base(localPath))
+		// from the env). Write 0o600 inside the per-session staging dir
+		// so other users on the dispatch host cannot read them during
+		// the SCP window AND parallel sessions cannot stomp each other.
+		tmpFile := filepath.Join(stagingDir, filepath.Base(localPath))
 		if err := os.WriteFile(tmpFile, []byte(content), 0o600); err != nil {
 			return fmt.Errorf("write temp file: %w", err)
 		}
-		defer func() { _ = os.Remove(tmpFile) }() // best-effort cleanup of the short-lived secret-bearing temp file
 
 		remotePath := path.Join(remoteWorkDir, filepath.Base(localPath))
 		if err := r.scpTo(tmpFile, remotePath); err != nil {

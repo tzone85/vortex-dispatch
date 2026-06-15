@@ -1,3 +1,7 @@
+# Mirrors internal/config/loader.go DefaultConfig. Keep in sync — the
+# doc_coverage test compares the structure of this example against the
+# generated `vxd init` output.
+
 version: "1.0"
 
 workspace:
@@ -16,31 +20,41 @@ models:
     model: claude-sonnet-4-20250514
     max_tokens: 8000
   intermediate:
-    provider: anthropic
-    model: claude-haiku-4-5-20251001
+    provider: google
+    model: gemma-4-27b-it
     max_tokens: 4000
   junior:
-    provider: openai
-    model: gpt-4o-mini
+    provider: google
+    model: gemma-4-27b-it
     max_tokens: 4000
   qa:
     provider: anthropic
     model: claude-sonnet-4-20250514
     max_tokens: 8000
   supervisor:
+    provider: google
+    model: gemma-4-27b-it
+    max_tokens: 4000
+  manager:
     provider: anthropic
     model: claude-sonnet-4-20250514
-    max_tokens: 4000
+    max_tokens: 8000
 
 routing:
   junior_max_complexity: 3
   intermediate_max_complexity: 5
   max_retries_before_escalation: 2
   max_qa_failures_before_escalation: 3
+  max_senior_retries: 2
+  max_manager_attempts: 2
+  max_concurrent_agents: 5
 
 monitor:
   poll_interval_ms: 10000
-  stuck_threshold_s: 120
+  # 600s matches DefaultConfig — long enough for Sonnet/Opus to finish
+  # multi-file reads without false-firing AGENT_STUCK. Lower (120-180s)
+  # only when running fast models that should fail fast.
+  stuck_threshold_s: 600
   context_freshness_tokens: 150000
 
 cleanup:

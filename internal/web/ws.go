@@ -4,8 +4,11 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -43,8 +46,66 @@ type WSResponse struct {
 	Data    interface{} `json:"data,omitempty"`
 }
 
+// StrictSameOriginWS is the exported alias used by sibling packages
+// (e.g. internal/memory) that serve their own WebSocket endpoints and
+// share the dashboard's auth token. They must apply the same Origin
+// check to avoid the same cross-port CSRF described below.
+func StrictSameOriginWS(r *http.Request) error { return strictSameOrigin(r) }
+
+// strictSameOrigin rejects WebSocket upgrades whose Origin header points
+// to a different host:port than the dashboard's own listener. Without
+// this check, the prior `OriginPatterns: []string{"localhost:*", ...}`
+// rule accepted any localhost port — so a page running at
+// http://localhost:3000 (any local dev server, port-forwarded tunnel,
+// or proxy a developer happens to have running) could open
+// ws://localhost:8080/ws with credentials:'include'. The browser's
+// SameSite=Strict cookie attribute does NOT block this because
+// `localhost` is a single registrable site, so the cookie ships across
+// ports — yielding cross-port CSRF into mutating WS commands
+// (pause/resume/retry/reassign/escalate/kill_agent/edit_story).
+//
+// The fix: in addition to the auth cookie, require the Origin host to
+// equal `r.Host` (the dashboard's own host:port). The OriginPatterns in
+// websocket.Accept is left intentionally permissive so non-browser
+// clients (curl, native dashboard, tests) without an Origin still work
+// — those clients must still authenticate via Bearer header.
+//
+// Empty Origin (non-browser clients): allowed. The auth middleware has
+// already validated Bearer/cookie before this code runs.
+func strictSameOrigin(r *http.Request) error {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return nil
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return fmt.Errorf("malformed Origin %q: %w", origin, err)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("origin %q has no host component", origin)
+	}
+	if !strings.EqualFold(u.Host, r.Host) {
+		return fmt.Errorf("origin host %q does not match dashboard host %q (cross-origin WebSocket rejected)", u.Host, r.Host)
+	}
+	return nil
+}
+
 func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
+	// Enforce strict same-origin BEFORE upgrade. Returning 403 keeps the
+	// rejection at the HTTP layer so the malicious page sees a real
+	// failure rather than a "connection established but commands fail"
+	// gray zone that could mask the attack.
+	if err := strictSameOrigin(r); err != nil {
+		log.Printf("[ws] reject upgrade: %v", err)
+		http.Error(w, "forbidden: cross-origin WebSocket not permitted", http.StatusForbidden)
+		return
+	}
+
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		// OriginPatterns still narrows the browser-side check by
+		// host shape — InsecureSkipVerify would disable the library's
+		// own guard and rely entirely on strictSameOrigin above. We
+		// want both layers.
 		OriginPatterns: []string{"localhost:*", "127.0.0.1:*"},
 	})
 	if err != nil {

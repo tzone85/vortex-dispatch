@@ -46,6 +46,44 @@ func TestEvaluateSQLQueryReturns_RejectsMutatingSQL(t *testing.T) {
 	}
 }
 
+// TestEvaluateSchemaChanged_RejectsBaselineEscape pins the resolvePath
+// gate on SchemaBaseline. Previously evaluateSchemaChanged accepted any
+// absolute path or `../` traversal; a vxd.yaml entry like:
+//
+//	qa.success_criteria:
+//	  - kind: schema_changed
+//	    schema_baseline: "/etc/passwd"
+//
+// would read host files and surface their content (or absence) in the
+// criterion Detail string. The gate now refuses absolute paths and
+// traversal that escapes the worktree. The check fires BEFORE pgx
+// connect, so no DB is needed.
+func TestEvaluateSchemaChanged_RejectsBaselineEscape(t *testing.T) {
+	cases := []struct {
+		name     string
+		baseline string
+		want     string // substring expected in Detail
+	}{
+		{"absolute path", "/etc/passwd", "absolute"},
+		{"traversal", "../../etc/shadow", "escapes the story worktree"},
+		{"interior traversal", "subdir/../../../oops", "escapes the story worktree"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			res := evaluateSchemaChanged(
+				Criterion{Kind: CriterionSchemaChanged, SchemaBaseline: c.baseline},
+				t.TempDir(),
+			)
+			if res.Passed {
+				t.Fatalf("expected rejection, got pass with detail %q", res.Detail)
+			}
+			if !strings.Contains(res.Detail, c.want) {
+				t.Errorf("detail = %q, want substring %q", res.Detail, c.want)
+			}
+		})
+	}
+}
+
 func TestEvaluateSQLQueryReturns_AcceptsBareSelectShapes(t *testing.T) {
 	// These survive the safety gate (they pass classifier + multi-stmt
 	// checks). The follow-up `readDatabaseURL` step then fails because

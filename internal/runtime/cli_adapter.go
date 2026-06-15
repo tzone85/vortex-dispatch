@@ -105,17 +105,22 @@ func (a *CLIAdapter) Prepare(cfg SessionConfig) (PreparedExecution, error) {
 	// Unset CLAUDECODE to prevent nested-session errors.
 	cmdStr = BuildEnvExports(env) + "unset ANTHROPIC_API_KEY CLAUDECODE; " + cmdStr
 
-	// Add CLAUDE.md to setup files so agents don't brainstorm/plan.
+	// Dual-write CLAUDE.md + AGENTS.md so Claude Code, Codex, and
+	// Gemini CLI all see the no-brainstorm directive. Each agent CLI
+	// has its own discovery rule; covering both keeps the directive
+	// effective across the runtime fleet.
 	if cfg.WorkDir != "" {
-		claudeMDPath := filepath.Join(cfg.WorkDir, "CLAUDE.md")
-		setupFiles[claudeMDPath] = claudeMDContent
+		for _, name := range agentDirectiveFiles {
+			setupFiles[filepath.Join(cfg.WorkDir, name)] = agentDirectiveContent
+		}
 
 		// Ensure VXD artifacts are gitignored BEFORE the agent starts.
-		// Without this, Claude Code's own git commits include prompt files.
+		// Without this, the agent's own git commits include prompt files
+		// and the directive files we just wrote.
 		giPath := filepath.Join(cfg.WorkDir, ".gitignore")
 		existing, _ := os.ReadFile(giPath)
 		content := string(existing)
-		vxdPatterns := []string{"CLAUDE.md", ".vxd-prompts/", ".serena/", "firebase-debug.log"}
+		vxdPatterns := []string{"CLAUDE.md", "AGENTS.md", ".vxd-prompts/", ".serena/", "firebase-debug.log"}
 		var toAdd []string
 		for _, pat := range vxdPatterns {
 			if !strings.Contains(content, pat) {

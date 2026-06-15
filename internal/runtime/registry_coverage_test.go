@@ -364,6 +364,22 @@ func TestSpawn_WritesCLAUDEMD(t *testing.T) {
 	if !strings.Contains(content, "Do NOT brainstorm") {
 		t.Error("CLAUDE.md should contain brainstorm directive")
 	}
+
+	// AGENTS.md must also be written so Codex / Gemini CLI agents see
+	// the same directive. Without it, a Codex run would happily pick up
+	// the project's stale AGENTS.md (which may permit interactive
+	// brainstorming) and ignore the dispatch-time instruction.
+	agentsMDPath := filepath.Join(dir, "AGENTS.md")
+	agentsData, err := os.ReadFile(agentsMDPath)
+	if err != nil {
+		t.Fatalf("AGENTS.md should have been written: %v", err)
+	}
+	if !strings.Contains(string(agentsData), "VXD Agent Directive") {
+		t.Error("AGENTS.md should contain VXD Agent Directive")
+	}
+	if string(agentsData) != content {
+		t.Error("AGENTS.md content should match CLAUDE.md so both runtimes see identical instruction")
+	}
 }
 
 // TestSpawn_EmptyWorkDir verifies Spawn doesn't panic with empty WorkDir.

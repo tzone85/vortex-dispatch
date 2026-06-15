@@ -127,10 +127,24 @@ func DecodePayload(payload []byte) map[string]any {
 // If data is nil, the payload will be nil (not an empty JSON object).
 // A single time.Now() call is used for both the ULID and the event Timestamp
 // to prevent clock skew between the two.
+//
+// If json.Marshal(data) fails (cycle, unsupported type, NaN float, etc.)
+// the payload is replaced with a stub recording the marshal error rather
+// than left nil — a nil payload would silently lose the event's data on
+// projection without any signal that it ever existed. The stub keeps the
+// event readable downstream while making the corruption visible in logs
+// and dashboards.
 func NewEvent(eventType EventType, agentID, storyID string, data map[string]any) Event {
 	var payload []byte
 	if data != nil {
-		payload, _ = json.Marshal(data)
+		raw, err := json.Marshal(data)
+		if err != nil {
+			// Best-effort stub. Encoded by hand so we never recurse
+			// back into json.Marshal with the same poisoned data.
+			payload = []byte(`{"_marshal_error":` + jsonString(err.Error()) + `}`)
+		} else {
+			payload = raw
+		}
 	}
 
 	now := time.Now().UTC()
@@ -144,4 +158,35 @@ func NewEvent(eventType EventType, agentID, storyID string, data map[string]any)
 		StoryID:   storyID,
 		Payload:   payload,
 	}
+}
+
+// jsonString returns a minimally-escaped JSON string literal. Used only
+// from NewEvent's marshal-failure stub where json.Marshal itself is
+// suspect — we cannot trust json.Marshal(err.Error()) to round-trip the
+// same byte stream after a panic in the encoder. The escape set covers
+// the ones json.Marshal would: backslash, double-quote, control bytes.
+func jsonString(s string) string {
+	var b []byte
+	b = append(b, '"')
+	for _, r := range s {
+		switch r {
+		case '\\':
+			b = append(b, '\\', '\\')
+		case '"':
+			b = append(b, '\\', '"')
+		case '\n':
+			b = append(b, '\\', 'n')
+		case '\r':
+			b = append(b, '\\', 'r')
+		case '\t':
+			b = append(b, '\\', 't')
+		default:
+			if r < 0x20 {
+				continue // skip other control bytes
+			}
+			b = append(b, []byte(string(r))...)
+		}
+	}
+	b = append(b, '"')
+	return string(b)
 }

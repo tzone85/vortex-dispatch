@@ -14,7 +14,21 @@ import (
 
 var agentIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
-const maxEscalationTier = 3
+// maxEscalationTier is the highest tier reachable from the dashboard.
+// The escalation chain is:
+//
+//	tier 0  same-role retry
+//	tier 1  senior developer
+//	tier 2  manager diagnosis
+//	tier 3  tech-lead re-plan
+//	tier 4  pause (human intervention)
+//
+// Previously this was 3, which silently rejected reassign-to-tier-4 and
+// hid the human-intervention pause from the UI. Tier 4 is the
+// operator's documented escape hatch for stories the system cannot
+// recover on its own — the dashboard must be able to drive a story to
+// it.
+const maxEscalationTier = 4
 
 // HandleCommand dispatches a WebSocket command to the appropriate handler.
 func (s *Server) HandleCommand(action string, payload json.RawMessage) WSResponse {

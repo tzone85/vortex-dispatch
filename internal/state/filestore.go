@@ -3,6 +3,7 @@ package state
 import (
 	"bufio"
 	"encoding/json"
+	"log"
 	"os"
 	"sync"
 )
@@ -66,9 +67,19 @@ func (fs *FileStore) Count(filter EventFilter) (int, error) {
 	count := 0
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 64*1024), maxEventLineBytes)
+	lineNo := 0
 	for scanner.Scan() {
+		lineNo++
 		var evt Event
 		if err := json.Unmarshal(scanner.Bytes(), &evt); err != nil {
+			// events.jsonl is the source of truth. A single corrupted
+			// line previously vanished into a `continue` — the
+			// projection, metrics, and resume code all ran against the
+			// partial view without any signal. Log line-numbered so an
+			// operator can `sed -n '<N>p' events.jsonl` immediately.
+			// We keep the scan going (broad dashboard reads should not
+			// fault on a single bad row), but the operator now sees it.
+			log.Printf("[filestore] %s:%d: corrupt event JSON: %v", fs.path, lineNo, err)
 			continue
 		}
 		if filter.Type != "" && evt.Type != filter.Type {
@@ -106,9 +117,14 @@ func (fs *FileStore) readAndFilter(filter EventFilter) ([]Event, error) {
 	var events []Event
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 64*1024), maxEventLineBytes)
+	lineNo := 0
 	for scanner.Scan() {
+		lineNo++
 		var evt Event
 		if err := json.Unmarshal(scanner.Bytes(), &evt); err != nil {
+			// See Count for rationale — log loudly with file:line so
+			// the operator can locate the bad row without grep-the-haystack.
+			log.Printf("[filestore] %s:%d: corrupt event JSON: %v", fs.path, lineNo, err)
 			continue
 		}
 		if filter.Type != "" && evt.Type != filter.Type {

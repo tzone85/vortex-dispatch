@@ -176,3 +176,21 @@ func TestHandleReassign_AboveMax(t *testing.T) {
 		t.Error("expected failure for tier above max")
 	}
 }
+
+// TestHandleReassign_Tier4_PausesStory pins the dashboard's reach into
+// the documented tier-4 (human-intervention pause) state. The cap was
+// previously 3, which silently rejected reassign-to-4 with a generic
+// range error and hid the pause path from operators. The escalation
+// chain is 0..4 inclusive; the dashboard must be able to drive a story
+// to the top tier when the operator decides human review is needed.
+func TestHandleReassign_Tier4_PausesStory(t *testing.T) {
+	s := newTestServer(t)
+	reqID := seedRequirement(t, s)
+	storyID := seedStory(t, s, reqID)
+
+	payload := mustMarshal(t, storyPayload{StoryID: storyID, TargetTier: 4})
+	resp := s.HandleCommand("reassign_story", payload)
+	if !resp.Success {
+		t.Errorf("expected success at tier 4 (human pause), got: %s", resp.Message)
+	}
+}

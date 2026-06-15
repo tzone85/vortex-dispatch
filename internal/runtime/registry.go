@@ -102,11 +102,21 @@ func (c *CLIRuntime) Name() string { return c.name }
 // SupportedModels returns the list of models this runtime can use.
 func (c *CLIRuntime) SupportedModels() []string { return c.models }
 
-// claudeMDContent is written to each worktree on every spawn so that
-// Claude Code's superpowers/brainstorming plugins don't override the
-// -p prompt instructions. Re-written unconditionally because a reused
-// worktree may have a stale or missing CLAUDE.md.
-const claudeMDContent = `# VXD Agent Directive
+// agentDirectiveContent is written to each worktree on every spawn so
+// the runtime's own discovery rules pick up the same directive
+// regardless of which CLI is doing the work:
+//
+//   - Claude Code reads CLAUDE.md.
+//   - Codex CLI reads AGENTS.md.
+//   - Gemini CLI reads GEMINI.md (and falls back to AGENTS.md on some
+//     versions).
+//
+// We dual-write CLAUDE.md and AGENTS.md so every supported runtime sees
+// the directive. Re-written unconditionally because a reused worktree
+// may have stale or missing copies, and because the project's own
+// CLAUDE.md/AGENTS.md must be restored to the base-branch version on
+// merge (see stripVXDArtifactsFromBranch).
+const agentDirectiveContent = `# VXD Agent Directive
 
 You are an automated coding agent dispatched by VXD (vortex-dispatch).
 Follow these rules strictly:
@@ -118,6 +128,11 @@ Follow these rules strictly:
 5. **Commit your changes** when the task is complete.
 6. **Stay focused on the assigned story only.** Do not refactor unrelated code.
 `
+
+// agentDirectiveFiles are the per-runtime filenames written into every
+// worktree alongside the prompt. CLAUDE.md for Claude Code, AGENTS.md
+// for Codex / generic agent CLIs.
+var agentDirectiveFiles = []string{"CLAUDE.md", "AGENTS.md"}
 
 // BuildCommand constructs the full shell command string for the CLI runtime.
 // It writes the prompt to a file in cfg.WorkDir and returns the assembled
@@ -202,15 +217,18 @@ func (c *CLIRuntime) BuildCommand(cfg SessionConfig) (string, error) {
 // Spawn creates a new tmux session running the CLI tool with the given
 // configuration. Output is tee'd to a log file for post-mortem diagnosis.
 func (c *CLIRuntime) Spawn(cfg SessionConfig) error {
-	// Write CLAUDE.md unconditionally to the worktree to suppress
-	// brainstorming/planning plugins that would override -p prompt
-	// instructions. This must happen on every spawn, not just the first
-	// worktree creation, because reused worktrees may have stale content.
+	// Dual-write CLAUDE.md + AGENTS.md unconditionally to the worktree
+	// so Claude Code, Codex, and Gemini CLI all see the directive that
+	// suppresses brainstorming/planning plugins. Must happen on every
+	// spawn, not just first worktree creation, because reused worktrees
+	// may carry stale content.
 	if cfg.WorkDir != "" {
-		claudeMDPath := filepath.Join(cfg.WorkDir, "CLAUDE.md")
-		if err := os.WriteFile(claudeMDPath, []byte(claudeMDContent), 0o644); err != nil {
-			// Non-fatal: log and continue so the agent can still run.
-			fmt.Fprintf(os.Stderr, "warning: failed to write CLAUDE.md to %s: %v\n", cfg.WorkDir, err)
+		for _, name := range agentDirectiveFiles {
+			p := filepath.Join(cfg.WorkDir, name)
+			if err := os.WriteFile(p, []byte(agentDirectiveContent), 0o644); err != nil {
+				// Non-fatal: log and continue so the agent can still run.
+				fmt.Fprintf(os.Stderr, "warning: failed to write %s to %s: %v\n", name, cfg.WorkDir, err)
+			}
 		}
 	}
 

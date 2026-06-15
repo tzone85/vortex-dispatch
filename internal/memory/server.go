@@ -128,7 +128,17 @@ func defaultMemoryTokenPath() string {
 }
 
 // handleWebSocket handles WebSocket connections for the memory dashboard.
+// Same defence-in-depth as internal/web — Origin host must match the
+// dashboard's own listener (r.Host) so a malicious page running on a
+// different localhost port cannot piggy-back on the shared dashboard
+// cookie to issue mutating commands. See internal/web/ws.go for the
+// full threat-model write-up.
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	if err := web.StrictSameOriginWS(r); err != nil {
+		log.Printf("[memory/ws] reject upgrade: %v", err)
+		http.Error(w, "forbidden: cross-origin WebSocket not permitted", http.StatusForbidden)
+		return
+	}
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		OriginPatterns: []string{"localhost:*", "127.0.0.1:*"},
 	})

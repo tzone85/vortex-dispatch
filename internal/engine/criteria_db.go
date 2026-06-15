@@ -63,7 +63,32 @@ func evaluateMigrationSucceeds(c Criterion, workDir string) CriterionResult {
 // evaluateSchemaChanged dumps the current schema and compares against either
 // the baseline file path (if SchemaBaseline is set) or .vxd-db/baseline-schema.txt
 // in the worktree. Passes if the dump differs from the baseline (non-empty diff).
+//
+// Resolution order is important: the operator-supplied SchemaBaseline
+// is validated BEFORE the DSN check / pgx connect / schema dump. A
+// malicious or misconfigured `vxd.yaml` with an absolute or traversal
+// baseline must be rejected even when no devdb is provisioned for the
+// story — otherwise the path-escape attack surface stays alive whenever
+// devdb is disabled.
 func evaluateSchemaChanged(c Criterion, workDir string) CriterionResult {
+	// SchemaBaseline is operator-supplied via vxd.yaml — the same threat
+	// model as the other path-bearing criteria. resolvePath rejects
+	// absolute paths and traversal that would escape the worktree; the
+	// baseline contents flow back through criterion Detail to the
+	// dashboard, so a `../../etc/shadow` baseline would otherwise leak
+	// host files via the diff message.
+	baselinePath := c.SchemaBaseline
+	if baselinePath == "" {
+		baselinePath = filepath.Join(workDir, ".vxd-db", "baseline-schema.txt")
+	} else {
+		resolved, perr := resolvePath(workDir, baselinePath)
+		if perr != nil {
+			return CriterionResult{Criterion: c, Passed: false,
+				Detail: fmt.Sprintf("schema_changed: %v", perr)}
+		}
+		baselinePath = resolved
+	}
+
 	dsn := readDatabaseURL(workDir)
 	if dsn == "" {
 		return CriterionResult{Criterion: c, Passed: false,
@@ -82,13 +107,6 @@ func evaluateSchemaChanged(c Criterion, workDir string) CriterionResult {
 	if err != nil {
 		return CriterionResult{Criterion: c, Passed: false,
 			Detail: fmt.Sprintf("schema_changed: dump failed: %v", err)}
-	}
-
-	baselinePath := c.SchemaBaseline
-	if baselinePath == "" {
-		baselinePath = filepath.Join(workDir, ".vxd-db", "baseline-schema.txt")
-	} else if !filepath.IsAbs(baselinePath) {
-		baselinePath = filepath.Join(workDir, baselinePath)
 	}
 	baseline, err := os.ReadFile(baselinePath)
 	if err != nil {

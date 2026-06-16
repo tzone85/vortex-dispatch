@@ -119,20 +119,59 @@ type authenticator struct {
 // Panics when opts.Token is empty AND opts.AllowUnauthenticated is false.
 // Silent fail-open is treated as misconfiguration, not a feature.
 func NewAuthMiddleware(opts AuthOptions) func(http.Handler) http.Handler {
+	mw, _ := NewAuthMiddlewareWithRotator(opts)
+	return mw
+}
+
+// NonceRotator rotates the single-use bootstrap nonce. Daemons reused across
+// many `vxd req` invocations call Rotate before printing a fresh URL so each
+// browser tab gets its own nonce, even though the underlying dashboard token
+// is shared.
+type NonceRotator interface {
+	Rotate() (string, error)
+}
+
+// NewAuthMiddlewareWithRotator is the rotator-aware constructor. It returns
+// the middleware AND a handle that can mint fresh single-use nonces. The
+// extra return value is the only way the dashboard's internal bootstrap
+// endpoint can reach the live authenticator.
+//
+// When opts.AllowUnauthenticated is true the returned rotator is a no-op
+// (Rotate returns "" with no error) — there is no auth to rotate.
+func NewAuthMiddlewareWithRotator(opts AuthOptions) (func(http.Handler) http.Handler, NonceRotator) {
 	if opts.Token == "" && !opts.AllowUnauthenticated {
 		panic("web.NewAuthMiddleware: empty Token requires explicit AllowUnauthenticated=true; refusing to start an unauthenticated dashboard")
 	}
 	if opts.AllowUnauthenticated {
-		return func(next http.Handler) http.Handler {
-			return next
-		}
+		return func(next http.Handler) http.Handler { return next }, noopRotator{}
 	}
 	a := &authenticator{
 		token:      opts.Token,
 		tokenBytes: []byte(opts.Token),
 		nonce:      opts.BootstrapNonce,
 	}
-	return a.wrap
+	return a.wrap, a
+}
+
+// noopRotator implements NonceRotator for AllowUnauthenticated deployments.
+type noopRotator struct{}
+
+func (noopRotator) Rotate() (string, error) { return "", nil }
+
+// Rotate generates a fresh bootstrap nonce, atomically replaces the stored
+// one, and clears the consumed flag. Used by the loopback-only
+// /internal/bootstrap endpoint to mint a per-tab nonce when reusing a
+// long-lived daemon.
+func (a *authenticator) Rotate() (string, error) {
+	tok, err := generateToken()
+	if err != nil {
+		return "", err
+	}
+	a.nonceMu.Lock()
+	a.nonce = tok
+	a.nonceConsumed = false
+	a.nonceMu.Unlock()
+	return tok, nil
 }
 
 // RequireToken is a thin compatibility wrapper for callers that don't

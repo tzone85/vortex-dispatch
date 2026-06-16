@@ -127,17 +127,24 @@ devdb:  # planned — design spec complete, impl in SP1–SP6 PRs
     image: postgres:16
     host_port_range: "5500-5599"
     host: "localhost"  # set to VM IP for Colima/Lima setups (e.g. "192.168.64.3")
+dashboard:
+  auto_start: true   # `vxd req` forks a detached `vxd dashboard --web` daemon (or reuses one running)
+  auto_open: true    # also try to open the user's default browser; auto-detect headless (SSH, no DISPLAY, non-TTY)
+  port: 8787         # web server port; daemon pidfile at ~/.vxd/dashboard.pid, bootstrap nonce at ~/.vxd/dashboard.bootstrap (0o600)
 ```
 
 ## CLI Commands
 | Command | Purpose |
 |---------|---------|
 | `vxd init` | Initialize workspace, create `~/.vxd/`, generate default `vxd.yaml` |
-| `vxd req "requirement"` | Submit new requirement; auto-dispatches when `review_mode=auto` (use `--no-dispatch` to stop after planning) |
+| `vxd req "requirement"` | Submit new requirement; auto-dispatches when `review_mode=auto` (use `--no-dispatch` to stop after planning). Auto-spawns the always-on dashboard daemon (`dashboard.auto_start`), prints a per-req URL, and opens the browser unless headless. Pass `--no-dashboard` to suppress for one run. |
 | `vxd resume <req-id>` | Resume paused pipeline (has lock file + crash recovery) |
-| `vxd status` | Show requirement and story status |
+| `vxd status` | Show requirement and story status (manual; the dashboard + `vxd watch` give the same information continuously) |
+| `vxd watch [req-id]` | Tail live events for one requirement; defaults to the newest req in this repo. Terminal-friendly always-on status (alternative to typing `vxd status <id>`). |
 | `vxd pause <req-id>` | Pause a running requirement |
-| `vxd dashboard` | TUI dashboard (`--web` for browser version) |
+| `vxd dashboard` | TUI dashboard (`--web` for browser version). Web mode supports `--pidfile` and `--bootstrap-file` for the daemon path. |
+| `vxd dashboard status` | Show whether the always-on dashboard daemon is running (PID, port, URL). |
+| `vxd dashboard stop` | Stop the always-on dashboard daemon (SIGTERM, removes pidfile, idempotent). |
 | `vxd metrics` | Success rates, timing, escalations, SLA breaches per requirement |
 | `vxd estimate "req"` | Cost estimation with `--quick`, `--json`, `--rate` |
 | `vxd report <req-id>` | Client delivery report (`--html`, `--internal`) |
@@ -256,6 +263,7 @@ Every failure is a chance to make the system stronger:
 7. **Adapter/Runner separation** — `Adapter.Prepare()` is a pure function (testable), `Runner.Run()` handles execution (swappable: tmux, Docker, SSH)
 8. **Declarative success criteria** — configurable QA checks in YAML, evaluated as pure functions
 9. **Attempt tracking** — reconstruct per-attempt history from event log for post-mortem and retry context injection
+10. **Always-on status surface** — `vxd req` forks (or reuses) a detached `vxd dashboard --web` daemon and opens the browser by default. Terminal users can also run `vxd watch` to tail the newest requirement without typing an ID. The daemon's pidfile (`~/.vxd/dashboard.pid`, 0o600) lets later `vxd req` invocations probe `/health` and reuse the running process; a fresh single-use bootstrap nonce is minted via the loopback-only `POST /internal/bootstrap` endpoint so each browser tab gets its own one-shot URL. Auto-spawn never blocks dispatch — any spawn / health-check failure logs and steps aside.
 
 ## VXD vs NXD
 | Aspect | VXD | NXD |

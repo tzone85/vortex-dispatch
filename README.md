@@ -28,10 +28,16 @@ vxd init
 vxd preflight                     # Validate environment
 vxd estimate "Build a REST API"   # Estimate cost before committing
 vxd req "Build a REST API for user management with CRUD endpoints"
-vxd resume <req-id>               # Dispatch agents
-vxd status
-vxd dashboard
+# `vxd req` auto-spawns the web dashboard, opens your browser, and prints a
+# direct URL for this requirement. There is no need to type `vxd status` —
+# the browser shows live progress, and `vxd watch` does the same in a
+# terminal if you prefer text. Pass `--no-dashboard` to disable for one run.
 ```
+
+Terminal users can run `vxd watch` (no arguments) to tail the newest
+requirement in this repo. Headless environments (SSH sessions, no DISPLAY,
+non-TTY stdout) automatically skip the browser-open step; the dashboard URL
+is still printed so you can port-forward and open it elsewhere.
 
 ### Platform Support
 
@@ -154,7 +160,10 @@ vhs docs/demo.tape
 | `vxd config validate` | Load and validate the configuration file |
 | `vxd events [--type T] [--story S] [--limit N]` | List events from the event store, newest first |
 | `vxd dashboard` | Launch the live TUI dashboard |
-| `vxd dashboard --web [--port 8787]` | Launch the web dashboard (browser-based, default port 8787) |
+| `vxd dashboard --web [--port 8787]` | Launch the web dashboard (browser-based, default port 8787). Supports `--pidfile` and `--bootstrap-file` for the always-on daemon path. |
+| `vxd dashboard status` | Show whether the always-on dashboard daemon is running (PID, port, URL). |
+| `vxd dashboard stop` | SIGTERM the always-on dashboard daemon and remove its pidfile (idempotent). |
+| `vxd watch [req-id]` | Terminal-friendly always-on status: tails events for one requirement (defaults to the newest in the current repo) until terminal status or Ctrl+C. |
 | `vxd preflight` | Run pre-flight environment checks (15 checks, 3 severity tiers) |
 | `vxd estimate <requirement>` | Estimate cost (`--quick`, `--json`, `--rate`, `--save`) |
 | `vxd report <req-id>` | Generate client delivery report (`--html`, `--internal`, `--output`) |
@@ -319,6 +328,7 @@ Run `vxd init` to generate `vxd.yaml` with sensible defaults, then customize:
 | `notify` | Outbound Slack webhook URL and per-event triggers (`notify_on_sla`, `notify_on_complete`) | Disabled by default (empty `slack_webhook_url`) |
 | `autoresearch` | Per-repo Karpathy-style experiment loop: metric command, editable_paths allowlist, gate (`auto`/`winning`/`pr`), experiment budget, and Bayesian sampler | Disabled by default (`enabled: false`); requires `metric.command` and `editable_paths` when enabled |
 | `devdb` | Per-story ephemeral Postgres: backend (`ghost`/`docker`/`null`), template DB to fork from, on-failure retention policy, and provider-specific settings | Disabled by default (`provider: null`); requires `template` when enabled. See "Ephemeral Databases" section below. |
+| `dashboard` | Always-on status surface: `auto_start` (fork the web dashboard daemon on `vxd req`), `auto_open` (try to open a browser), and `port` (web server port). Auto-open is suppressed automatically on SSH sessions, headless Linux hosts, or when stdout is not a TTY. | `auto_start: true`, `auto_open: true`, `port: 8787`. Override per run with `--no-dashboard`. |
 
 ## Ephemeral Databases
 

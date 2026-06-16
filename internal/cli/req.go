@@ -42,6 +42,7 @@ The requirement text can be provided as:
 	cmd.Flags().Bool("dry-run", false, "Simulate LLM responses for pipeline testing (no API calls)")
 	cmd.Flags().Bool("no-dispatch", false, "stop after planning; do not auto-dispatch agents (plan-only mode)")
 	cmd.Flags().Bool("background", false, "self-daemonize after planning: fork a detached child process and exit; tail logs with 'vxd logs <req-id>'")
+	cmd.Flags().Bool("no-dashboard", false, "skip the always-on dashboard auto-spawn for this run (overrides dashboard.auto_start config)")
 	cmd.SilenceUsage = true
 	return cmd
 }
@@ -182,6 +183,16 @@ func runReq(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Fprintf(out, "\nTotal complexity: %d story points\n", totalComplexity)
+
+	// Auto-spawn the always-on dashboard so the user can watch this
+	// requirement land in a browser without typing `vxd status <id>`.
+	// Failures here are logged and swallowed — they MUST NOT block dispatch.
+	// The seam (ensureDashboardForReq) is package-level for the wiring test
+	// to substitute a stub instead of forking the real binary.
+	noDashboard, _ := cmd.Flags().GetBool("no-dashboard")
+	if !dryRun && !noDashboard && s.Config.Dashboard.AutoStart {
+		printDashboardBanner(cmd, s, reqID)
+	}
 
 	// Auto-dispatch: when review_mode is "auto" (the default), chain directly
 	// into the dispatch loop so `vxd req` is truly one-command autonomous.

@@ -27,6 +27,18 @@ type Config struct {
 	Notify       NotifyConfig             `yaml:"notify,omitempty"`
 	Autoresearch AutoresearchConfig       `yaml:"autoresearch,omitempty"`
 	DevDB        DevDBConfig              `yaml:"devdb,omitempty"`
+	Dashboard    DashboardConfig          `yaml:"dashboard,omitempty"`
+}
+
+// DashboardConfig controls the always-on status surface. When AutoStart is
+// true, `vxd req` forks a detached `vxd dashboard --web` daemon (or reuses an
+// existing one) so submitted requirements are visible in a browser without
+// any extra command. AutoOpen toggles whether `vxd req` also tries to open
+// the user's default browser at the dashboard URL.
+type DashboardConfig struct {
+	AutoStart bool `yaml:"auto_start"` // default true
+	AutoOpen  bool `yaml:"auto_open"`  // default true
+	Port      int  `yaml:"port"`       // default 8787
 }
 
 // SecretsConfig configures the secrets provider.

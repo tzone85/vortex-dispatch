@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/tzone85/vortex-dispatch/internal/graph"
@@ -38,6 +39,19 @@ type Server struct {
 	startTime  time.Time
 	NoOpen     bool   // skip opening browser on start
 	TokenPath  string // path to dashboard auth token (defaults to ~/.vxd/dashboard.token); empty disables auth (NOT recommended outside tests)
+	// Pidfile, when non-empty, makes the server write its PID atomically on
+	// listen and best-effort remove the file on shutdown. Set by the long-
+	// lived daemon path (`vxd dashboard --web --pidfile=...`) so later
+	// `vxd req` invocations can find and reuse the running daemon.
+	Pidfile string
+	// BootstrapFile, when non-empty, makes the server write its initial
+	// single-use bootstrap nonce there with mode 0o600 so other CLI
+	// processes can build a one-shot dashboard URL without scraping logs.
+	BootstrapFile string
+
+	// rotator is captured during Start so the loopback /internal/bootstrap
+	// endpoint can mint fresh per-tab nonces against the live auth state.
+	rotator NonceRotator
 }
 
 func NewServer(es state.EventStore, ps *state.SQLiteStore, port int, filter state.ReqFilter) *Server {
@@ -73,6 +87,13 @@ func (s *Server) Start(ctx context.Context) error {
 	// Health check endpoint (for systemd/Docker/K8s probes)
 	mux.HandleFunc("/health", s.healthHandler)
 
+	// Loopback-only internal endpoint: lets another local `vxd` process
+	// (typically `vxd req`) mint a fresh single-use bootstrap nonce for a
+	// new browser tab against the long-lived daemon. The handler itself
+	// re-checks RemoteAddr against loopback so even if a future refactor
+	// removes the auth bypass entry, off-host calls still get 403.
+	mux.HandleFunc("/internal/bootstrap", s.internalBootstrapHandler)
+
 	// REST API endpoints (Phase 2/3 — read-only programmatic access)
 	s.registerAPIRoutes(mux)
 
@@ -99,12 +120,26 @@ func (s *Server) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("dashboard bootstrap nonce: %w", err)
 	}
-	handler := NewAuthMiddleware(AuthOptions{
+	authMw, rotator := NewAuthMiddlewareWithRotator(AuthOptions{
 		Token:          token,
 		BootstrapNonce: nonce,
-	})(mux)
+	})
+	handler := authMw(mux)
+	s.rotator = rotator
 
 	s.httpServer = &http.Server{Handler: handler}
+
+	// Pidfile + bootstrap-file: written BEFORE Serve starts so any caller
+	// that probed /health and got 200 is guaranteed to find the artifacts
+	// already in place. Both files are 0o600; the directory is mkdir'd
+	// 0o700 so the bootstrap nonce isn't readable by other local users on
+	// a shared host.
+	if err := writeBootstrapFile(s.BootstrapFile, nonce); err != nil {
+		log.Printf("dashboard bootstrap file: %v", err)
+	}
+	if err := writePidfile(s.Pidfile, os.Getpid()); err != nil {
+		log.Printf("dashboard pidfile: %v", err)
+	}
 
 	url := fmt.Sprintf("http://%s", addr)
 	browserURL := fmt.Sprintf("%s/?%s=%s", url, NonceQueryParam, nonce)
@@ -127,9 +162,114 @@ func (s *Server) Start(ctx context.Context) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		s.httpServer.Shutdown(shutdownCtx) //nolint:errcheck
+		removePidfileIfMine(s.Pidfile, os.Getpid())
 	}()
 
 	return s.httpServer.Serve(listener)
+}
+
+// internalBootstrapHandler serves POST /internal/bootstrap. It is exposed on
+// the same mux as the dashboard but performs its own loopback gate so even
+// if the auth bypass list is changed in a future refactor, off-host calls
+// still get 403.
+//
+// Response body is a JSON object: {"bootstrap": "<32-byte hex nonce>"}.
+// The nonce is single-use and tied to the live authenticator's state — once
+// returned, /?bootstrap=<nonce> sets the cookie exactly once.
+func (s *Server) internalBootstrapHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !isLoopback(r.RemoteAddr) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if s.rotator == nil {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	nonce, err := s.rotator.Rotate()
+	if err != nil {
+		http.Error(w, "rotate failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"bootstrap": nonce})
+}
+
+// isLoopback returns true iff remoteAddr refers to 127.0.0.0/8 or ::1.
+func isLoopback(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback()
+}
+
+// writePidfile atomically writes pid to path with 0o600. Path "" is a no-op.
+// The directory is mkdir'd 0o700 so a shared-host attacker can't observe the
+// PID via dirent metadata.
+func writePidfile(path string, pid int) error {
+	if path == "" {
+		return nil
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("mkdir pidfile dir: %w", err)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(fmt.Sprintf("%d\n", pid)), 0o600); err != nil {
+		return fmt.Errorf("write pidfile tmp: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("rename pidfile: %w", err)
+	}
+	return nil
+}
+
+// writeBootstrapFile atomically writes nonce to path with 0o600. Path "" is
+// a no-op. The bootstrap nonce gives anyone with read access to this file
+// one shot at the dashboard, so the file must not be group/world-readable.
+func writeBootstrapFile(path, nonce string) error {
+	if path == "" {
+		return nil
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("mkdir bootstrap dir: %w", err)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(nonce+"\n"), 0o600); err != nil {
+		return fmt.Errorf("write bootstrap tmp: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("rename bootstrap: %w", err)
+	}
+	return nil
+}
+
+// removePidfileIfMine deletes path iff it currently records pid. Guards
+// against racing two daemons: if another daemon overwrote the pidfile we
+// don't want shutdown of the OLD process to clobber the new one's record.
+func removePidfileIfMine(path string, pid int) {
+	if path == "" {
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	got := strings.TrimSpace(string(data))
+	if got == fmt.Sprintf("%d", pid) {
+		_ = os.Remove(path)
+	}
 }
 
 // healthHandler returns a minimal JSON status response for liveness

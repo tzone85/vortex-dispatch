@@ -120,6 +120,11 @@ func DefaultConfig() Config {
 				13: 1920, // 32hr
 			},
 		},
+		Dashboard: DashboardConfig{
+			AutoStart: true,
+			AutoOpen:  true,
+			Port:      8787,
+		},
 	}
 }
 

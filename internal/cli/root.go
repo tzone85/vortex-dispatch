@@ -48,6 +48,7 @@ func init() {
 	rootCmd.AddCommand(newImproveCmd())
 	rootCmd.AddCommand(newAutoresearchCmd())
 	rootCmd.AddCommand(newLogsCmd())
+	rootCmd.AddCommand(newWatchCmd())
 }
 
 func Execute() error {

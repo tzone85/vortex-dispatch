@@ -29,7 +29,7 @@ Passing branch="" → `git branch -D ""` → error. For evolver workspace cleanu
 
 ### Two-dot vs three-dot diff range matters on master vs main repos
 Diff(worktree, baseRef) tries three-dot range first, falls back to two-dot on error.
-Repos using master (e.g. sample-api) had previously fallen back to root commit and
+Repos using master (e.g. an older client-facing API) had previously fallen back to root commit and
 produced massive diffs that obscured real changes. CLAUDE.md flags this; the
 LiveAgentDriver inherits the two-dot fallback from monitor.gitDiff.
 

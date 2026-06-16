@@ -61,8 +61,14 @@ cli.test
 # CLAUDE.md — see stripVXDArtifactsFromBranch for the worktree-strip
 # mechanism that keeps the canonical version safe across agent merges.)
 
-# Self-improvement daily run artifacts (runtime output, not source)
-docs/self-improvement/runs/
+# Self-improvement runtime output (operator data, not source)
+docs/self-improvement/
+
+# Sales-pipeline + proposal drafts (private business state)
+docs/opportunities/
+
+# Audit notes (operator paths, launchd plists — local-only)
+docs/audits/
 
 # VXD agent artifacts (auto-added)
 CLAUDE.md

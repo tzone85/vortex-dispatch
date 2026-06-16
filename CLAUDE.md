@@ -321,7 +321,7 @@ Every failure is a chance to make the system stronger:
 
 ### gitDiff Branch Support
 - `gitDiff()` in `monitor.go` tries merge-base candidates: `origin/main`, `origin/master`, `main`, `master`
-- Repos using `master` (e.g., sample-api) previously fell back to root commit, producing massive diffs that obscured real changes
+- Repos using `master` (e.g., a legacy API repo) previously fell back to root commit, producing massive diffs that obscured real changes
 - **If review keeps rejecting valid work**: check which branch the target repo uses and verify merge-base resolution
 
 ### SLA Timer on Resume
@@ -331,7 +331,7 @@ Every failure is a chance to make the system stronger:
 
 ### Multi-Project State Directories
 - Default state: `~/.vxd/projects/<name>/`
-- Projects can override via `vxd.yaml` `workspace.state_dir` (e.g., `~/.vxd-sample-api/`)
+- Projects can override via `vxd.yaml` `workspace.state_dir` (e.g., `~/.vxd-clientproject/`)
 - To find which state dir a running dashboard uses: `lsof -p <PID> | grep events.jsonl`
 - The `vxd projects` command shows what VXD knows, but custom state dirs may not appear there
 
@@ -378,7 +378,7 @@ Known operational gates still required on first run:
 ## Pending Work (as of 2026-06-02)
 1. ~~Port Docker/SSH runners to NXD~~ — DONE
 2. Fix GitHub Actions billing — account payment issue, CI slimmed to ubuntu-only — OPEN
-3. ~~Client-api / Client-site / SampleApp pipelines~~ — DONE
+3. ~~Multi-repo client pipelines~~ — DONE
 4. ~~Artifact protection~~ — DONE (stripVXDArtifactsFromBranch + pullMainAfterMerge + 16 tests)
 5. ~~Codex review fixes~~ — DONE
 6. ~~Codebase audit + diagrams~~ — DONE (PR #39, 39 findings closed)

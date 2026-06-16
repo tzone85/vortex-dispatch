@@ -6,6 +6,24 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![CI](https://github.com/tzone85/vortex-dispatch/actions/workflows/ci.yml/badge.svg)](https://github.com/tzone85/vortex-dispatch/actions/workflows/ci.yml)
 
+<!--
+HERO DEMO GOES HERE.
+Record a 60-90s screen capture: `vxd req "<real task>"` → browser opens → agents work → PR merged.
+Export as GIF (≤8 MB) or upload MP4 to YouTube and embed thumbnail.
+GitHub markdown:  ![VXD demo](docs/demo.gif)
+Without this, the repo's invisible to scrollers. With it, every share converts.
+-->
+
+## What makes VXD different
+
+Most agent frameworks crash, lose state, or quietly give up. VXD doesn't:
+
+- **5-tier escalation chain** — same-role retry → senior model → manager diagnosis → tech-lead re-plan → human pause. Failure has a graceful path.
+- **Event-sourced + replayable** — every decision lands in an append-only log with SQLite projections. Crash, resume, replay, audit.
+- **Real tmux + git worktrees** — agents survive monitor crashes, run in parallel without colliding, and you can attach to inspect any one live.
+- **Always-on status** — `vxd req` auto-opens a browser dashboard scoped to the run. No polling, no `vxd status <id>`.
+- **Ephemeral Postgres per story** — destructive SQL has a blast radius of exactly one story.
+
 ## Overview
 
 VXD is a Go CLI that drives the AI coding tools you already use — Claude Code, Codex, Gemini CLI, or any CLI describable in YAML — through the full lifecycle of a software change. You submit a requirement in natural language; an LLM tech-lead breaks it into a dependency DAG of stories; the dispatcher assigns each story to an agent in its own git worktree; the pipeline runs LLM code review and declarative QA against the agent's output; passing stories get a squash-merge. Stories that touch a database can be given their own ephemeral Postgres — local Docker by default, ghost.build cloud as an option — so destructive SQL has a blast radius of exactly one story. When things go wrong, a five-tier escalation chain takes over before giving up: same-role retry with categorized error analysis, then a senior agent, then a manager diagnosing the failure pattern, then a tech-lead re-planning the story, finally a hard pause that asks for human intervention. State is event-sourced into an append-only log with SQLite projections, so the pipeline can crash, resume, replay, and emit a client delivery report from the same event history.

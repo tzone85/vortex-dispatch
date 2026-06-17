@@ -81,14 +81,31 @@ func runReviewStory(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func openURL(rawURL string) {
-	// Validate before launch. On Windows the URL is handed to `cmd /c start`,
-	// where `&`, `^`, `%` are active metacharacters — a malformed/tampered PR
-	// URL from the event store (e.g. "http://x&calc.exe") would run a second
-	// command. Accept only well-formed http(s) URLs on every platform.
+// cmdMetacharacters are active in cmd.exe's argument parser. A valid https URL
+// can still contain them in its query/fragment (e.g.
+// "https://github.com/x?a=1&calc.exe" parses cleanly yet `&` chains a second
+// command under `cmd /c start`). url.Parse alone does NOT neutralize them.
+const cmdMetacharacters = "&^|<>%\"`\n\r\t"
+
+// safeBrowserURL validates rawURL for browser launch. A scheme/host check is
+// not enough — a valid https URL can still carry cmd.exe metacharacters (see
+// cmdMetacharacters). It returns the RE-SERIALIZED url.URL (never the raw
+// input) and false if the URL is malformed or carries shell-active characters.
+func safeBrowserURL(rawURL string) (string, bool) {
 	u, err := url.Parse(rawURL)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		fmt.Printf("refusing to open malformed URL: %q\n", rawURL)
+		return "", false
+	}
+	if strings.ContainsAny(rawURL, cmdMetacharacters) {
+		return "", false
+	}
+	return u.String(), true
+}
+
+func openURL(rawURL string) {
+	safeURL, ok := safeBrowserURL(rawURL)
+	if !ok {
+		fmt.Printf("refusing to open unsafe or malformed URL: %q\n", rawURL)
 		return
 	}
 	// All branches: best-effort browser launch; if the helper isn't
@@ -96,10 +113,12 @@ func openURL(rawURL string) {
 	// continue, the URL is already printed for the user to copy.
 	switch runtime.GOOS {
 	case "darwin":
-		_ = exec.Command("open", rawURL).Start()
+		_ = exec.Command("open", safeURL).Start()
 	case "linux":
-		_ = exec.Command("xdg-open", rawURL).Start()
+		_ = exec.Command("xdg-open", safeURL).Start()
 	case "windows":
-		_ = exec.Command("cmd", "/c", "start", rawURL).Start()
+		// rundll32 FileProtocolHandler opens the URL in the default browser
+		// WITHOUT invoking cmd.exe's metacharacter parser, unlike `cmd /c start`.
+		_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", safeURL).Start()
 	}
 }

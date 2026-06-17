@@ -37,13 +37,22 @@ func NewDockerRunner(cfg DockerConfig) *DockerRunner {
 
 // Run starts a Docker container with the prepared execution.
 func (r *DockerRunner) Run(pe PreparedExecution) error {
-	// Write setup files to the work directory before mounting.
+	// Validate the session name before it reaches `docker run --name`. Every
+	// other runner (SSH, tmux, web kill-session) validates it; Docker was the
+	// only omission in that defence-in-depth layer.
+	if err := ValidateSessionName(pe.SessionName); err != nil {
+		return fmt.Errorf("docker runner: invalid session name: %w", err)
+	}
+
+	// Write setup files to the work directory before mounting. Prompt and
+	// directive files can carry DSNs / acceptance criteria, so write them
+	// owner-only (0o600), matching registry.go and tmux_runner.go.
 	for path, content := range pe.SetupFiles {
 		dir := filepath.Dir(path)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("create dir for setup file %s: %w", path, err)
 		}
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 			return fmt.Errorf("write setup file %s: %w", path, err)
 		}
 	}

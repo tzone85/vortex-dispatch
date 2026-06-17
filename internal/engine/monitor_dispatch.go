@@ -174,7 +174,7 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 			log.Printf("[STALL] run 'vxd status --req %s' to inspect, then 'vxd resume %s --godmode' to retry", rc.ReqID, rc.ReqID)
 
 			// Emit a stall event so external monitors (Hermes cron) can detect it
-			stallEvt := state.NewEvent("PIPELINE_STALLED", "monitor", "", map[string]any{
+			stallEvt := state.NewEvent(state.EventPipelineStalled, "monitor", "", map[string]any{
 				"req_id":        rc.ReqID,
 				"pending_count": pendingCount,
 				"total_stories": len(stories),
@@ -191,7 +191,7 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 						Title:     fmt.Sprintf("VXD STALLED: %s", rc.ReqID),
 						Body:      fmt.Sprintf("%d stories stuck, all escalation tiers exhausted.\nRun: vxd resume %s --godmode", pendingCount, rc.ReqID),
 						Severity:  "error",
-						EventType: "PIPELINE_STALLED",
+						EventType: string(state.EventPipelineStalled),
 					}); err != nil {
 						log.Printf("[monitor] PIPELINE_STALLED notify failed: %v", err)
 					}

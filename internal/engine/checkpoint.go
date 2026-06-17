@@ -48,7 +48,9 @@ func WriteCheckpoint(path string, cp Checkpoint) error {
 
 	tmpPath := path + ".tmp"
 
-	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+	// 0o600: checkpoint JSON holds req/story IDs, worktree paths, and the
+	// tmux session name — not world-readable on a shared dispatch host.
+	if err := os.WriteFile(tmpPath, data, 0o600); err != nil {
 		return fmt.Errorf("write checkpoint tmp: %w", err)
 	}
 

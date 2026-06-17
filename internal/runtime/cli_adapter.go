@@ -72,15 +72,20 @@ func (a *CLIAdapter) Prepare(cfg SessionConfig) (PreparedExecution, error) {
 		setupFiles[promptFile] = prompt
 		// Use -p with stdin pipe for agentic mode.
 		// Log output to file via shell redirection (not tee, which breaks stdin).
+		// Use QuoteShellArg (POSIX single-quote) for the paths, matching every
+		// other arg site here and in registry.go. %q produces double-quotes,
+		// which still allow $(...), backticks, and $VAR expansion under sh -c —
+		// a latent injection if a path source (WorkDir/LogFile) ever carries
+		// shell metacharacters.
 		if cfg.LogFile != "" {
-			cmdStr = fmt.Sprintf("cat %q | %s -p --output-format json > %q 2>&1", promptFile, cmdStr, cfg.LogFile)
+			cmdStr = fmt.Sprintf("cat %s | %s -p --output-format json > %s 2>&1", QuoteShellArg(promptFile), cmdStr, QuoteShellArg(cfg.LogFile))
 		} else {
-			cmdStr = fmt.Sprintf("cat %q | %s -p --output-format json", promptFile, cmdStr)
+			cmdStr = fmt.Sprintf("cat %s | %s -p --output-format json", QuoteShellArg(promptFile), cmdStr)
 		}
 	} else {
 		// No prompt — just log output if requested.
 		if cfg.LogFile != "" {
-			cmdStr += fmt.Sprintf(" > %q 2>&1", cfg.LogFile)
+			cmdStr += fmt.Sprintf(" > %s 2>&1", QuoteShellArg(cfg.LogFile))
 		}
 	}
 

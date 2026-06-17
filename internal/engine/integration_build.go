@@ -75,7 +75,7 @@ func runIntegrationBuild(repoDir string) error {
 	if err != nil {
 		output := bytes.TrimSpace(out)
 		if len(output) == 0 {
-			return fmt.Errorf("build command exited with %v (no output)", err)
+			return fmt.Errorf("build command exited with no output: %w", err)
 		}
 		return fmt.Errorf("%s", output)
 	}

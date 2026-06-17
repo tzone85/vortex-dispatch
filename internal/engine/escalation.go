@@ -180,6 +180,16 @@ func (e *EscalationMachine) ValidateSplitWithEdges(parentSplitDepth int, childre
 	// and edge validation.
 	suffixSet := make(map[string]bool, len(children))
 	for _, child := range children {
+		// The suffix is LLM-generated (Manager/Tech-Lead split output) and is
+		// concatenated into the child story ID, which later flows into
+		// filepath.Join(stateDir, "worktrees", storyID). A suffix containing
+		// "/", "..", spaces, or shell metacharacters would escape the worktree
+		// root. DispatchWave validates story IDs, but the child story is created
+		// in the event store BEFORE dispatch — so split creation is the correct
+		// defence-in-depth boundary.
+		if !safeStoryIDPattern.MatchString(child.Suffix) {
+			return fmt.Errorf("child suffix %q contains unsafe characters (allowed: alphanumeric . _ -)", child.Suffix)
+		}
 		if suffixSet[child.Suffix] {
 			return fmt.Errorf("duplicate child suffix: %q", child.Suffix)
 		}

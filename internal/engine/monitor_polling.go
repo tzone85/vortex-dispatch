@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -116,10 +117,19 @@ func (m *Monitor) pollOnce(ctx context.Context, wg *sync.WaitGroup, active map[s
 			log.Printf("[monitor] failed to project completed event for %s: %v", ag.Assignment.StoryID, err)
 		}
 
-		// Drive post-execution pipeline
+		// Drive post-execution pipeline. Recover from panics so one bad story
+		// (nil-map write, index-out-of-range in diff parsing, etc.) can't take
+		// down the entire monitor daemon and abandon every other in-flight
+		// agent. On panic, reset the story to draft so it can be re-dispatched.
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[monitor] PANIC in post-execution pipeline for %s: %v — resetting to draft", ag.Assignment.StoryID, r)
+					m.resetStoryToDraft(ag.Assignment.StoryID, "monitor", fmt.Sprintf("post-execution pipeline panicked: %v", r))
+				}
+			}()
 			m.postExecutionPipeline(ctx, ag, repoDir)
 		}()
 

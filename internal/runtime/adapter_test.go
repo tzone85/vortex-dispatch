@@ -5,6 +5,37 @@ import (
 	"testing"
 )
 
+// TestCLIAdapter_Prepare_NeutralizesMetacharsInPaths pins the fix for the %q
+// shell-expansion regression. %q produces POSIX double-quotes, under which
+// $(...), backticks, and $VAR stay active in `sh -c`. QuoteShellArg uses single
+// quotes, which neutralize them. A LogFile carrying a command-substitution
+// payload must NOT appear unquoted (where the shell would execute it).
+func TestCLIAdapter_Prepare_NeutralizesMetacharsInPaths(t *testing.T) {
+	adapter := NewCLIAdapter("claude-code", "claude", nil, []string{"opus-4"})
+	dir := t.TempDir()
+
+	// Prepare does no I/O, so LogFile need not be a real path — inject a payload.
+	payload := "/tmp/out$(touch /tmp/pwned).log"
+	exec, err := adapter.Prepare(SessionConfig{
+		SessionName: "s",
+		WorkDir:     dir,
+		Goal:        "do work",
+		LogFile:     payload,
+	})
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	// The dangerous payload must be wrapped in single quotes (which the shell
+	// treats literally), never left bare.
+	if !strings.Contains(exec.Command, "'"+payload+"'") {
+		t.Errorf("log-file payload not single-quoted (command-substitution risk):\n%s", exec.Command)
+	}
+	// Regression guard: %q would have emitted the payload inside double quotes.
+	if strings.Contains(exec.Command, "\""+payload+"\"") {
+		t.Errorf("command uses double-quotes (%%q) for log path — $(...) stays active under sh -c:\n%s", exec.Command)
+	}
+}
+
 func TestCLIAdapter_Prepare_BasicCommand(t *testing.T) {
 	adapter := NewCLIAdapter("claude-code", "claude", []string{"--dangerously-skip-permissions"}, []string{"opus-4"})
 	dir := t.TempDir()

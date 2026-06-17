@@ -28,19 +28,22 @@ func (m *Monitor) clearSLATracking(storyID string) {
 func (m *Monitor) checkSLA(ag ActiveAgent) {
 	storyID := ag.Assignment.StoryID
 
+	// Fast path: skip if this story's breach was already handled. The lock
+	// guards ONLY the in-memory slaStartTimes/slaBreachedSet maps — never
+	// store reads or network calls, which used to be held under it and could
+	// stall the entire polling loop behind a slow event-store or devdb call.
 	m.slaMu.Lock()
-	defer m.slaMu.Unlock()
-
-	// Already breached and emitted — skip
-	if m.slaBreachedSet[storyID] {
+	alreadyBreached := m.slaBreachedSet[storyID]
+	startTime, cached := m.slaStartTimes[storyID]
+	m.slaMu.Unlock()
+	if alreadyBreached {
 		return
 	}
 
-	// Resolve start time (cache on first lookup).
+	// Resolve start time (cache on first lookup) WITHOUT holding the lock.
 	// Use the LATEST STORY_STARTED event so that resumed stories
 	// measure SLA from the most recent attempt, not the original dispatch.
-	startTime, ok := m.slaStartTimes[storyID]
-	if !ok {
+	if !cached {
 		events, err := m.eventStore.List(state.EventFilter{
 			Type:    state.EventStoryStarted,
 			StoryID: storyID,
@@ -49,10 +52,12 @@ func (m *Monitor) checkSLA(ag ActiveAgent) {
 			return // can't check without start time
 		}
 		startTime = events[len(events)-1].Timestamp
+		m.slaMu.Lock()
 		m.slaStartTimes[storyID] = startTime
+		m.slaMu.Unlock()
 	}
 
-	// Look up complexity from projection
+	// Look up complexity from projection (no lock held).
 	story, err := m.projStore.GetStory(storyID)
 	if err != nil {
 		return
@@ -62,7 +67,17 @@ func (m *Monitor) checkSLA(ag ActiveAgent) {
 		return
 	}
 
-	// Breached — emit event once
+	// Claim the breach exactly once. A second poll (or a concurrent caller)
+	// that loses the race sees the flag already set and bails.
+	m.slaMu.Lock()
+	if m.slaBreachedSet[storyID] {
+		m.slaMu.Unlock()
+		return
+	}
+	m.slaBreachedSet[storyID] = true
+	m.slaMu.Unlock()
+
+	// All I/O below runs WITHOUT the lock held.
 	maxDur := MaxDurationFor(m.config.SLA, story.Complexity)
 	elapsed := time.Since(startTime)
 	log.Printf("[monitor] SLA BREACH: %s elapsed=%v max=%v complexity=%d",
@@ -76,9 +91,12 @@ func (m *Monitor) checkSLA(ag ActiveAgent) {
 	})
 	if err := m.eventStore.Append(evt); err != nil {
 		log.Printf("[monitor] append SLA breach event for %s: %v", storyID, err)
+		// Release the claim so a later poll can retry the emit.
+		m.slaMu.Lock()
+		delete(m.slaBreachedSet, storyID)
+		m.slaMu.Unlock()
 		return
 	}
-	m.slaBreachedSet[storyID] = true
 
 	// Optional webhook notification — fire-and-forget, errors logged not surfaced.
 	// Bound the call with a 10s ctx so a hung webhook doesn't leak the
@@ -113,9 +131,13 @@ func (m *Monitor) checkSLA(ag ActiveAgent) {
 		// accumulate within a single requirement run.
 		if m.lifecycle != nil && ag.DB.ID != "" {
 			outcome := devdb.OutcomeFailed
-			if releaseErr := m.lifecycle.Release(context.Background(), ag.DB, outcome); releaseErr != nil {
+			// Bound the teardown so a hung devdb provider can't block the
+			// polling goroutine or survive monitor shutdown indefinitely.
+			rctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if releaseErr := m.lifecycle.Release(rctx, ag.DB, outcome); releaseErr != nil {
 				log.Printf("[monitor] SLA-breach devdb release failed for %s: %v (will GC later)", storyID, releaseErr)
 			}
+			cancel()
 		}
 		m.escalateOnSLABreach(storyID, ag.Assignment.AgentID, elapsed)
 	}

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
@@ -80,16 +81,25 @@ func runReviewStory(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func openURL(url string) {
+func openURL(rawURL string) {
+	// Validate before launch. On Windows the URL is handed to `cmd /c start`,
+	// where `&`, `^`, `%` are active metacharacters — a malformed/tampered PR
+	// URL from the event store (e.g. "http://x&calc.exe") would run a second
+	// command. Accept only well-formed http(s) URLs on every platform.
+	u, err := url.Parse(rawURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		fmt.Printf("refusing to open malformed URL: %q\n", rawURL)
+		return
+	}
 	// All branches: best-effort browser launch; if the helper isn't
 	// installed (xdg-open missing on a headless Linux box) we just
 	// continue, the URL is already printed for the user to copy.
 	switch runtime.GOOS {
 	case "darwin":
-		_ = exec.Command("open", url).Start()
+		_ = exec.Command("open", rawURL).Start()
 	case "linux":
-		_ = exec.Command("xdg-open", url).Start()
+		_ = exec.Command("xdg-open", rawURL).Start()
 	case "windows":
-		_ = exec.Command("cmd", "/c", "start", url).Start()
+		_ = exec.Command("cmd", "/c", "start", rawURL).Start()
 	}
 }

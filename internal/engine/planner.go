@@ -158,9 +158,16 @@ architecture and conventions when planning stories.`, profileContext)
 		"req_id": reqID,
 		"model":  p.config.Models.TechLead.Model,
 	})
-	// Best-effort — failure here must not abort planning.
-	_ = p.eventStore.Append(planningStarted)
-	_ = p.projStore.Project(planningStarted)
+	// Best-effort — failure here must not abort planning, but log it: an
+	// unwritable store here means the real planning Append later will fail too,
+	// so an early signal helps diagnose. Matches the post-bulletproofing
+	// convention of never dropping an Append/Project error without a log.
+	if err := p.eventStore.Append(planningStarted); err != nil {
+		log.Printf("[planner] append planning-started heartbeat for %s: %v", reqID, err)
+	}
+	if err := p.projStore.Project(planningStarted); err != nil {
+		log.Printf("[planner] project planning-started heartbeat for %s: %v", reqID, err)
+	}
 
 	// Call Tech Lead
 	resp, err := p.llmClient.Complete(ctx, llm.CompletionRequest{

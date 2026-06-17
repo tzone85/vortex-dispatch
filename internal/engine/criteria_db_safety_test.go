@@ -1,9 +1,41 @@
 package engine
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
+
+// TestSanitizedEnv_StripsCredentials verifies the QA migration subprocess does
+// not inherit the parent's API keys / tokens (which migration tools commonly
+// echo into error output that surfaces on the dashboard), while preserving
+// benign vars like PATH that migrations legitimately need.
+func TestSanitizedEnv_StripsCredentials(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-secret")
+	t.Setenv("VAULT_TOKEN", "s.vaulttoken")
+	t.Setenv("GOOGLE_AI_API_KEY", "g-secret")
+	t.Setenv("VXD_TEST_BENIGN", "keep-me")
+
+	env := sanitizedEnv()
+	joined := strings.Join(env, "\n")
+
+	for _, leaked := range []string{"sk-ant-secret", "s.vaulttoken", "g-secret"} {
+		if strings.Contains(joined, leaked) {
+			t.Errorf("sanitizedEnv leaked a credential value: %q", leaked)
+		}
+	}
+	for _, key := range []string{"ANTHROPIC_API_KEY=", "VAULT_TOKEN=", "GOOGLE_AI_API_KEY="} {
+		if strings.Contains(joined, key) {
+			t.Errorf("sanitizedEnv kept sensitive key %q", key)
+		}
+	}
+	if !strings.Contains(joined, "VXD_TEST_BENIGN=keep-me") {
+		t.Error("sanitizedEnv dropped a benign env var it should preserve")
+	}
+	if os.Getenv("PATH") != "" && !strings.Contains(joined, "PATH=") {
+		t.Error("sanitizedEnv dropped PATH, which migrations need")
+	}
+}
 
 // TestEvaluateSQLQueryReturns_RejectsMutatingSQL pins the
 // sqlsafety.ValidateSQLForReadOnly gate on the YAML criterion path.

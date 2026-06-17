@@ -43,8 +43,10 @@ func (m *Monitor) handleManagerEscalation(ctx context.Context, story PlannedStor
 	// log via the line above), but operators want to know if the file
 	// path is broken (read-only mount, no logDir, etc.).
 	logPath := filepath.Join(logDir, storyID+"-manager.log")
+	// 0o600: the diagnosis embeds the LLM's failure analysis, which can carry
+	// acceptance criteria, code snippets, and error output — owner-only.
 	if err := os.WriteFile(logPath, fmt.Appendf(nil, "Diagnosis: %s\nCategory: %s\nAction: %s\n",
-		action.Diagnosis, action.Category, action.Action), 0o644); err != nil {
+		action.Diagnosis, action.Category, action.Action), 0o600); err != nil {
 		log.Printf("[manager] persist diagnosis for %s to %s: %v", storyID, logPath, err)
 	}
 

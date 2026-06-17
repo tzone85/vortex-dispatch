@@ -204,11 +204,16 @@ func stripBinariesFromBranch(worktreePath, storyID string) {
 		}
 	}
 
-	// Append to .gitignore so they don't come back.
+	// Append to .gitignore so they don't come back. Log on failure: a silent
+	// write failure here means the subsequent `git add .gitignore` + amend
+	// reports success while the ignore entries were never written, so the
+	// stripped binaries can reappear on the next commit.
 	giPath := filepath.Join(worktreePath, ".gitignore")
 	giData, _ := os.ReadFile(giPath)
 	appendix := "\n# auto-detected binaries (stripped by vxd)\n" + strings.Join(binaries, "\n") + "\n"
-	_ = os.WriteFile(giPath, append(giData, []byte(appendix)...), 0o644)
+	if err := os.WriteFile(giPath, append(giData, []byte(appendix)...), 0o644); err != nil {
+		log.Printf("[hygiene] failed to append binary patterns to %s: %v (stripped binaries may reappear)", giPath, err)
+	}
 
 	stageCmd := exec.Command("git", "add", ".gitignore")
 	stageCmd.Dir = worktreePath

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,7 +51,11 @@ func evaluateMigrationSucceeds(c Criterion, workDir string) CriterionResult {
 	}
 	cmd := shellexec.Command(c.Command)
 	cmd.Dir = workDir
-	cmd.Env = append(os.Environ(), "DATABASE_URL="+dsn)
+	// Don't hand the agent's migration command our full environment — it holds
+	// ANTHROPIC_API_KEY, GOOGLE_AI_API_KEY, RESEND/FIRECRAWL keys, VAULT_TOKEN,
+	// etc. Migration tools commonly echo their env on error, and that output
+	// flows into CriterionResult.Detail → the dashboard. Pass a filtered env.
+	cmd.Env = append(sanitizedEnv(), "DATABASE_URL="+dsn)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return CriterionResult{Criterion: c, Passed: false,
@@ -98,8 +103,11 @@ func evaluateSchemaChanged(c Criterion, workDir string) CriterionResult {
 	defer cancel()
 	conn, err := pgx.Connect(ctx, dsn)
 	if err != nil {
+		// pgx error strings embed host/user/database from the DSN. Log the full
+		// error server-side; return a generic message to the dashboard.
+		log.Printf("[criteria] schema_changed pgx connect failed in %s: %v", workDir, err)
 		return CriterionResult{Criterion: c, Passed: false,
-			Detail: fmt.Sprintf("schema_changed: pgx connect failed: %v", err)}
+			Detail: "schema_changed: database connection failed (see server logs)"}
 	}
 	defer func() { _ = conn.Close(ctx) }() // best-effort cleanup
 
@@ -148,8 +156,10 @@ func evaluateSQLQueryReturns(c Criterion, workDir string) CriterionResult {
 	defer cancel()
 	conn, err := pgx.Connect(ctx, dsn)
 	if err != nil {
+		// See evaluateSchemaChanged — keep DSN fragments out of the dashboard.
+		log.Printf("[criteria] sql_query_returns pgx connect failed in %s: %v", workDir, err)
 		return CriterionResult{Criterion: c, Passed: false,
-			Detail: fmt.Sprintf("sql_query_returns: pgx connect failed: %v", err)}
+			Detail: "sql_query_returns: database connection failed (see server logs)"}
 	}
 	defer func() { _ = conn.Close(ctx) }() // best-effort cleanup
 	tx, err := conn.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
@@ -186,6 +196,40 @@ func evaluateSQLQueryReturns(c Criterion, workDir string) CriterionResult {
 	}
 	return CriterionResult{Criterion: c, Passed: true,
 		Detail: fmt.Sprintf("sql_query_returns: returned %d rows", count)}
+}
+
+// sensitiveEnvKeys are stripped before a QA migration subprocess inherits the
+// VXD process environment. These hold credentials that must never reach an
+// agent-supplied command (nor its error output, which surfaces on the dashboard).
+var sensitiveEnvKeys = map[string]bool{
+	"ANTHROPIC_API_KEY": true,
+	"GOOGLE_AI_API_KEY": true,
+	"GOOGLE_API_KEY":    true,
+	"GEMINI_API_KEY":    true,
+	"OPENAI_API_KEY":    true,
+	"RESEND_API_KEY":    true,
+	"FIRECRAWL_API_KEY": true,
+	"VAULT_TOKEN":       true,
+	"GHOST_API_KEY":     true,
+}
+
+// sanitizedEnv returns os.Environ() with known-sensitive credential variables
+// removed. Filtering (rather than whitelisting) preserves PATH/HOME/LANG/PG*
+// and any operator-set vars a migration tool legitimately needs.
+func sanitizedEnv() []string {
+	src := os.Environ()
+	out := make([]string, 0, len(src))
+	for _, kv := range src {
+		key := kv
+		if i := strings.IndexByte(kv, '='); i >= 0 {
+			key = kv[:i]
+		}
+		if sensitiveEnvKeys[key] {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
 }
 
 // dumpSchemaText returns a deterministic text representation of the connected

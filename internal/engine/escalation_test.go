@@ -259,6 +259,36 @@ func TestValidateSplit_OverlappingFiles(t *testing.T) {
 	}
 }
 
+func TestValidateSplit_UnsafeSuffix(t *testing.T) {
+	fs := testEscalationStore(t)
+	esc := NewEscalationMachine(fs, defaultRoutingConfig())
+
+	// LLM-generated suffixes are concatenated into the child story ID, which
+	// flows into filepath.Join(stateDir, "worktrees", storyID). Path-traversal
+	// and shell metacharacters must be rejected at split-validation time.
+	cases := []string{
+		"../escape",
+		"a/b",
+		"has space",
+		"semi;colon",
+		"$(whoami)",
+	}
+	for _, suffix := range cases {
+		children := []SplitChild{
+			{Suffix: suffix, OwnedFiles: []string{"src/a.go"}, Complexity: 2},
+		}
+		if err := esc.ValidateSplit(0, children, 5); err == nil {
+			t.Errorf("expected error for unsafe suffix %q, got nil", suffix)
+		}
+	}
+
+	// A clean suffix passes the safety check.
+	ok := []SplitChild{{Suffix: "part-1.a_b", OwnedFiles: []string{"src/a.go"}, Complexity: 2}}
+	if err := esc.ValidateSplit(0, ok, 5); err != nil {
+		t.Errorf("expected safe suffix to pass, got: %v", err)
+	}
+}
+
 func TestValidateSplit_MaxDepth(t *testing.T) {
 	fs := testEscalationStore(t)
 	esc := NewEscalationMachine(fs, defaultRoutingConfig())

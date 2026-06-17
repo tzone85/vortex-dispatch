@@ -301,6 +301,12 @@ func (s *SQLiteStore) Project(evt Event) error {
 		// Planning heartbeat — informational only, no projection change.
 		return nil
 
+	case EventPipelineStalled:
+		// Pipeline-stall signal — read from the event log by external monitors
+		// (e.g. Hermes cron). Observational only, no projection change. Explicit
+		// case keeps it off the default-WARNING branch.
+		return nil
+
 	case EventBaselineMeasured,
 		EventExperimentProposed,
 		EventExperimentRunning,

@@ -157,6 +157,19 @@ func (h *Hub) broadcast(ctx context.Context) {
 	currentCount := len(allEvents)
 	if currentCount > h.lastEventCount && h.lastEventCount > 0 {
 		newEvents := allEvents[h.lastEventCount:]
+		// Snapshot the client set ONCE under the lock, then write outside it.
+		// wsjson.Write performs network I/O; doing it under h.mu let a single
+		// slow/lagging client block every addClient/removeClient/closeAll for
+		// the duration of the write. Dead connections discovered during the
+		// write are evicted in a short locked pass afterward.
+		h.mu.Lock()
+		conns := make([]*websocket.Conn, 0, len(h.clients))
+		for conn := range h.clients {
+			conns = append(conns, conn)
+		}
+		h.mu.Unlock()
+
+		var dead []*websocket.Conn
 		for _, evt := range newEvents {
 			evtMsg := WSResponse{Type: "event", Data: EventSummary{
 				Type:      string(evt.Type),
@@ -164,9 +177,19 @@ func (h *Hub) broadcast(ctx context.Context) {
 				AgentID:   evt.AgentID,
 				StoryID:   evt.StoryID,
 			}}
+			for _, conn := range conns {
+				if err := wsjson.Write(ctx, conn, evtMsg); err != nil {
+					dead = append(dead, conn)
+				}
+			}
+		}
+		if len(dead) > 0 {
 			h.mu.Lock()
-			for conn := range h.clients {
-				wsjson.Write(ctx, conn, evtMsg) //nolint:errcheck
+			for _, conn := range dead {
+				if _, ok := h.clients[conn]; ok {
+					_ = conn.CloseNow() // best-effort; we're removing the client
+					delete(h.clients, conn)
+				}
 			}
 			h.mu.Unlock()
 		}
@@ -181,14 +204,30 @@ func (h *Hub) broadcast(ctx context.Context) {
 
 	msg := WSResponse{Type: "state", Data: snap}
 
+	// Snapshot the client set under the lock, write outside it (see the
+	// event-diff loop above for why network I/O must not hold h.mu).
 	h.mu.Lock()
-	defer h.mu.Unlock()
-
+	conns := make([]*websocket.Conn, 0, len(h.clients))
 	for conn := range h.clients {
+		conns = append(conns, conn)
+	}
+	h.mu.Unlock()
+
+	var dead []*websocket.Conn
+	for _, conn := range conns {
 		if err := wsjson.Write(ctx, conn, msg); err != nil {
-			_ = conn.CloseNow() // best-effort; we're already removing the client
-			delete(h.clients, conn)
+			dead = append(dead, conn)
 		}
+	}
+	if len(dead) > 0 {
+		h.mu.Lock()
+		for _, conn := range dead {
+			if _, ok := h.clients[conn]; ok {
+				_ = conn.CloseNow() // best-effort; we're removing the client
+				delete(h.clients, conn)
+			}
+		}
+		h.mu.Unlock()
 	}
 }
 

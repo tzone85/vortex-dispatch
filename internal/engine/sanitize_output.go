@@ -274,13 +274,26 @@ func scanFileForConflictMarkers(path string) bool {
 	return false
 }
 
-// validateNoConflictMarkers scans all changed files for unresolved merge conflict markers.
+// validateNoConflictMarkers scans changed files for unresolved merge conflict
+// markers. It diffs against HEAD~1, but if that fails (single-commit branch,
+// detached HEAD, fresh worktree where HEAD~1 doesn't exist) it MUST NOT report
+// "clean" — that would be a false negative on a safety gate, letting a branch
+// with live `<<<<<<<` markers proceed to review/merge. Instead it logs and
+// falls back to scanning every tracked file via `git ls-files`.
 func validateNoConflictMarkers(worktreePath string) []string {
 	cmd := exec.Command("git", "diff", "--name-only", "HEAD~1")
 	cmd.Dir = worktreePath
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil
+		log.Printf("[sanitize] conflict-marker diff against HEAD~1 failed in %s: %v — falling back to full tracked-file scan", worktreePath, strings.TrimSpace(string(out)))
+		lsCmd := exec.Command("git", "ls-files")
+		lsCmd.Dir = worktreePath
+		lsOut, lsErr := lsCmd.CombinedOutput()
+		if lsErr != nil {
+			log.Printf("[sanitize] conflict-marker fallback scan (git ls-files) also failed in %s: %v", worktreePath, lsErr)
+			return nil
+		}
+		out = lsOut
 	}
 
 	var conflicts []string

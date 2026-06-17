@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -30,7 +31,12 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 		if m.lifecycle == nil || ag.DB.ID == "" {
 			return
 		}
-		if err := m.lifecycle.Release(context.Background(), ag.DB, outcomeForRelease); err != nil {
+		// pipelineCtx is already cancelled by the time this defer runs (LIFO),
+		// so use a fresh context — but bound it so a hung devdb provider can't
+		// block this goroutine (and the WaitGroup it belongs to) indefinitely.
+		rctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := m.lifecycle.Release(rctx, ag.DB, outcomeForRelease); err != nil {
 			log.Printf("[pipeline] devdb release failed for %s (outcome=%s): %v (will GC later)",
 				storyID, outcomeForRelease.String(), err)
 		}
@@ -141,7 +147,7 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 		result, err := m.reviewer.Review(pipelineCtx, storyID, storyTitle, storyAC, diff, fileTree, blastRadius)
 		if err != nil {
 			// Check for pipeline timeout
-			if err == context.DeadlineExceeded {
+			if errors.Is(err, context.DeadlineExceeded) {
 				log.Printf("[pipeline] review timeout for %s: pipeline timeout exceeded", storyID)
 				m.resetStoryToDraft(storyID, "reviewer", "pipeline timeout: context deadline exceeded")
 				return
@@ -181,7 +187,7 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 		result, err := m.qa.Run(pipelineCtx, storyID, ag.WorktreePath)
 		if err != nil {
 			// Check for pipeline timeout
-			if err == context.DeadlineExceeded {
+			if errors.Is(err, context.DeadlineExceeded) {
 				log.Printf("[pipeline] QA timeout for %s: pipeline timeout exceeded", storyID)
 				m.resetStoryToDraft(storyID, "qa", "pipeline timeout: context deadline exceeded")
 				return
@@ -227,6 +233,14 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 
 	// 3. Merge (serialized: rebase onto latest main, then push + merge)
 	if m.merger != nil {
+		// Hold mergeMu for the WHOLE remainder of the function (rebase, merge,
+		// worktree/branch cleanup, post-merge integration build, checkpoint
+		// clear). This is intentional, not just "serializing the merge":
+		// every step below mutates the SHARED repoDir git index (fetch, rebase,
+		// merge, `git worktree remove`, the integration build's checkout).
+		// Two post-execution goroutines finishing at once would otherwise race
+		// the git index lock and corrupt each other's operations. The lock is
+		// the serialization boundary for all repoDir-mutating work.
 		m.mergeMu.Lock()
 		defer m.mergeMu.Unlock()
 
@@ -240,7 +254,7 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 					result, err := m.rebaseAndCreatePR(pipelineCtx, storyID, branch, repoDir, ag.WorktreePath)
 					if err != nil {
 						// Check for pipeline timeout
-						if err == context.DeadlineExceeded {
+						if errors.Is(err, context.DeadlineExceeded) {
 							log.Printf("[pipeline] PR creation timeout for %s: pipeline timeout exceeded", storyID)
 							m.resetStoryToDraft(storyID, "merger", "pipeline timeout: context deadline exceeded")
 							return
@@ -279,7 +293,7 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 
 		if err != nil {
 			// Check for pipeline timeout
-			if err == context.DeadlineExceeded {
+			if errors.Is(err, context.DeadlineExceeded) {
 				log.Printf("[pipeline] merge timeout for %s: pipeline timeout exceeded", storyID)
 				m.resetStoryToDraft(storyID, "merger", "pipeline timeout: context deadline exceeded")
 				return

@@ -267,6 +267,14 @@ func (d *Dispatcher) routeStory(story PlannedStory) agent.Role {
 		Type:    state.EventStoryEscalated,
 		StoryID: story.ID,
 	})
+	if err != nil {
+		// A read failure here is NOT the same as "no escalation events". If we
+		// silently fall through to RouteByComplexity, an already-escalated
+		// story could be re-dispatched at its original (lower) tier — defeating
+		// the escalation chain with no trace. Surface it so the operator can
+		// see the routing decision was made on incomplete information.
+		log.Printf("[dispatcher] WARNING: escalation lookup failed for %s: %v — routing by complexity may under-tier an escalated story", story.ID, err)
+	}
 	if err == nil && len(events) > 0 {
 		maxTier := 0
 		for _, evt := range events {

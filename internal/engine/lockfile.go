@@ -93,7 +93,9 @@ func writeLockFile(path string, info LockInfo) error {
 		return fmt.Errorf("encode lock info: %w", err)
 	}
 
-	return os.WriteFile(path, data, 0644)
+	// 0o600: lock info exposes PID and state paths; keep it owner-only,
+	// consistent with the pidfile/token/checkpoint files.
+	return os.WriteFile(path, data, 0o600)
 }
 
 // isProcessAlive is implemented per-OS (see lockfile_unix.go / lockfile_windows.go).

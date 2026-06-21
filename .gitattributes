@@ -13,6 +13,12 @@ go.mod      text eol=lf
 go.sum      text eol=lf
 LICENSE     text eol=lf
 
+# Git hooks are executed as scripts — extensionless, so match the dir.
+# A CRLF hook fails with "bad interpreter: /usr/bin/env bash^M".
+.githooks/** text eol=lf
+# launchd reads plists fine either way, but keep them LF for clean diffs.
+*.plist     text eol=lf
+
 # Windows-specific scripts keep their native CRLF.
 *.bat       text eol=crlf
 *.cmd       text eol=crlf

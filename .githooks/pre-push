@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Green-gate pre-push hook (candidates C + D from the automation audit).
+#
+# Why a hook, not an agent loop: "is the build green / are docs covered" is a
+# pure rule with an exit code — no judgment to make. The 4-condition test scores
+# it YES on repeats / rule-decides-done / afford-waste / has-tools, which is the
+# signature of a HOOK, not a loop. Loops are for tasks needing judgment.
+#
+# Install once:  make hooks   (sets core.hooksPath=.githooks)
+# Bypass once:   git push --no-verify   (use sparingly — CI is the backstop)
+set -euo pipefail
+
+# Skip on branch deletes (no local tree to verify).
+if [ -t 0 ]; then : ; fi
+
+echo "[pre-push] running green gate (make verify) ..."
+if ! make verify; then
+	echo
+	echo "[pre-push] BLOCKED: green gate failed. Fix the above, or 'git push --no-verify' to override." >&2
+	exit 1
+fi
+echo "[pre-push] green gate passed — pushing."

@@ -74,6 +74,24 @@ jobs:
         with:
           version: v2.12.2
 
+  # govulncheck scans the dependency graph against the Go vulnerability DB.
+  # The cloud audit loop cannot run this — its sandbox blocks vuln.go.dev
+  # (HTTP 403) — so CI is the only place CVEs are caught automatically.
+  # govulncheck exits non-zero only for CALLED vulnerabilities, so a CVE in a
+  # required-but-unreached dependency won't block unrelated work.
+  vuln:
+    name: Vuln
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run govulncheck
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-input: '1.26'
+          go-package: ./...
+
   build:
     name: Build
     runs-on: ubuntu-latest
@@ -100,7 +118,7 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
-    needs: [test, lint, build]
+    needs: [test, lint, build, vuln]
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout

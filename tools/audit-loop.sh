@@ -134,7 +134,8 @@ PROMPT
 if [ "$DRY" -eq 1 ]; then
 	log "--dry: would run audit with the prompt below. No changes made."
 	printf '%s\n' "$AUDIT_PROMPT" | tee -a "$LOG_FILE"
-	echo "$HEAD_SHA" >"$LAST_SHA_FILE"
+	# Deliberately do NOT record HEAD as audited — a preview must not suppress
+	# the next real scheduled run on an unchanged main.
 	exit 0
 fi
 

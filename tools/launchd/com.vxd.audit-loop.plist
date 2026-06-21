@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.vxd.audit-loop</string>
+
+    <!-- Rebuild of the retired com.vxd.self-improve loop (candidate F).
+         F failed the 4-condition test on #2 (no rule for "actionable") and #4
+         (scraped news, not code signal) — 0 actionable findings in a month.
+         This replacement runs candidate A (audit -> fix -> PR), which passes
+         all four, and folds in candidate G (govulncheck) on the same cadence. -->
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-lc</string>
+        <string>/Users/mncedimini/Sites/misc/vortex-dispatch/tools/audit-loop.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/mncedimini/Sites/misc/vortex-dispatch</string>
+
+    <!-- Weekly: Monday 06:00. Audit cadence matches the observed fix cadence;
+         the script also self-skips when main hasn't changed since the last run. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Weekday</key>
+        <integer>1</integer>
+        <key>Hour</key>
+        <integer>6</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/mncedimini/.vxd/audit-loop/launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/mncedimini/.vxd/audit-loop/launchd.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/mncedimini/.local/bin:/Users/mncedimini/go/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>HOME</key>
+        <string>/Users/mncedimini</string>
+    </dict>
+</dict>
+</plist>

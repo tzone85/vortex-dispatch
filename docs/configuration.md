@@ -45,11 +45,11 @@ Defaults shipped by `vxd init` (see `internal/config/loader.go DefaultConfig`):
 models:
   tech_lead:
     provider: anthropic
-    model: claude-opus-4-20250514
+    model: claude-opus-4-8
     max_tokens: 16000
   senior:
     provider: anthropic
-    model: claude-sonnet-4-20250514
+    model: claude-sonnet-4-6
     max_tokens: 8000
   intermediate:
     provider: google
@@ -61,7 +61,7 @@ models:
     max_tokens: 4000
   qa:
     provider: anthropic
-    model: claude-sonnet-4-20250514
+    model: claude-sonnet-4-6
     max_tokens: 8000
   supervisor:
     provider: google
@@ -69,7 +69,7 @@ models:
     max_tokens: 4000
   manager:
     provider: anthropic
-    model: claude-sonnet-4-20250514
+    model: claude-sonnet-4-6
     max_tokens: 8000
 ```
 
@@ -245,11 +245,11 @@ workspace:
 models:
   tech_lead:
     provider: anthropic
-    model: claude-sonnet-4-20250514    # Sonnet instead of Opus
+    model: claude-sonnet-4-6    # Sonnet instead of Opus
     max_tokens: 8000
   senior:
     provider: anthropic
-    model: claude-sonnet-4-20250514
+    model: claude-sonnet-4-6
     max_tokens: 8000
   intermediate:
     provider: openai
@@ -286,27 +286,27 @@ workspace:
 models:
   tech_lead:
     provider: anthropic
-    model: claude-opus-4-20250514
+    model: claude-opus-4-8
     max_tokens: 16000
   senior:
     provider: anthropic
-    model: claude-opus-4-20250514       # Opus for reviews too
+    model: claude-opus-4-8       # Opus for reviews too
     max_tokens: 16000
   intermediate:
     provider: anthropic
-    model: claude-sonnet-4-20250514
+    model: claude-sonnet-4-6
     max_tokens: 8000
   junior:
     provider: anthropic
-    model: claude-sonnet-4-20250514     # Sonnet even for simple stories
+    model: claude-sonnet-4-6     # Sonnet even for simple stories
     max_tokens: 8000
   qa:
     provider: anthropic
-    model: claude-sonnet-4-20250514
+    model: claude-sonnet-4-6
     max_tokens: 8000
   supervisor:
     provider: anthropic
-    model: claude-opus-4-20250514
+    model: claude-opus-4-8
     max_tokens: 8000
 routing:
   junior_max_complexity: 2              # Only trivial stories go to Junior

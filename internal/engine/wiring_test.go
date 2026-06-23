@@ -1687,7 +1687,7 @@ func TestWiring_ProgramMDEvolver_CanBeConstructed(t *testing.T) {
 	// ready for CLI integration.
 	e := &autoresearch.ProgramMDEvolver{
 		Client:     nil, // intentionally nil — only testing construction
-		Model:      "claude-sonnet-4-20250514",
+		Model:      "claude-sonnet-4-6",
 		Bank:       bank,
 		BaseBranch: "main",
 		Events:     store,
@@ -2392,7 +2392,7 @@ func TestWiring_ReqPlanningStarted_ProjectsWithoutError(t *testing.T) {
 	evt := state.NewEvent(state.EventReqPlanningStarted, "tech-lead", "",
 		map[string]any{
 			"req_id": "01JV7TESTID0000000000001",
-			"model":  "claude-opus-4-20250514",
+			"model":  "claude-opus-4-8",
 		})
 
 	if err := store.Project(evt); err != nil {
@@ -2424,7 +2424,7 @@ func TestWiring_Monitor_SetTechLeadFixer_Stores(t *testing.T) {
 		t.Fatal("NewMonitor returned nil")
 	}
 
-	fixer := engine.NewTechLeadFixer(llm.NewDryRunClient(0), "claude-opus-4-20250514", 1024, es, ps)
+	fixer := engine.NewTechLeadFixer(llm.NewDryRunClient(0), "claude-opus-4-8", 1024, es, ps)
 	m.SetTechLeadFixer(fixer)
 
 	// If SetTechLeadFixer is wired correctly this compiles and runs without panic.

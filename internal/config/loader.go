@@ -19,13 +19,13 @@ func DefaultConfig() Config {
 			LogRetentionDays: 30,
 		},
 		Models: ModelsConfig{
-			TechLead:     ModelConfig{Provider: "anthropic", Model: "claude-opus-4-20250514", MaxTokens: 16000},
-			Senior:       ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-20250514", MaxTokens: 8000},
+			TechLead:     ModelConfig{Provider: "anthropic", Model: "claude-opus-4-8", MaxTokens: 16000},
+			Senior:       ModelConfig{Provider: "anthropic", Model: "claude-opus-4-7", MaxTokens: 8000},
 			Intermediate: ModelConfig{Provider: "google", Model: "gemma-4-27b-it", MaxTokens: 4000},
 			Junior:       ModelConfig{Provider: "google", Model: "gemma-4-27b-it", MaxTokens: 4000},
-			QA:           ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-20250514", MaxTokens: 8000},
+			QA:           ModelConfig{Provider: "anthropic", Model: "claude-opus-4-7", MaxTokens: 8000},
 			Supervisor:   ModelConfig{Provider: "google", Model: "gemma-4-27b-it", MaxTokens: 4000},
-			Manager:      ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-20250514", MaxTokens: 8000},
+			Manager:      ModelConfig{Provider: "anthropic", Model: "claude-opus-4-7", MaxTokens: 8000},
 		},
 		Routing: RoutingConfig{
 			JuniorMaxComplexity:           3,
@@ -103,7 +103,7 @@ func DefaultConfig() Config {
 			"swe-agent": {
 				Command: "swe-agent",
 				Args:    []string{"run", "--agent.model.name"},
-				Models:  []string{"gpt-4o", "claude-sonnet-4-20250514"},
+				Models:  []string{"gpt-4o", "claude-sonnet-4-6"},
 				Detection: RuntimeDetection{
 					IdlePattern:       "SWE-agent>",
 					PermissionPattern: "confirm|cancel",

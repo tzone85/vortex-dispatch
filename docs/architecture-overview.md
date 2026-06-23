@@ -118,7 +118,7 @@ SQLiteStore.Project() ───────────────────�
 │                                                               │
 │  SessionConfig                                                │
 │  ├── WorkDir: ~/.vxd/worktrees/{storyID}/                    │
-│  ├── Model: claude-sonnet-4-20250514                          │
+│  ├── Model: claude-sonnet-4-6                          │
 │  ├── SystemPrompt: role-specific instructions                │
 │  ├── Goal: story description + acceptance criteria           │
 │  └── LogFile: ~/.vxd/logs/{storyID}.log                     │
@@ -934,13 +934,13 @@ $0  ─╱─────────┬─────────┬───�
 
 | Role | Default Provider | Default Model | Max Tokens | Purpose |
 |------|:---:|:---|:---:|:---|
-| Tech Lead | Anthropic | claude-opus-4-20250514 | 16,000 | Requirement decomposition |
-| Senior | Anthropic | claude-sonnet-4-20250514 | 8,000 | Complex features, code review |
+| Tech Lead | Anthropic | claude-opus-4-8 | 16,000 | Requirement decomposition |
+| Senior | Anthropic | claude-sonnet-4-6 | 8,000 | Complex features, code review |
 | Intermediate | Google AI | gemma-4-27b-it | 4,000 | Moderate tasks |
 | Junior | Google AI | gemma-4-27b-it | 4,000 | Simple features |
-| QA | Anthropic | claude-sonnet-4-20250514 | 8,000 | Quality assurance |
+| QA | Anthropic | claude-sonnet-4-6 | 8,000 | Quality assurance |
 | Supervisor | Google AI | gemma-4-27b-it | 4,000 | Drift detection |
-| Manager | Anthropic | claude-sonnet-4-20250514 | 8,000 | Failure diagnosis |
+| Manager | Anthropic | claude-sonnet-4-6 | 8,000 | Failure diagnosis |
 
 ### Cost Strategy
 
@@ -1061,7 +1061,7 @@ Every piece of data that leaves VXD's process boundary is classified below:
 ```yaml
 models:
   junior: {provider: anthropic, model: claude-haiku-4-5-20251001}
-  intermediate: {provider: anthropic, model: claude-sonnet-4-20250514}
+  intermediate: {provider: anthropic, model: claude-sonnet-4-6}
 ```
 
 ### 11.3 Secret Management Lifecycle

@@ -13,11 +13,11 @@ workspace:
 models:
   tech_lead:
     provider: anthropic
-    model: claude-opus-4-20250514
+    model: claude-opus-4-8
     max_tokens: 16000
   senior:
     provider: anthropic
-    model: claude-sonnet-4-20250514
+    model: claude-opus-4-7
     max_tokens: 8000
   intermediate:
     provider: google
@@ -29,7 +29,7 @@ models:
     max_tokens: 4000
   qa:
     provider: anthropic
-    model: claude-sonnet-4-20250514
+    model: claude-opus-4-7
     max_tokens: 8000
   supervisor:
     provider: google
@@ -37,7 +37,7 @@ models:
     max_tokens: 4000
   manager:
     provider: anthropic
-    model: claude-sonnet-4-20250514
+    model: claude-opus-4-7
     max_tokens: 8000
 
 routing:

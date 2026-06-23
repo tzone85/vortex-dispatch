@@ -125,7 +125,7 @@ func DefaultConfig() Config {
 		},
 		Dashboard: DashboardConfig{
 			AutoStart: true,
-			AutoOpen:  true,
+			AutoOpen:  false,
 			Port:      8787,
 		},
 	}

@@ -97,6 +97,28 @@ func TestReviewer_Review_Failed(t *testing.T) {
 // injection embedded in the diff cannot flip the merge gate. Regression guard
 // for the prompt-injection audit finding: the review result gates the merge,
 // so the diff — which is untrusted agent output — must be presented as data.
+// TestReviewer_PromptToleratesIncidentalScope verifies the review prompt tells
+// the reviewer NOT to fail a correct, on-topic story solely because it touched
+// more files than named — the over-strict scope enforcement that repeatedly
+// paused real client builds.
+func TestReviewer_PromptToleratesIncidentalScope(t *testing.T) {
+	es, ps, cleanup := newTestStores(t)
+	defer cleanup()
+
+	client := llm.NewReplayClient(llm.CompletionResponse{
+		Content: `{"passed": true, "comments": [], "summary": "ok"}`,
+	})
+	reviewer := engine.NewReviewer(client, "sonnet", 4000, es, ps)
+	if _, err := reviewer.Review(context.Background(), "s-001", "Task", "AC",
+		"diff --git a/x.go b/x.go\n+package x", "x.go"); err != nil {
+		t.Fatalf("review: %v", err)
+	}
+	prompt := client.CallAt(0).Messages[0].Content
+	if !strings.Contains(prompt, "Do NOT reject SOLELY because the diff touches more files") {
+		t.Errorf("review prompt missing incidental-scope tolerance guidance:\n%s", prompt)
+	}
+}
+
 func TestReviewer_Review_WrapsUntrustedDiff(t *testing.T) {
 	es, ps, cleanup := newTestStores(t)
 	defer cleanup()

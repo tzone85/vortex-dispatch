@@ -276,19 +276,19 @@ func TestWiring_ManagerSetOnMonitor(t *testing.T) {
 }
 
 // TestWiring_DashboardConfigDefaults locks in the always-on dashboard
-// behavior: AutoStart and AutoOpen default to true and Port defaults to 8787.
-// If a future change flips these defaults silently, this test fires.
-//
-// The "always visible status" goal hinges on these defaults — disabling
-// auto-spawn by accident would re-introduce the "have to type `vxd status`"
-// pain point this feature exists to remove.
+// behavior: AutoStart defaults to true (the daemon spawns and the URL is
+// printed) and Port defaults to 8787. AutoOpen defaults to FALSE — the
+// dashboard is always available and its URL is printed, but VXD no longer
+// force-opens a browser tab on every `vxd req`/`resume` (that piled up windows
+// and was disabled by operator request). Set auto_open: true per project to
+// restore auto-launching the browser.
 func TestWiring_DashboardConfigDefaults(t *testing.T) {
 	cfg := config.DefaultConfig()
 	if !cfg.Dashboard.AutoStart {
 		t.Error("WIRING FAILURE: Dashboard.AutoStart must default to true so `vxd req` auto-spawns the always-on daemon")
 	}
-	if !cfg.Dashboard.AutoOpen {
-		t.Error("WIRING FAILURE: Dashboard.AutoOpen must default to true so a browser opens automatically when not headless")
+	if cfg.Dashboard.AutoOpen {
+		t.Error("WIRING FAILURE: Dashboard.AutoOpen must default to false so VXD does not force-open browser tabs; the URL is still printed")
 	}
 	if cfg.Dashboard.Port != 8787 {
 		t.Errorf("WIRING FAILURE: Dashboard.Port default = %d, want 8787", cfg.Dashboard.Port)

@@ -88,6 +88,10 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 		// resolves to cwd — the actual project root where VXD was invoked.
 		pullBaseAfterMerge(repoDir, m.config.Merge.BaseBranch)
 
+		// Leave the workspace neat: remove dangling branches (and their open
+		// PRs) from stories that never merged. Merged branches are already gone.
+		m.cleanupDanglingBranches(rc.ReqID, repoDir)
+
 		// Mark requirement complete.
 		compEvt := state.NewEvent(state.EventReqCompleted, "monitor", "", map[string]any{"id": rc.ReqID})
 		if appErr := m.eventStore.Append(compEvt); appErr != nil {

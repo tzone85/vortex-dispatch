@@ -42,9 +42,10 @@ func DefaultConfig() Config {
 			ContextFreshnessTokens: 150000,
 		},
 		Cleanup: CleanupConfig{
-			WorktreePrune:       "immediate",
-			BranchRetentionDays: 7,
-			LogArchive:          "dolt",
+			WorktreePrune:          "immediate",
+			BranchRetentionDays:    7,
+			LogArchive:             "dolt",
+			DeleteDanglingBranches: true,
 		},
 		Merge: MergeConfig{
 			AutoMerge:  true,

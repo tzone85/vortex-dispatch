@@ -119,6 +119,11 @@ type CleanupConfig struct {
 	WorktreePrune       string `yaml:"worktree_prune"`
 	BranchRetentionDays int    `yaml:"branch_retention_days"`
 	LogArchive          string `yaml:"log_archive"`
+	// DeleteDanglingBranches, when true (default), removes the local + remote
+	// branches of a requirement's non-merged stories once the requirement
+	// completes. Deleting a remote branch auto-closes its open PR on GitHub, so
+	// this leaves no dangling branches or PRs behind. Set false to keep them.
+	DeleteDanglingBranches bool `yaml:"delete_dangling_branches"`
 }
 
 // MergeConfig controls how completed work is merged.

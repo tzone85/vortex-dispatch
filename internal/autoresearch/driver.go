@@ -20,7 +20,7 @@ import (
 // Diff and PathsTouched delegate to git plumbing inside the worktree.
 type LiveAgentDriver struct {
 	Runtime      runtime.Runtime  // tmux-backed CLIRuntime in production
-	Model        string           // e.g. "claude-sonnet-4-20250514"
+	Model        string           // e.g. "claude-sonnet-4-6"
 	SystemPrompt string           // optional system prompt; the per-experiment prompt is the Goal
 	PollInterval time.Duration    // how often to check status; defaults to 5s
 	LogDir       string           // where to drop tmux capture logs (one per experiment)

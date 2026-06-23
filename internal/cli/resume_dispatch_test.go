@@ -158,7 +158,7 @@ func TestLoadConfig_ChainWithBothFiles(t *testing.T) {
 models:
   tech_lead:
     provider: anthropic
-    model: claude-opus-4-20250514
+    model: claude-opus-4-8
 `
 	repoCfgPath := filepath.Join(dir, "repo-config.yaml")
 	os.WriteFile(repoCfgPath, []byte(repoContent), 0644)

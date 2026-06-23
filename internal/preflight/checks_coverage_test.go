@@ -388,7 +388,7 @@ func TestCheckConfig_WithValidYAML(t *testing.T) {
 models:
   tech_lead:
     provider: anthropic
-    model: claude-opus-4-20250514
+    model: claude-opus-4-8
 `
 	err = os.WriteFile("vxd.yaml", []byte(validConfig), 0644)
 	if err != nil {

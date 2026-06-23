@@ -390,6 +390,10 @@ func buildPlanningClient(provider string, godmode bool) (llm.Client, error) {
 		if apiKey := resolveAPIKey("OPENAI_API_KEY"); apiKey != "" {
 			apiClient = llm.NewRetryClient(llm.NewOpenAIClient(apiKey), 3)
 		}
+	case "codex", "codex-cli", "openai-cli", "gpt-cli":
+		// Codex CLI (GPT via subscription) as primary, Claude CLI as the
+		// planning fallback if installed.
+		cliClient = llm.NewCodexWithFallback(llm.NewCodexCLIClient(), codexFallbackClient(godmode), codexFallbackModel)
 	case "google":
 		if apiKey := resolveAPIKey("GOOGLE_AI_API_KEY"); apiKey != "" {
 			google := llm.NewToolCallAdapter(llm.NewGoogleAIClient(apiKey), llm.ToolSchemaFor(agent.RoleTechLead))
@@ -471,7 +475,33 @@ func buildLLMClient(provider string, schema *llm.ToolSchema, godmode ...bool) (l
 			return nil, fmt.Errorf("OPENAI_API_KEY environment variable is required")
 		}
 		return llm.NewRetryClient(llm.NewOpenAIClient(apiKey), 3), nil
+	case "codex", "codex-cli", "openai-cli", "gpt-cli":
+		// Codex CLI runs GPT (gpt-5.5) through the user's ChatGPT/Codex
+		// subscription at no per-token cost. On any Codex failure (CLI missing,
+		// rate limit, model error) fall back to the capable Anthropic model so
+		// the role keeps working.
+		return llm.NewCodexWithFallback(llm.NewCodexCLIClient(), codexFallbackClient(skipPerms), codexFallbackModel), nil
 	default:
-		return nil, fmt.Errorf("unsupported LLM provider %q (accepted: anthropic, cli, claude-cli, anthropic-cli, anthropic_cli, google, openai)", provider)
+		return nil, fmt.Errorf("unsupported LLM provider %q (accepted: anthropic, cli, claude-cli, anthropic-cli, anthropic_cli, google, openai, codex)", provider)
 	}
+}
+
+// codexFallbackModel is the Anthropic model a Codex role falls back to when the
+// Codex CLI is unavailable or errors.
+const codexFallbackModel = "claude-opus-4-7"
+
+// codexFallbackClient returns the Claude CLI (subscription) when available, else
+// the Anthropic API client, else nil (Codex runs with no fallback).
+func codexFallbackClient(skipPerms bool) llm.Client {
+	if _, err := exec.LookPath("claude"); err == nil {
+		c := llm.NewClaudeCLIClient()
+		if skipPerms {
+			c = c.WithSkipPermissions()
+		}
+		return c
+	}
+	if ak := resolveAPIKey("ANTHROPIC_API_KEY"); ak != "" {
+		return llm.NewRetryClient(llm.NewAnthropicClient(ak), 3)
+	}
+	return nil
 }

@@ -365,10 +365,10 @@ func TestRebaseWithResolution_MaxRoundsExhausted(t *testing.T) {
 // TestNewConflictResolver_DefaultValues verifies the constructor sets proper defaults.
 func TestNewConflictResolver_Defaults(t *testing.T) {
 	es := newEventStoreForTest(t)
-	cr := NewConflictResolver(nil, "claude-sonnet-4-20250514", nil, "", 8192, nil, es)
+	cr := NewConflictResolver(nil, "claude-sonnet-4-6", nil, "", 8192, nil, es)
 
-	if cr.model != "claude-sonnet-4-20250514" {
-		t.Errorf("expected model claude-sonnet-4-20250514, got %q", cr.model)
+	if cr.model != "claude-sonnet-4-6" {
+		t.Errorf("expected model claude-sonnet-4-6, got %q", cr.model)
 	}
 	if cr.maxTokens != 8192 {
 		t.Errorf("expected maxTokens 8192, got %d", cr.maxTokens)

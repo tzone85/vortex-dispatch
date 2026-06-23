@@ -82,7 +82,7 @@ func TestRole_String(t *testing.T) {
 func TestRoleManagerModelConfig(t *testing.T) {
 	models := config.ModelsConfig{
 		Manager: config.ModelConfig{
-			Provider: "anthropic", Model: "claude-sonnet-4-20250514", MaxTokens: 8000,
+			Provider: "anthropic", Model: "claude-sonnet-4-6", MaxTokens: 8000,
 		},
 	}
 	mc := agent.RoleManager.ModelConfig(models)

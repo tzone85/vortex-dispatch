@@ -82,7 +82,7 @@ func TestRunConfigShow_WithValidConfig(t *testing.T) {
 models:
   tech_lead:
     provider: anthropic
-    model: claude-opus-4-20250514
+    model: claude-opus-4-8
 `
 	cfgPath := filepath.Join(dir, "valid-config.yaml")
 	os.WriteFile(cfgPath, []byte(validCfg), 0644)

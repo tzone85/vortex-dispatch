@@ -287,7 +287,7 @@ autoresearch:
       enabled: true
       cron: "0 3 * * 0"                    # Sunday 03:00
   tripwire:
-    model: claude-sonnet-4-20250514        # cheaper-than-Opus default
+    model: claude-sonnet-4-6        # cheaper-than-Opus default
     fail_closed: true                      # always — exposed for clarity, not flexibility
   bayes:
     classes: [refactor, perf, test, simplify, feature, other]

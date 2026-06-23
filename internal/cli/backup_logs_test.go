@@ -20,10 +20,10 @@ func seedVxdYaml(t *testing.T, stateDir string) string {
 		"models:\n" +
 		"  tech_lead:\n" +
 		"    provider: anthropic\n" +
-		"    model: claude-opus-4-20250514\n" +
+		"    model: claude-opus-4-8\n" +
 		"  senior:\n" +
 		"    provider: anthropic\n" +
-		"    model: claude-sonnet-4-20250514\n" +
+		"    model: claude-sonnet-4-6\n" +
 		"  junior:\n" +
 		"    provider: anthropic\n" +
 		"    model: claude-haiku-4-5-20251001\n"

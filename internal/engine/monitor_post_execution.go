@@ -509,7 +509,35 @@ func (m *Monitor) pauseRequirement(storyID, reason string) {
 		log.Printf("[pipeline] failed to project pause event for req %s: %v", story.ReqID, err)
 	}
 	log.Printf("[pipeline] requirement %s paused: %s", story.ReqID, reason)
-	log.Printf("[pipeline] top up your API credits and run 'vxd resume %s' to continue", story.ReqID)
+	if hint := pauseResumeHint(reason); hint != "" {
+		log.Printf("[pipeline] likely cause: %s", hint)
+	}
+	log.Printf("[pipeline] resolve the cause above, then run 'vxd resume %s' to continue", story.ReqID)
+}
+
+// pauseResumeHint inspects a pause reason and returns a tailored operator hint,
+// or "" when the cause is unclear. Replaces a hardcoded "top up your API
+// credits" line that misfired on timeouts, model-ID 404s, and provider outages.
+func pauseResumeHint(reason string) string {
+	r := strings.ToLower(reason)
+	switch {
+	case strings.Contains(r, "credit") || strings.Contains(r, "billing") ||
+		strings.Contains(r, "quota") || strings.Contains(r, "insufficient"):
+		return "LLM credit/billing limit — top up credits or check your subscription"
+	case strings.Contains(r, "deadline exceeded") || strings.Contains(r, "timeout"):
+		return "LLM call timed out — retry; if persistent, raise monitor.pipeline_timeout_s"
+	case strings.Contains(r, "500") || strings.Contains(r, "server error") ||
+		strings.Contains(r, "overloaded") || strings.Contains(r, "unavailable") ||
+		strings.Contains(r, "connection refused"):
+		return "provider outage/overload — retry shortly (check the provider status page)"
+	case strings.Contains(r, "model") && (strings.Contains(r, "not exist") ||
+		strings.Contains(r, "404") || strings.Contains(r, "access") || strings.Contains(r, "not supported")):
+		return "model ID invalid or no access — verify the configured model (undated aliases)"
+	case strings.Contains(r, "authentication") || strings.Contains(r, "unauthorized") || strings.Contains(r, "401"):
+		return "auth failure — check API key / CLI login"
+	default:
+		return ""
+	}
 }
 
 // resetStoryToDraft uses the EscalationMachine to decide whether the story

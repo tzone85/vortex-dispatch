@@ -57,6 +57,56 @@ requirement in this repo. Headless environments (SSH sessions, no DISPLAY,
 non-TTY stdout) automatically skip the browser-open step; the dashboard URL
 is still printed so you can port-forward and open it elsewhere.
 
+## Prerequisites — Tools & Authentication
+
+VXD orchestrates third-party agent CLIs; install and authenticate the ones for
+the providers you configure. `vxd preflight` checks these and reports what's
+missing. Claude and Codex run on **subscriptions** (no per-token API credits);
+Google runs on a free-tier API key.
+
+| Tool | Needed for | Install | Authenticate |
+|------|-----------|---------|--------------|
+| Go 1.23+ | building `vxd` | https://go.dev/dl | — |
+| `tmux` | agents run in detached sessions | `brew install tmux` (macOS) / `apt install tmux` | — |
+| `git` + `gh` | worktrees, branches, PRs, squash-merges | `brew install git gh` | `gh auth login` |
+| **`claude` CLI** | Anthropic roles: tech_lead, senior, manager (and reviewer/qa unless on codex) | `npm i -g @anthropic-ai/claude-code` | `claude` → `/login` (Max subscription). **`unset ANTHROPIC_API_KEY`** so it uses the subscription, not API credits |
+| **`codex` CLI** | GPT roles via `provider: codex` (reviewer, qa) — model `gpt-5.5` | `npm i -g @openai/codex` | `codex login` (ChatGPT/Codex subscription). VXD strips `OPENAI_API_KEY` so the subscription is used |
+| **`gemini` CLI** | Google execution roles: junior, intermediate, supervisor | `npm i -g @google/gemini-cli` | `GOOGLE_AI_API_KEY` env var (free tier at aistudio.google.com) |
+
+Build and install to the canonical location (must be on `PATH` ahead of `~/go/bin`):
+
+```bash
+go build -o ~/.local/bin/vxd ./cmd/vxd
+which vxd            # must resolve to ~/.local/bin/vxd
+vxd preflight        # verifies tools, auth, and model IDs
+```
+
+### Providers & models
+
+Each role binds to a provider + model in `vxd.yaml` under `models`. Use **undated
+model aliases** — dated snapshots (e.g. `claude-opus-4-20250514`) retire and then
+return 404.
+
+| Provider | Runs via | Models (examples) | Credits |
+|----------|----------|-------------------|---------|
+| `anthropic` | Claude CLI (preferred) or API | `claude-opus-4-8`, `claude-opus-4-7`, `claude-sonnet-4-6` | Max subscription (CLI) |
+| `codex` (aliases `codex-cli`, `openai-cli`, `gpt-cli`) | Codex CLI | `gpt-5.5` (the model a ChatGPT account serves) | ChatGPT/Codex subscription |
+| `google` | Gemini CLI / Google AI | `gemma-4-27b-it` | Free-tier API key |
+
+The `codex` provider auto-falls back to `claude-opus-4-7` on any failure (CLI
+missing, rate limit, rejected model), so a Codex outage never hard-fails a role.
+
+**Optional `reviewer` binding.** The post-execution code reviewer defaults to the
+Senior model, but you can give it its own provider/model — handy for running
+review on `codex`/`gpt-5.5` while Senior stays on Anthropic for agent spawning
+(only Senior is also spawned as a coding agent, which Codex can't serve):
+
+```yaml
+models:
+  senior:   {provider: anthropic, model: claude-opus-4-7}
+  reviewer: {provider: codex, model: gpt-5.5}   # falls back to senior if unset
+```
+
 ### Platform Support
 
 | Platform | Build | Read-only commands | Full agent pipeline |
@@ -332,7 +382,7 @@ Run `vxd init` to generate `vxd.yaml` with sensible defaults, then customize:
 | Section | Purpose | Key Defaults |
 |---------|---------|--------------|
 | `workspace` | State directory, storage backend (`sqlite`/`dolt`), log level (`debug`/`info`/`warn`/`error`), and log retention in days | `state_dir: ~/.vxd`, `backend: sqlite`, `log_level: info`, `log_retention_days: 30` |
-| `models` | LLM provider and model binding per agent role — tech_lead, senior, intermediate, junior, qa, supervisor, manager. Providers: `anthropic` (Claude CLI/API), `google` (Gemma), `codex` (GPT via Codex subscription, model `gpt-5.5`, auto-falls back to Opus 4.7) | `tech_lead: claude-opus-4-8` (anthropic), `senior/qa/manager: claude-opus-4-7`, `junior/intermediate/supervisor: gemma-4-27b-it` (google) |
+| `models` | LLM provider and model binding per agent role — tech_lead, senior, intermediate, junior, qa, supervisor, manager, and optional `reviewer` (post-execution code review; falls back to senior). Providers: `anthropic` (Claude CLI/API), `google` (Gemma), `codex` (GPT via Codex subscription, model `gpt-5.5`, auto-falls back to Opus 4.7). See "Providers & models" above. | `tech_lead: claude-opus-4-8` (anthropic), `senior/qa/manager: claude-opus-4-7`, `junior/intermediate/supervisor: gemma-4-27b-it` (google) |
 | `routing` | Story complexity thresholds per tier, max retries before escalation, and max concurrent agents | `junior_max_complexity: 3`, `intermediate_max_complexity: 5`, `max_retries_before_escalation: 2`, `max_concurrent_agents: 5` |
 | `planning` | Max story complexity (Fibonacci cap), sequential-file patterns, design approach, and godmode flag | `max_story_complexity: 5`, `design_approach: ddd-tdd`, `godmode: false` |
 | `monitor` | Supervisor polling interval, stuck-agent threshold, and context-freshness token budget | `poll_interval_ms: 10000`, `stuck_threshold_s: 600`, `context_freshness_tokens: 150000` |

@@ -375,8 +375,8 @@ func runResume(cmd *cobra.Command, args []string) error {
 	if llmErr != nil {
 		log.Printf("Warning: LLM client unavailable, skipping code review: %v", llmErr)
 	} else {
-		seniorModel := s.Config.Models.Senior
-		reviewer = engine.NewReviewer(llmClient, seniorModel.Model, seniorModel.MaxTokens, s.Events, s.Proj)
+		reviewerClient, reviewerCfg := resolveReviewerClient(s.Config, llmClient, godmode, dryRun)
+		reviewer = engine.NewReviewer(reviewerClient, reviewerCfg.Model, reviewerCfg.MaxTokens, s.Events, s.Proj)
 	}
 	if s.Config.Planning.DesignApproach != "" {
 		reviewer.SetDesignApproach(s.Config.Planning.DesignApproach)
@@ -645,6 +645,25 @@ func buildQAConfig(cfg config.Config, projectDir, repoDir string) engine.QAConfi
 		})
 	}
 	return qaCfg
+}
+
+// resolveReviewerClient picks the client + model config for the post-execution
+// code reviewer. When Models.Reviewer specifies a provider it is built
+// independently (e.g. codex/gpt-5.5) — the reviewer is never spawned as a
+// coding agent, so it may use a provider with no agent runtime. On build
+// failure, or when unset, it reuses the senior client + Senior model config.
+func resolveReviewerClient(cfg config.Config, seniorClient llm.Client, godmode, dryRun bool) (llm.Client, config.ModelConfig) {
+	rc := cfg.Models.Reviewer
+	if rc.Provider == "" || dryRun {
+		return seniorClient, cfg.Models.Senior
+	}
+	built, err := buildLLMClient(rc.Provider, nil, godmode)
+	if err != nil {
+		log.Printf("[resume] reviewer provider %q unavailable, falling back to senior client: %v", rc.Provider, err)
+		return seniorClient, cfg.Models.Senior
+	}
+	log.Printf("[resume] reviewer using dedicated provider %q model %q", rc.Provider, rc.Model)
+	return built, rc
 }
 
 func runConsistencyCheck(stories []state.Story, cfg config.Config, stateDir string) []engine.RecoveryIssue {

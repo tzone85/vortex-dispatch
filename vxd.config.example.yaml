@@ -39,6 +39,14 @@ models:
     provider: anthropic
     model: claude-opus-4-7
     max_tokens: 8000
+  # Optional: dedicated model for the post-execution code reviewer.
+  # Falls back to `senior` when omitted. The reviewer is never spawned as a
+  # coding agent, so it may use `codex` (GPT-5.5 via subscription) even though
+  # senior cannot. Codex auto-falls back to claude-opus-4-7 on failure.
+  # reviewer:
+  #   provider: codex
+  #   model: gpt-5.5
+  #   max_tokens: 8000
 
 routing:
   junior_max_complexity: 3

@@ -44,8 +44,14 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 
 	log.Printf("[pipeline] starting post-execution for %s", storyID)
 
-	// Create a 5-minute timeout context for the entire pipeline
-	pipelineCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	// Bound the whole post-execution pipeline (review + QA + merge). Configurable
+	// because slow LLM reviewers (Codex agent loop) + conflict resolution under
+	// concurrent builds can exceed a tight limit. Falls back to 15m when unset.
+	pipelineTimeout := time.Duration(m.config.Monitor.PipelineTimeoutS) * time.Second
+	if pipelineTimeout <= 0 {
+		pipelineTimeout = 15 * time.Minute
+	}
+	pipelineCtx, cancel := context.WithTimeout(ctx, pipelineTimeout)
 	defer cancel()
 
 	// Auto-commit any uncommitted work left by the agent.

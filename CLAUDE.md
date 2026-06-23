@@ -348,6 +348,13 @@ Every failure is a chance to make the system stronger:
 - 16 tests in `artifact_protection_test.go` verify: auto-pull, master branch support, artifact cleanup, gitignore, CLAUDE.md preservation after merge, full pipeline integration
 - **Root cause (2026-04-30):** agents commit VXD directive CLAUDE.md into worktree branches → PR merges it → overwrites project's real CLAUDE.md. Tests caught that naive `git rm` would DELETE CLAUDE.md from main on merge — restore-to-base is the correct approach.
 
+### Dangling-Branch / PR Cleanup
+- `cleanupDanglingBranches` (`monitor_cleanup.go`) runs in the requirement-completion path (after `pullBaseAfterMerge`, before `REQ_COMPLETED`): for every story that did NOT merge, it deletes the local + remote `vxd/<story>` branch. Deleting the remote branch **auto-closes the associated PR on GitHub**, so a completed requirement leaves no dangling branches or PRs.
+- Pure selector `danglingBranchesToClean(stories, baseBranch)` decides what to remove: skips `merged` (branch already deleted at merge) and `split` (logical parents), never touches the base branch, dedups. 3 unit tests.
+- Gated by `cleanup.delete_dangling_branches` (default `true`; clients can opt out). Best-effort — local delete failing (branch checked out in a lingering worktree) is non-fatal; the remote delete still closes the PR.
+- Complements `vxd gc` (merged-branch retention) and `pullBaseAfterMerge` (root-artifact cleanup). Ported to NXD.
+- **Known follow-up — README Scribe:** spec at `docs/superpowers/specs/2026-06-07-readme-scribe-design.md` — a final auto-dispatched scribe story per requirement that amends the project README (greenfield-aware, marker-bounded) and links the other generated docs (training etc.) so a VXD-built repo has a human-readable "what was built + how to use it." Planned SP1–SP6, not yet implemented.
+
 ### Model ID Compatibility
 - **Use undated aliases, not dated snapshots.** Current defaults: `claude-opus-4-8` (tech_lead), `claude-sonnet-4-6` (senior/qa/manager), `claude-haiku-4-5` (cheapest). All three are verified working on the Claude CLI subscription tier.
 - **Dated snapshot IDs retire.** The old defaults `claude-opus-4-20250514` / `claude-sonnet-4-20250514` retired **2026-06-15** and now return HTTP 404 ("model may not exist or you may not have access"). Dated `-4-6-` IDs (e.g. `claude-sonnet-4-6-20250620`) also do NOT work on the CLI subscription tier. Prefer the bare alias (`claude-sonnet-4-6`), which the subscription resolves to the current snapshot.

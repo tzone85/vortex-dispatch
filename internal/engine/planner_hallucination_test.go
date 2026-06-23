@@ -93,7 +93,9 @@ func TestPlanner_AcceptsValidDependencies(t *testing.T) {
 			{"id":"s-002","title":"Feature","description":"x","acceptance_criteria":"x","complexity":2,"depends_on":["s-001"],"owned_files":["b.go"],"wave_hint":"parallel"}
 		]`,
 	}
-	p := engine.NewPlanner(llm.NewReplayClient(resp), config.DefaultConfig(), es, ps)
+	cfg := config.DefaultConfig()
+	cfg.Planning.EmitScribeStory = false
+	p := engine.NewPlanner(llm.NewReplayClient(resp), cfg, es, ps)
 
 	result, err := p.Plan(context.Background(), "req-valid", "Build feature", t.TempDir())
 	if err != nil {

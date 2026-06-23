@@ -57,6 +57,7 @@ func DefaultConfig() Config {
 			SequentialFilePatterns: []string{"package.json", "*.config.*", "src/core/*"},
 			MaxStoryComplexity:     5,
 			DesignApproach:         "ddd-tdd",
+			EmitScribeStory:        true,
 		},
 		Billing: BillingConfig{
 			DefaultRate: 150.0,

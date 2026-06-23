@@ -63,6 +63,11 @@ type PlanningConfig struct {
 	MaxStoryComplexity     int      `yaml:"max_story_complexity"`
 	Godmode                bool     `yaml:"godmode"`
 	DesignApproach         string   `yaml:"design_approach"` // "ddd-tdd" (default), "tdd", "standard"
+	// EmitScribeStory, when true (default), makes the planner append a final
+	// "scribe" story that depends on all others and updates the project README
+	// (greenfield-aware, edits only within vxd:scribe markers on existing
+	// READMEs) plus links the generated docs. Clients can opt out per project.
+	EmitScribeStory bool `yaml:"emit_scribe_story"`
 }
 
 // WorkspaceConfig holds workspace-level settings.

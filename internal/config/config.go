@@ -89,6 +89,11 @@ type ModelsConfig struct {
 	QA           ModelConfig `yaml:"qa"`
 	Supervisor   ModelConfig `yaml:"supervisor"`
 	Manager      ModelConfig `yaml:"manager"`
+	// Reviewer is the model for the post-execution code-review LLM call.
+	// Optional: when Provider is empty it falls back to Senior. Unlike Senior,
+	// the reviewer is never spawned as a coding agent, so it can use a provider
+	// (e.g. codex) that has no agent runtime.
+	Reviewer ModelConfig `yaml:"reviewer"`
 }
 
 // RoutingConfig controls how tasks are assigned to agent tiers.

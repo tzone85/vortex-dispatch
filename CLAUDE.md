@@ -353,7 +353,10 @@ Every failure is a chance to make the system stronger:
 - Pure selector `danglingBranchesToClean(stories, baseBranch)` decides what to remove: skips `merged` (branch already deleted at merge) and `split` (logical parents), never touches the base branch, dedups. 3 unit tests.
 - Gated by `cleanup.delete_dangling_branches` (default `true`; clients can opt out). Best-effort — local delete failing (branch checked out in a lingering worktree) is non-fatal; the remote delete still closes the PR.
 - Complements `vxd gc` (merged-branch retention) and `pullBaseAfterMerge` (root-artifact cleanup). Ported to NXD.
-- **Known follow-up — README Scribe:** spec at `docs/superpowers/specs/2026-06-07-readme-scribe-design.md` — a final auto-dispatched scribe story per requirement that amends the project README (greenfield-aware, marker-bounded) and links the other generated docs (training etc.) so a VXD-built repo has a human-readable "what was built + how to use it." Planned SP1–SP6, not yet implemented.
+### README Scribe (SP1 shipped)
+- `planning.emit_scribe_story` (default `true`) makes the planner append a final `<prefix>-scribe-readme` story that **depends on every other story** (runs last), owns `README.md`, and instructs the agent to document what was built, link the other repo docs (training/usage), use SVG (no Mermaid), and be **greenfield-aware** — author a full README on a stub, but on an existing README edit only within `<!-- vxd:scribe:start --> … <!-- vxd:scribe:end -->` markers so hand-written prose is never clobbered. `buildScribeStory` in `planner.go`; gated on `persist` so estimates don't include it.
+- **Test impact:** scribe is on by default, so planner/integration tests that assert exact story counts set `cfg.Planning.EmitScribeStory = false`. `TestPlanner_EmitsScribeStory` pins the behavior.
+- **SP2+ (follow-up):** route the scribe to a capable tier (currently complexity 3 → routes by complexity), a templated render path, marker-enforcement QA criterion, retry/abandon-to-`completed_doc_pending`, and NXD port.
 
 ### Model ID Compatibility
 - **Use undated aliases, not dated snapshots.** Current defaults: `claude-opus-4-8` (tech_lead), `claude-sonnet-4-6` (senior/qa/manager), `claude-haiku-4-5` (cheapest). All three are verified working on the Claude CLI subscription tier.

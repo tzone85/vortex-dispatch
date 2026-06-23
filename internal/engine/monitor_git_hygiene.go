@@ -128,7 +128,9 @@ func stripVXDArtifactsFromBranch(worktreePath, storyID string) {
 		} else {
 			// File doesn't exist on base — it was created by VXD/agent.
 			// Remove it completely so it doesn't appear in the PR.
-			rmCmd := exec.Command("git", "rm", "-rf", art)
+			// --ignore-unmatch makes an absent artifact a clean no-op instead of
+			// an exit-128 "pathspec did not match any files" log line.
+			rmCmd := exec.Command("git", "rm", "-rf", "--ignore-unmatch", art)
 			rmCmd.Dir = worktreePath
 			if out, err := rmCmd.CombinedOutput(); err != nil {
 				log.Printf("[pipeline] git rm %s for %s: %v (%s)", art, storyID, err, strings.TrimSpace(string(out)))

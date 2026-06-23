@@ -277,6 +277,18 @@ architecture and conventions when planning stories.`, profileContext)
 		}
 	}
 
+	// README Scribe: append a final story that documents what was built. It
+	// depends on every other story so it runs last (after all code is merged),
+	// owns README.md, and is greenfield-aware. Skipped for ephemeral estimates
+	// and when planning.emit_scribe_story is disabled.
+	if persist && p.config.Planning.EmitScribeStory && len(stories) > 0 {
+		deps := make([]string, 0, len(stories))
+		for _, s := range stories {
+			deps = append(deps, s.ID)
+		}
+		stories = append(stories, buildScribeStory(prefix, requirement, deps))
+	}
+
 	// Build dependency graph
 	dag := graph.New()
 	for _, s := range stories {
@@ -428,6 +440,34 @@ func storyIDPrefix(reqID string) string {
 	}
 	sum := sha256.Sum256([]byte(reqID))
 	return hex.EncodeToString(sum[:])[:8]
+}
+
+// scribeStorySuffix is the stable, un-prefixed id of the README-scribe story.
+const scribeStorySuffix = "scribe-readme"
+
+// buildScribeStory constructs the final documentation story. It depends on every
+// other story (deps are already prefixed), owns README.md, and instructs the
+// agent to be greenfield-aware and confine edits on an existing README to the
+// vxd:scribe markers so hand-written content is never clobbered.
+func buildScribeStory(prefix, requirement string, deps []string) PlannedStory {
+	desc := fmt.Sprintf(`Update README.md to document what this requirement delivered: %s
+
+Write for a reader who is new to the project — explain what it is, how to run it, and how to use it. Requirements:
+- Be accurate to what was actually built and merged; do not invent features.
+- Link to the other docs in this repo where they exist (e.g. docs/, training/usage guides) so the README is the entry point to fuller context.
+- Use SVG diagrams (no Mermaid) if a diagram helps.
+- Greenfield-aware: if README.md is empty or a bare stub, author a complete README. If it already has substantial hand-written content, edit ONLY inside the markers `+"`<!-- vxd:scribe:start -->`"+` ... `+"`<!-- vxd:scribe:end -->`"+` (create that block at the end if absent) — never rewrite or delete existing prose outside the markers.`, requirement)
+
+	return PlannedStory{
+		ID:                 prefix + "-" + scribeStorySuffix,
+		Title:              "Document the project in README.md and link the generated docs",
+		Description:        desc,
+		AcceptanceCriteria: FlexibleString("README.md exists and accurately documents the delivered functionality with run/usage instructions; it links the other repo docs where present; on a pre-existing README, edits are confined to the vxd:scribe markers and existing content outside them is unchanged."),
+		Complexity:         3,
+		DependsOn:          deps,
+		OwnedFiles:         []string{"README.md"},
+		WaveHint:           "sequential",
+	}
 }
 
 func (p *Planner) emitAndProject(eventType state.EventType, agentID, storyID string, payload map[string]any) error {

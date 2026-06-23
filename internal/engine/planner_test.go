@@ -40,6 +40,7 @@ func TestPlanner_Plan(t *testing.T) {
 	})
 
 	cfg := config.DefaultConfig()
+	cfg.Planning.EmitScribeStory = false
 	planner := engine.NewPlanner(client, cfg, eventStore, projStore)
 
 	result, err := planner.Plan(context.Background(), "r-001", "Add user authentication", dir)
@@ -142,6 +143,55 @@ func TestPlanner_PlanEphemeral_DoesNotPersist(t *testing.T) {
 	}
 	if len(stories) != 0 {
 		t.Fatalf("ephemeral plan persisted %d stories, want 0", len(stories))
+	}
+}
+
+// TestPlanner_EmitsScribeStory verifies the README Scribe: with
+// planning.emit_scribe_story enabled (default), the planner appends a final
+// documentation story that depends on every other story; disabling it omits it.
+func TestPlanner_EmitsScribeStory(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0644)
+
+	resp := `[
+		{"id": "s-001", "title": "A", "description": "d", "acceptance_criteria": "ac", "complexity": 3, "depends_on": []},
+		{"id": "s-002", "title": "B", "description": "d", "acceptance_criteria": "ac", "complexity": 3, "depends_on": ["s-001"]}
+	]`
+
+	run := func(emit bool) engine.PlanResult {
+		eventStore, _ := state.NewFileStore(filepath.Join(dir, "e-"+map[bool]string{true: "on", false: "off"}[emit]+".jsonl"))
+		defer eventStore.Close()
+		projStore, _ := state.NewSQLiteStore(":memory:")
+		defer projStore.Close()
+		cfg := config.DefaultConfig()
+		cfg.Planning.EmitScribeStory = emit
+		planner := engine.NewPlanner(llm.NewReplayClient(llm.CompletionResponse{Content: resp}), cfg, eventStore, projStore)
+		result, err := planner.Plan(context.Background(), "r-001", "Build a thing", dir)
+		if err != nil {
+			t.Fatalf("plan (emit=%v): %v", emit, err)
+		}
+		return result
+	}
+
+	// Enabled: 2 stories + 1 scribe = 3; scribe is last and depends on both.
+	on := run(true)
+	if len(on.Stories) != 3 {
+		t.Fatalf("expected 3 stories with scribe, got %d", len(on.Stories))
+	}
+	scribe := on.Stories[len(on.Stories)-1]
+	if scribe.ID != "r-001-scribe-readme" {
+		t.Fatalf("expected scribe id r-001-scribe-readme, got %q", scribe.ID)
+	}
+	if len(scribe.OwnedFiles) != 1 || scribe.OwnedFiles[0] != "README.md" {
+		t.Fatalf("scribe should own README.md, got %v", scribe.OwnedFiles)
+	}
+	if len(scribe.DependsOn) != 2 {
+		t.Fatalf("scribe should depend on both stories, got %v", scribe.DependsOn)
+	}
+
+	// Disabled: just the 2 stories.
+	if off := run(false); len(off.Stories) != 2 {
+		t.Fatalf("expected 2 stories with scribe disabled, got %d", len(off.Stories))
 	}
 }
 
@@ -259,6 +309,7 @@ func TestPlan_ParsesOwnedFiles(t *testing.T) {
 
 	client := llm.NewReplayClient(llm.CompletionResponse{Content: response})
 	cfg := config.DefaultConfig()
+	cfg.Planning.EmitScribeStory = false
 	planner := engine.NewPlanner(client, cfg, eventStore, projStore)
 
 	result, err := planner.Plan(context.Background(), "r-002", "Add API layer", dir)
@@ -311,6 +362,7 @@ func TestPlan_RejectsExcessiveComplexity(t *testing.T) {
 
 	client := llm.NewReplayClient(llm.CompletionResponse{Content: response})
 	cfg := config.DefaultConfig()
+	cfg.Planning.EmitScribeStory = false
 	cfg.Planning.MaxStoryComplexity = 5
 	planner := engine.NewPlanner(client, cfg, eventStore, projStore)
 
@@ -343,6 +395,7 @@ func TestPlan_RejectsFileOverlap(t *testing.T) {
 
 	client := llm.NewReplayClient(llm.CompletionResponse{Content: response})
 	cfg := config.DefaultConfig()
+	cfg.Planning.EmitScribeStory = false
 	planner := engine.NewPlanner(client, cfg, eventStore, projStore)
 
 	// Overlapping files should be auto-sequenced instead of rejected.
@@ -392,6 +445,7 @@ func TestRePlan_CreatesReplacementStories(t *testing.T) {
 	})
 
 	cfg := config.DefaultConfig()
+	cfg.Planning.EmitScribeStory = false
 	planner := engine.NewPlanner(client, cfg, eventStore, projStore)
 
 	stories, err := planner.RePlan(context.Background(), "s-001", "r-001", "Story failed 3 times: test compilation error in handler.go")

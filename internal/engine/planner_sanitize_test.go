@@ -43,7 +43,9 @@ func TestPlanner_AllowsCleanRequirement(t *testing.T) {
 	resp := llm.CompletionResponse{
 		Content: `[{"id":"s-001","title":"Setup","description":"Create project","acceptance_criteria":"Builds","complexity":1,"depends_on":[],"owned_files":["main.go"],"wave_hint":"parallel"}]`,
 	}
-	p := NewPlanner(llm.NewReplayClient(resp), config.DefaultConfig(), es, ps)
+	cfg := config.DefaultConfig()
+	cfg.Planning.EmitScribeStory = false
+	p := NewPlanner(llm.NewReplayClient(resp), cfg, es, ps)
 
 	result, err := p.Plan(context.Background(), "req-003",
 		"Add a health check endpoint that returns 200 OK", t.TempDir())

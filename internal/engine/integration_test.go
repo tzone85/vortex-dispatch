@@ -83,6 +83,7 @@ func TestIntegration_PlannerToDispatcher(t *testing.T) {
 	})
 
 	cfg := config.DefaultConfig()
+	cfg.Planning.EmitScribeStory = false
 	planner := engine.NewPlanner(client, cfg, es, ps)
 
 	// --- Phase 1: Plan ---
@@ -208,6 +209,7 @@ func TestIntegration_FullPipeline_PlanDispatchReviewQAMerge(t *testing.T) {
 	}`
 
 	cfg := config.DefaultConfig()
+	cfg.Planning.EmitScribeStory = false
 	replayClient := llm.NewReplayClient(
 		llm.CompletionResponse{Content: plannerResponse, Model: "claude-opus-4"},
 		llm.CompletionResponse{Content: reviewResponse, Model: "claude-sonnet-4"},
@@ -392,6 +394,7 @@ func TestIntegration_MultiStoryPipeline(t *testing.T) {
 	})
 
 	cfg := config.DefaultConfig()
+	cfg.Planning.EmitScribeStory = false
 	cfg.Planning.MaxStoryComplexity = 13
 	planner := engine.NewPlanner(client, cfg, es, ps)
 	planResult, err := planner.Plan(context.Background(), "r-multi", "Build multi-story feature", repoDir)
@@ -476,6 +479,7 @@ func TestIntegration_PlannerEventPersistence(t *testing.T) {
 
 	client := llm.NewReplayClient(llm.CompletionResponse{Content: response})
 	cfg := config.DefaultConfig()
+	cfg.Planning.EmitScribeStory = false
 	planner := engine.NewPlanner(client, cfg, es, ps)
 
 	_, err := planner.Plan(context.Background(), "r-persis", "Persist test", repoDir)
@@ -575,6 +579,7 @@ func TestIntegration_DependencyStorageAndDAGReconstruction(t *testing.T) {
 	})
 
 	cfg := config.DefaultConfig()
+	cfg.Planning.EmitScribeStory = false
 	cfg.Planning.MaxStoryComplexity = 13
 	planner := engine.NewPlanner(client, cfg, es, ps)
 

@@ -40,6 +40,7 @@ func DefaultConfig() Config {
 			PollIntervalMs:         10000,
 			StuckThresholdS:        600, // 10 min — reduced false-alarm rate observed in live tests
 			ContextFreshnessTokens: 150000,
+			PipelineTimeoutS:       900, // 15 min — room for slow LLM reviewers (Codex) + conflict resolution
 		},
 		Cleanup: CleanupConfig{
 			WorktreePrune:          "immediate",

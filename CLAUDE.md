@@ -349,9 +349,18 @@ Every failure is a chance to make the system stronger:
 - **Root cause (2026-04-30):** agents commit VXD directive CLAUDE.md into worktree branches → PR merges it → overwrites project's real CLAUDE.md. Tests caught that naive `git rm` would DELETE CLAUDE.md from main on merge — restore-to-base is the correct approach.
 
 ### Model ID Compatibility
-- Claude CLI subscription uses `claude-sonnet-4-20250514` / `claude-opus-4-20250514`
-- Dated 4.6 IDs (`claude-sonnet-4-6-20250620`) do NOT work on CLI subscription tier
-- Always test model IDs with `claude --model <id> -p "test" --max-turns 1` before updating defaults
+- **Use undated aliases, not dated snapshots.** Current defaults: `claude-opus-4-8` (tech_lead), `claude-sonnet-4-6` (senior/qa/manager), `claude-haiku-4-5` (cheapest). All three are verified working on the Claude CLI subscription tier.
+- **Dated snapshot IDs retire.** The old defaults `claude-opus-4-20250514` / `claude-sonnet-4-20250514` retired **2026-06-15** and now return HTTP 404 ("model may not exist or you may not have access"). Dated `-4-6-` IDs (e.g. `claude-sonnet-4-6-20250620`) also do NOT work on the CLI subscription tier. Prefer the bare alias (`claude-sonnet-4-6`), which the subscription resolves to the current snapshot.
+- **A 404 model error cascades into a false escalation.** When the reviewer/manager LLM call 404s on a retired model, the pipeline treats it as a story-quality failure: reset → tier-1 → manager → tech-lead split → max-split-depth → requirement paused with a misleading "top up your API credits" message. If a whole requirement pauses and the logs show `api_error_status:404` / "model may not exist", fix the model IDs first — it is not a credit or code-quality problem.
+- Always test a model ID with `claude --model <id> -p "test" --max-turns 1` before setting it as a default.
+
+### Codex CLI Provider (GPT via subscription)
+- Provider `codex` (aliases: `codex-cli`, `openai-cli`, `gpt-cli`) runs GPT through the **Codex CLI** subscription — the GPT analogue of the `claude` CLI — so no per-token OpenAI API credits are used. Configure per role: `qa: {provider: codex, model: gpt-5.5}`.
+- **Model: `gpt-5.5`** (the default a ChatGPT/Codex account serves). Bare API IDs (`gpt-5`, `gpt-5-codex`) are **rejected** on a ChatGPT account ("not supported when using Codex with a ChatGPT account") — use `gpt-5.5`. `internal/llm/codex_cli.go` exports `DefaultCodexModel`.
+- **Implementation:** `CodexCLIClient` invokes `codex exec -m <model> --skip-git-repo-check -s read-only --color never --ignore-user-config -o <file> -` (prompt via stdin; clean final message read from the `-o` file, not the noisy event stream). `FilterCodexEnv` strips `OPENAI_API_KEY`/`CODEX_API_KEY` so the subscription is used, not the API. Codex exits 0 even on a model 400, so success is keyed on the `-o` file having content, not exit code.
+- **Automatic fallback:** the provider is wired as `CodexWithFallback` — on any Codex failure (CLI missing, rate limit, rejected model) it falls back to the Claude CLI on `claude-opus-4-7` (constant `codexFallbackModel` in `req.go`). The fallback substitutes the Anthropic model ID, since Codex and Anthropic use different IDs.
+- **Setup:** `npm i -g @openai/codex` then `codex login` (ChatGPT subscription). Verify: `codex exec -m gpt-5.5 --skip-git-repo-check -s read-only --ignore-user-config -o /tmp/x "say OK"`.
+- **Caveat — QA is command-based.** VXD's QA stage (`qa.go`) runs lint/build/test, not an LLM, so a `codex` binding on the `qa` role is inert until an LLM-QA path exists. The roles that make LLM calls today are the reviewer (Senior model) and manager (Manager model) — bind `codex` there to have GPT-5.5 actually perform verification/diagnosis.
 
 ### Debugging Checklist (Pipeline Issues)
 1. **Stories stuck in draft after escalation** → Check if SLA breach is killing them on resume. Reset `escalation_tier` in SQLite if needed.

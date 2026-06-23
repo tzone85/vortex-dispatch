@@ -160,7 +160,7 @@ func buildLiveCoordinator(repoDir string, cfg config.Config) (*autoresearch.Coor
 
 	model := cfg.Models.Senior.Model
 	if model == "" {
-		model = "claude-sonnet-4-20250514"
+		model = "claude-sonnet-4-6"
 	}
 
 	worktreeRoot := filepath.Join(stateDir, "autoresearch-worktrees", filepath.Base(repoDir))

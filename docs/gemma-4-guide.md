@@ -91,7 +91,7 @@ models:
     max_tokens: 4000
   supervisor:
     provider: anthropic
-    model: claude-sonnet-4-20250514
+    model: claude-sonnet-4-6
     max_tokens: 4000
 ```
 

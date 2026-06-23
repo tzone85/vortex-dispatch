@@ -75,8 +75,8 @@ workspace:
   state_dir: ~/.vxd
   backend: sqlite
 models:
-  tech_lead: {provider: anthropic, model: claude-opus-4-20250514}
-  senior: {provider: anthropic, model: claude-sonnet-4-20250514}
+  tech_lead: {provider: anthropic, model: claude-opus-4-8}
+  senior: {provider: anthropic, model: claude-sonnet-4-6}
   junior: {provider: google, model: gemma-4-27b-it}
 routing:
   junior_max_complexity: 3

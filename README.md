@@ -332,7 +332,7 @@ Run `vxd init` to generate `vxd.yaml` with sensible defaults, then customize:
 | Section | Purpose | Key Defaults |
 |---------|---------|--------------|
 | `workspace` | State directory, storage backend (`sqlite`/`dolt`), log level (`debug`/`info`/`warn`/`error`), and log retention in days | `state_dir: ~/.vxd`, `backend: sqlite`, `log_level: info`, `log_retention_days: 30` |
-| `models` | LLM provider and model binding per agent role — tech_lead, senior, intermediate, junior, qa, supervisor, manager | `tech_lead: claude-opus-4-20250514` (anthropic), `senior/qa/manager: claude-sonnet-4-20250514`, `junior/intermediate/supervisor: gemma-4-27b-it` (google) |
+| `models` | LLM provider and model binding per agent role — tech_lead, senior, intermediate, junior, qa, supervisor, manager. Providers: `anthropic` (Claude CLI/API), `google` (Gemma), `codex` (GPT via Codex subscription, model `gpt-5.5`, auto-falls back to Opus 4.7) | `tech_lead: claude-opus-4-8` (anthropic), `senior/qa/manager: claude-opus-4-7`, `junior/intermediate/supervisor: gemma-4-27b-it` (google) |
 | `routing` | Story complexity thresholds per tier, max retries before escalation, and max concurrent agents | `junior_max_complexity: 3`, `intermediate_max_complexity: 5`, `max_retries_before_escalation: 2`, `max_concurrent_agents: 5` |
 | `planning` | Max story complexity (Fibonacci cap), sequential-file patterns, design approach, and godmode flag | `max_story_complexity: 5`, `design_approach: ddd-tdd`, `godmode: false` |
 | `monitor` | Supervisor polling interval, stuck-agent threshold, and context-freshness token budget | `poll_interval_ms: 10000`, `stuck_threshold_s: 600`, `context_freshness_tokens: 150000` |

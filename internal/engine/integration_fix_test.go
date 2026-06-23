@@ -11,7 +11,7 @@ import (
 // prompt produced by buildPrompt contains the build error, a stories section,
 // and instruction to produce a fix story.
 func TestTechLeadFixer_BuildPrompt_ContainsRequiredSections(t *testing.T) {
-	fixer := &TechLeadFixer{model: "claude-opus-4-20250514"}
+	fixer := &TechLeadFixer{model: "claude-opus-4-8"}
 
 	stories := []state.Story{
 		{ID: "abc12345-s-001", Title: "Add HTTP handler"},
@@ -41,7 +41,7 @@ func TestTechLeadFixer_BuildPrompt_ContainsRequiredSections(t *testing.T) {
 // TestTechLeadFixer_BuildPrompt_EmptyStories verifies that buildPrompt handles
 // an empty stories slice without panicking.
 func TestTechLeadFixer_BuildPrompt_EmptyStories(t *testing.T) {
-	fixer := &TechLeadFixer{model: "claude-opus-4-20250514"}
+	fixer := &TechLeadFixer{model: "claude-opus-4-8"}
 	prompt := fixer.buildPrompt("story-001", "build failed", nil)
 	if len(prompt) == 0 {
 		t.Error("expected non-empty prompt even with no stories")

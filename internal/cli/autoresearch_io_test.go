@@ -44,10 +44,10 @@ func TestLoadConfigForAutoresearch_ParsesValidFile(t *testing.T) {
 models:
   tech_lead:
     provider: anthropic
-    model: claude-opus-4-20250514
+    model: claude-opus-4-8
   senior:
     provider: anthropic
-    model: claude-sonnet-4-20250514
+    model: claude-sonnet-4-6
   junior:
     provider: anthropic
     model: claude-haiku-4-5-20251001

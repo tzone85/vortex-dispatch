@@ -396,7 +396,7 @@ Run `vxd init` to generate `vxd.yaml` with sensible defaults, then customize:
 | `notify` | Outbound Slack webhook URL and per-event triggers (`notify_on_sla`, `notify_on_complete`) | Disabled by default (empty `slack_webhook_url`) |
 | `autoresearch` | Per-repo Karpathy-style experiment loop: metric command, editable_paths allowlist, gate (`auto`/`winning`/`pr`), experiment budget, and Bayesian sampler | Disabled by default (`enabled: false`); requires `metric.command` and `editable_paths` when enabled |
 | `devdb` | Per-story ephemeral Postgres: backend (`ghost`/`docker`/`null`), template DB to fork from, on-failure retention policy, and provider-specific settings | Disabled by default (`provider: null`); requires `template` when enabled. See "Ephemeral Databases" section below. |
-| `dashboard` | Always-on status surface: `auto_start` (fork the web dashboard daemon on `vxd req`), `auto_open` (try to open a browser), and `port` (web server port). Auto-open is suppressed automatically on SSH sessions, headless Linux hosts, or when stdout is not a TTY. | `auto_start: true`, `auto_open: true`, `port: 8787`. Override per run with `--no-dashboard`. |
+| `dashboard` | Always-on status surface: `auto_start` (fork the web dashboard daemon on `vxd req`), `auto_open` (try to open a browser), and `port` (web server port). Auto-open is suppressed automatically on SSH sessions, headless Linux hosts, or when stdout is not a TTY. | `auto_start: true`, `auto_open: false`, `port: 8787`. Override per run with `--no-dashboard`. |
 
 ## Ephemeral Databases
 

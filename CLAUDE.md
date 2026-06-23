@@ -129,7 +129,7 @@ devdb:  # planned — design spec complete, impl in SP1–SP6 PRs
     host: "localhost"  # set to VM IP for Colima/Lima setups (e.g. "192.168.64.3")
 dashboard:
   auto_start: true   # `vxd req` forks a detached `vxd dashboard --web` daemon (or reuses one running)
-  auto_open: true    # also try to open the user's default browser; auto-detect headless (SSH, no DISPLAY, non-TTY)
+  auto_open: false   # off by default; URL still printed. true = also open the user's default browser; auto-detect headless (SSH, no DISPLAY, non-TTY)
   port: 8787         # web server port; daemon pidfile at ~/.vxd/dashboard.pid, bootstrap nonce at ~/.vxd/dashboard.bootstrap (0o600)
 ```
 

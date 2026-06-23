@@ -155,6 +155,7 @@ IMPORTANT REVIEW GUIDELINES:
 - Do NOT reject because files appear "missing" if they are listed in the file tree above.
 - Focus on whether the NEW code in the diff is correct, well-structured, and meets the acceptance criteria.
 - Pass the review if the code makes reasonable progress toward the acceptance criteria, even if not 100%% perfect.
+- Do NOT reject SOLELY because the diff touches more files than the story names (a "single-file" or "files expected" constraint). Additional changes that are necessary and directly related — e.g. a dependency migration the new model needs, an import/registration fix, a shared config or barrel file — are acceptable when the acceptance criteria are functionally met. Reject for out-of-scope changes only when they are unrelated to the story, destructive, or clearly outside its intent. Scope is a reason to flag a minor/info comment, not to fail correct, on-topic work.
 
 Review the code for:
 1. Correctness - does the diff content meet the acceptance criteria?

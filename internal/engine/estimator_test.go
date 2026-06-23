@@ -62,6 +62,55 @@ func TestEstimator_LiveEstimate(t *testing.T) {
 	}
 }
 
+// TestEstimator_MultipleEstimates_NoCollision reproduces the reported crash:
+// running `vxd estimate` twice failed with "UNIQUE constraint failed:
+// stories.id" because estimation persisted planner stories under the constant
+// "est-2026" prefix. Estimation is a read-only quote and must be re-runnable.
+func TestEstimator_MultipleEstimates_NoCollision(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0644)
+
+	eventStore, err := state.NewFileStore(filepath.Join(dir, "events.jsonl"))
+	if err != nil {
+		t.Fatalf("create event store: %v", err)
+	}
+	defer eventStore.Close()
+
+	projStore, err := state.NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("create proj store: %v", err)
+	}
+	defer projStore.Close()
+
+	resp := `[
+		{"id": "s-001", "title": "Build backend", "description": "API", "acceptance_criteria": "works", "complexity": 5, "depends_on": []},
+		{"id": "s-002", "title": "Build frontend", "description": "UI", "acceptance_criteria": "works", "complexity": 3, "depends_on": ["s-001"]}
+	]`
+	client := llm.NewReplayClient(
+		llm.CompletionResponse{Content: resp, Model: "claude-opus-4"},
+		llm.CompletionResponse{Content: resp, Model: "claude-opus-4"},
+	)
+
+	estimator := engine.NewEstimator(client, config.DefaultConfig(), eventStore, projStore)
+
+	// First (erroneous) estimate, then a corrected resubmission.
+	if _, err := estimator.Estimate(context.Background(), "Buidl the backend", dir, engine.EstimateOptions{}); err != nil {
+		t.Fatalf("first estimate: %v", err)
+	}
+	if _, err := estimator.Estimate(context.Background(), "Build the backend and frontend", dir, engine.EstimateOptions{}); err != nil {
+		t.Fatalf("second estimate must not collide: %v", err)
+	}
+
+	// Estimation is read-only — no stories should leak into the project.
+	stories, err := projStore.ListStories(state.StoryFilter{})
+	if err != nil {
+		t.Fatalf("list stories: %v", err)
+	}
+	if len(stories) != 0 {
+		t.Fatalf("estimate persisted %d stories into the project, want 0", len(stories))
+	}
+}
+
 func TestEstimator_QuickEstimate(t *testing.T) {
 	cfg := config.DefaultConfig()
 	estimator := engine.NewEstimator(nil, cfg, nil, nil)

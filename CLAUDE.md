@@ -319,6 +319,11 @@ Every failure is a chance to make the system stronger:
 - `SaveRunSummary` is called TWICE: once at Phase 5 (pre-email) and once at end (with `email_sent` flag)
 - Stale `*_boost_test.go` / `*_coverage_test.go` files are auto-generated and may reference deleted functions — delete them if they break the build
 
+### Estimate is Read-Only; Story-ID Prefix Uniqueness
+- `vxd estimate` is a quote — it decomposes via `Planner.PlanEphemeral` (in `planner.go`), which runs the full Tech-Lead decomposition but persists **nothing** (no REQ_SUBMITTED / STORY_CREATED / REQ_PLANNED). Re-run it freely; nothing leaks into project state. `Planner.Plan` (used by `vxd req`) keeps persisting.
+- Story IDs are namespaced by `storyIDPrefix(reqID)`: reqIDs ≤8 chars are used verbatim (readability + test fixtures like `r-001`); longer reqIDs use the first 8 hex chars of `sha256(reqID)`.
+- **Root cause (2026-06-23):** the old code truncated reqID to `prefix[:8]`. Estimate reqIDs (`est-YYYYMMDD-...`) all collapsed to `est-2026`, so the second `vxd estimate` of the year crashed on `UNIQUE constraint failed: stories.id`. ULIDs also collided within ~256ms (entropy is in the trailing chars). Hashing the full reqID fixes both; estimate not persisting at all is the deeper fix.
+
 ### gitDiff Branch Support
 - `gitDiff()` in `monitor.go` tries merge-base candidates: `origin/main`, `origin/master`, `main`, `master`
 - Repos using `master` (e.g., a legacy API repo) previously fell back to root commit, producing massive diffs that obscured real changes

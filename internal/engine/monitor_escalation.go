@@ -32,6 +32,11 @@ func (m *Monitor) handleManagerEscalation(ctx context.Context, story PlannedStor
 			m.pauseRequirement(storyID, fmt.Sprintf("fatal API error in manager: %v", err))
 			return
 		}
+		// A capacity/session limit here is not a diagnosis failure — pause
+		// without resetting to draft (which would burn an escalation attempt).
+		if m.pauseIfCapacity(storyID, "manager diagnosis", err) {
+			return
+		}
 		m.resetStoryToDraft(storyID, "manager", fmt.Sprintf("diagnosis error: %v", err))
 		return
 	}
@@ -265,6 +270,12 @@ func (m *Monitor) handleTechLeadEscalation(ctx context.Context, story PlannedSto
 	replacements, err := m.planner.RePlan(ctx, storyID, rc.ReqID, failureContext.String())
 	if err != nil {
 		log.Printf("[tech-lead] re-plan failed for %s: %v", storyID, err)
+		// Distinguish a true re-plan failure from a capacity/session limit so
+		// the operator gets accurate guidance (resume after reset, not "rewrite
+		// the requirement"). Either way the requirement pauses.
+		if m.pauseIfCapacity(storyID, "tech-lead re-plan", err) {
+			return
+		}
 		m.pauseRequirement(storyID, fmt.Sprintf("tech lead re-plan failed: %v", err))
 		return
 	}

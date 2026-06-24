@@ -253,6 +253,19 @@ Every story's acceptance criteria MUST include:
 - "All tests pass after implementation"
 - "No test should depend on implementation details — test behavior, not structure"
 
+### Human-readable acceptance criteria (REQUIRED FORMAT):
+The acceptance_criteria field is read by humans clicking through the story, not
+only by the implementing agent. Write it so a reader understands the INTENT.
+- Write 3-6 discrete criteria, ONE per line, each starting with "- ".
+- Each line is a single, self-contained, verifiable statement in plain language.
+- Lead with the observable outcome (what is true when done), not the command.
+  Put any exact build/test command at the END of its line in parentheses.
+  Good:  "- The parser rejects unknown verbs without crashing (verified by 'go test ./parser')."
+  Avoid: "go test ./parser green. parser handles verbs. no panic."
+- Never pack multiple checks into one run-on sentence separated by periods.
+- Define the intent first; a non-author reading only the criteria should be able
+  to explain what the story delivers.
+
 For New Projects:
 - The first story MUST establish the project structure following DDD layers (domain/, application/, infrastructure/)
 - Every subsequent story MUST specify exact file paths within these layers

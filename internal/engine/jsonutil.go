@@ -17,7 +17,13 @@ func extractJSON(raw string) string {
 		return ""
 	}
 
-	// Pattern 2: code fence (anywhere — covers preamble + fenced cases)
+	// Pattern 2: code fence (anywhere — covers preamble + fenced cases).
+	// We only trust the fenced content if it is itself valid JSON. Otherwise we
+	// fall through to the depth-aware scan below: taking the FIRST closing fence
+	// truncates payloads whose own string values contain a nested ``` fence
+	// (common in reviewer output that quotes code), and returning that unchecked
+	// yields invalid JSON. The depth scan tracks string state, so a ``` inside a
+	// JSON string value is correctly treated as data, not a delimiter.
 	if fenceStart := strings.Index(s, "```"); fenceStart != -1 {
 		inner := s[fenceStart+3:]
 		// Skip optional language tag (everything up to first newline)
@@ -28,7 +34,10 @@ func extractJSON(raw string) string {
 		if fenceEnd := strings.Index(inner, "```"); fenceEnd != -1 {
 			inner = inner[:fenceEnd]
 		}
-		return strings.TrimSpace(inner)
+		if candidate := strings.TrimSpace(inner); json.Valid([]byte(candidate)) {
+			return candidate
+		}
+		// Fenced content wasn't valid JSON — fall through to the depth scan.
 	}
 
 	// Pattern 3: depth-aware bracket matching (handles nested objects/arrays

@@ -360,6 +360,14 @@ Every failure is a chance to make the system stronger:
 - **Generation:** the Tech-Lead prompt (`prompts.go`) and the planner tool schema (`toolschemas.go`) now require 3-6 discrete, intent-first criteria, one per line, command-in-parentheses-at-end — so newly planned stories are readable at the source.
 - **NXD port:** mirror `internal/criteria` + the review/dashboard wiring (offline-first; keep zero VXD references).
 
+### extractJSON nested-fence robustness 2026-06-24
+- `extractJSON` (`jsonutil.go`) took the FIRST closing ``` and returned the fenced content **without validating it**. Reviewer output that quotes code (a JSON payload whose string values contain a nested ```` ``` ```` fence) was truncated at the inner fence → invalid JSON → review failure. Fix: the fence branch now returns only if the fenced content is valid JSON, else falls through to the depth-aware scan (which tracks string state, so a ``` inside a JSON string value is treated as data). `TestExtractJSON_NestedFenceInStringValue` pins it.
+
+### KNOWN ISSUE — 429 / session-limit cascades into a false "re-plan failed" pause
+- Surfaced 2026-06-24 running 6 concurrent autonomous builds: the Claude Max **session limit** (`api_error_status:429`, "You've hit your session limit · resets <time>") hit the tech-lead re-plan LLM call, which the pipeline reported as `tech lead re-plan failed: ... planning failed` and **paused the requirement only after burning the escalation chain** (reset → tier-1 → manager → tech-lead re-plan). Same false-cascade documented for 404 model errors in the Model ID Compatibility section.
+- **Operational:** ~5h rolling session cap. Don't run >~2 builds concurrently on one Max subscription. After the stated reset time, `vxd resume <req-id>` each paused requirement.
+- **TODO (needs a live build to validate, so not yet fixed):** classify rate/session-limit errors (`429`, "session limit", "rate limit", "overloaded") at the LLM-call layer and short-circuit to a clean pause with an accurate message ("LLM capacity/session limit — resume after reset"), bypassing the escalation chain.
+
 ### Audit hardening 2026-06-24
 Robustness pass from an adversarial principles audit (correctness/flakiness gaps the bulletproofing pass left open). Each fix is TDD-pinned.
 - **Empty-plan strand (CRITICAL):** `Planner.plan` had no zero-stories guard (only `RePlan` did). A Tech-Lead `[]` response emitted `REQ_PLANNED` with no stories and stranded the requirement forever after a paid call. Now errors before any emission. Also rejects stories with empty `id`/`title` at the LLM boundary.

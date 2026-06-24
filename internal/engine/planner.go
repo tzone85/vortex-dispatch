@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/tzone85/vortex-dispatch/internal/agent"
 	"github.com/tzone85/vortex-dispatch/internal/config"
@@ -206,6 +207,25 @@ architecture and conventions when planning stories.`, profileContext)
 	cleaned := extractJSON(resp.Content)
 	if err := json.Unmarshal([]byte(cleaned), &stories); err != nil {
 		return PlanResult{}, fmt.Errorf("parse stories: %w (response: %s)", err, resp.Content)
+	}
+
+	// A plan with zero stories is always a failure: the Tech Lead returned an
+	// empty array (or a comment-only response). Without this guard the pipeline
+	// would emit REQ_PLANNED with no STORY_CREATED events and strand the
+	// requirement in "planned" forever after a paid LLM call.
+	if len(stories) == 0 {
+		return PlanResult{}, fmt.Errorf("tech lead returned no stories for requirement %q", reqID)
+	}
+
+	// Reject content-free stories at the LLM boundary — an empty id or title is
+	// corruption that would otherwise dispatch an agent against nothing.
+	for _, s := range stories {
+		if strings.TrimSpace(s.ID) == "" {
+			return PlanResult{}, fmt.Errorf("tech lead returned a story with an empty id")
+		}
+		if strings.TrimSpace(s.Title) == "" {
+			return PlanResult{}, fmt.Errorf("tech lead returned story %q with an empty title", s.ID)
+		}
 	}
 
 	// Make story IDs globally unique by prefixing with a short, collision-

@@ -29,8 +29,15 @@ func StartRebase(worktreePath, upstream string) error {
 // in the given worktree. It uses `git status --porcelain` which reliably
 // detects all unmerged states (UU, AA, DD, AU, UA, DU, UD), unlike
 // `git diff --diff-filter=U` which can miss some conflict types.
+//
+// The `-z` flag is required for path correctness: the default `--porcelain`
+// output wraps any path containing a space or non-ASCII byte in double quotes
+// with octal escapes (e.g. "r\303\251sum\303\251 a.txt"). That mangled string
+// would then be passed verbatim to SniffBinary/StageFiles and fail, silently
+// breaking conflict resolution for any file with a spaced/accented/CJK name.
+// `-z` emits NUL-terminated, never-quoted records, so paths survive intact.
 func ConflictedFiles(worktreePath string) ([]string, error) {
-	cmd := exec.Command("git", "status", "--porcelain")
+	cmd := exec.Command("git", "status", "--porcelain", "-z")
 	cmd.Dir = worktreePath
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -38,15 +45,17 @@ func ConflictedFiles(worktreePath string) ([]string, error) {
 	}
 
 	var files []string
-	for _, line := range strings.Split(string(out), "\n") {
-		if len(line) < 4 {
+	for _, rec := range strings.Split(string(out), "\x00") {
+		// Each record is "XY<space>path"; renames add a second NUL-delimited
+		// path, but conflicts (the only states we keep) never rename.
+		if len(rec) < 4 {
 			continue
 		}
 		// Unmerged status codes: UU, AA, DD, AU, UA, DU, UD
-		xy := line[:2]
+		xy := rec[:2]
 		if xy == "UU" || xy == "AA" || xy == "DD" ||
 			xy == "AU" || xy == "UA" || xy == "DU" || xy == "UD" {
-			files = append(files, strings.TrimSpace(line[3:]))
+			files = append(files, rec[3:])
 		}
 	}
 	return files, nil

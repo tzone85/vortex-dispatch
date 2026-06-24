@@ -360,6 +360,13 @@ Every failure is a chance to make the system stronger:
 - **Generation:** the Tech-Lead prompt (`prompts.go`) and the planner tool schema (`toolschemas.go`) now require 3-6 discrete, intent-first criteria, one per line, command-in-parentheses-at-end — so newly planned stories are readable at the source.
 - **NXD port:** mirror `internal/criteria` + the review/dashboard wiring (offline-first; keep zero VXD references).
 
+### Audit hardening 2026-06-24
+Robustness pass from an adversarial principles audit (correctness/flakiness gaps the bulletproofing pass left open). Each fix is TDD-pinned.
+- **Empty-plan strand (CRITICAL):** `Planner.plan` had no zero-stories guard (only `RePlan` did). A Tech-Lead `[]` response emitted `REQ_PLANNED` with no stories and stranded the requirement forever after a paid call. Now errors before any emission. Also rejects stories with empty `id`/`title` at the LLM boundary.
+- **Conflict path mangled non-ASCII/spaced filenames (HIGH):** `git.ConflictedFiles` parsed `git status --porcelain` (default `quotepath=true`), so `résumé draft.txt` came back quoted+octal-escaped and broke `SniffBinary`/`StageFiles`. Switched to `--porcelain -z` (NUL-delimited, never quoted).
+- **Dead post-merge integration build (HIGH, dangling wire):** `Monitor.SetTechLeadFixer` was never called in `resume.go`, so `runIntegrationBuild`/`DispatchIntegrationFix` (CLAUDE.md item 17) never ran in production. Now wired next to `SetDocGenerator`; `TestResume_WiresTechLeadFixer` scans the source to prevent the wire silently regressing again.
+- **`StoryDBStatus*` order-dependent status (HIGH):** both queries lacked `ORDER BY`, so the "latest wins" dedup depended on arbitrary SQLite row order and the dashboard devdb status could flip between refreshes. Now `ORDER BY created_at ASC, rowid ASC` with last-write-wins.
+
 ### README Scribe (SP1 shipped)
 - `planning.emit_scribe_story` (default `true`) makes the planner append a final `<prefix>-scribe-readme` story that **depends on every other story** (runs last), owns `README.md`, and instructs the agent to document what was built, link the other repo docs (training/usage), use SVG (no Mermaid), and be **greenfield-aware** — author a full README on a stub, but on an existing README edit only within `<!-- vxd:scribe:start --> … <!-- vxd:scribe:end -->` markers so hand-written prose is never clobbered. `buildScribeStory` in `planner.go`; gated on `persist` so estimates don't include it.
 - **Test impact:** scribe is on by default, so planner/integration tests that assert exact story counts set `cfg.Planning.EmitScribeStory = false`. `TestPlanner_EmitsScribeStory` pins the behavior.

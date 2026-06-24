@@ -486,6 +486,15 @@ func runResume(cmd *cobra.Command, args []string) error {
 	// generates/updates README.md with the implemented features.
 	if llmClient != nil {
 		monitor.SetDocGenerator(llmClient, s.Config.Models.Senior.Model)
+
+		// Enable post-merge integration build validation: after a wave merges,
+		// if main no longer compiles (Go/Rust/Node), the Tech Lead diagnoses the
+		// cross-story break and records a focused fix suggestion. Previously this
+		// pipeline stage was implemented but never wired, so it never ran.
+		senior := s.Config.Models.Senior
+		monitor.SetTechLeadFixer(engine.NewTechLeadFixer(
+			llmClient, senior.Model, senior.MaxTokens, s.Events, s.Proj,
+		))
 	}
 
 	rc := &engine.RunContext{

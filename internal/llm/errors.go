@@ -63,6 +63,58 @@ func IsOverloaded(err error) bool {
 	return apiErr.StatusCode == 529
 }
 
+// capacitySignatures are substrings that indicate a transient capacity/quota
+// exhaustion the caller should back off from rather than treat as a story-quality
+// failure. Kept lowercase; match against a lowercased error string.
+var capacitySignatures = []string{
+	"session limit",        // Claude Max: "You've hit your session limit · resets ..."
+	"usage limit",          // alternate Max wording
+	"rate limit",           // generic rate limiting
+	"rate_limit",           // API error code form
+	"too many requests",    // HTTP 429 canonical text
+	"overloaded",           // Anthropic 529
+	`"api_error_status":429`, // embedded CLI envelope, untyped
+	`"api_error_status":529`,
+	`"api_error_status": 429`,
+	`"api_error_status": 529`,
+}
+
+// ContainsCapacitySignature reports whether a raw string carries a capacity /
+// session-limit / overloaded signal. Exported so the CLI client can reuse the
+// exact same vocabulary it would otherwise duplicate.
+func ContainsCapacitySignature(s string) bool {
+	lower := strings.ToLower(s)
+	for _, sig := range capacitySignatures {
+		if strings.Contains(lower, sig) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsCapacityError returns true when the error is a transient capacity exhaustion
+// — HTTP 429 (rate/session limit) or 529 (overloaded) — whether it arrived as a
+// typed *APIError or as a stringified CLI error that never got classified.
+//
+// This is distinct from IsFatalAPIError (401/403/billing — permanent): a
+// capacity error WILL succeed after the limit resets, so the pipeline should
+// pause-and-resume rather than burn the escalation chain or fail the story.
+func IsCapacityError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		if apiErr.StatusCode == 429 || apiErr.StatusCode == 529 {
+			return true
+		}
+	}
+	// Fall back to scanning the error text: the claude CLI path frequently
+	// stringifies the session-limit envelope into a plain error before it
+	// reaches a decision point.
+	return ContainsCapacitySignature(err.Error())
+}
+
 // IsRetryable returns true when the error is transient and the request can be retried.
 func IsRetryable(err error) bool {
 	var apiErr *APIError

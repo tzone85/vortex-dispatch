@@ -341,7 +341,7 @@ File: %s
 		return "", err
 	}
 
-	resolved := stripCodeFences(resp.Content)
+	resolved := extractResolvedFileContent(resp.Content)
 
 	// Sanity check: resolved content must not contain conflict markers.
 	if strings.Contains(resolved, "<<<<<<<") || strings.Contains(resolved, ">>>>>>>") {
@@ -429,7 +429,7 @@ resolved file content — no explanations, no markdown fences.`,
 		return "", err
 	}
 
-	resolved := stripCodeFences(resp.Content)
+	resolved := extractResolvedFileContent(resp.Content)
 
 	if strings.Contains(resolved, "<<<<<<<") || strings.Contains(resolved, ">>>>>>>") {
 		return "", fmt.Errorf("tech lead output still contains conflict markers")
@@ -514,6 +514,27 @@ func gitFileHistory(worktreePath, file string, n int) []string {
 
 // stripCodeFences is a convenience alias for llm.StripCodeFences.
 func stripCodeFences(s string) string { return llm.StripCodeFences(s) }
+
+// extractResolvedFileContent pulls the resolved file out of an LLM response.
+// Conflict-resolution models sometimes wrap the file in a ```fenced block with
+// conversational preamble/postamble (observed: "Resolved. Kept X. Write blocked
+// on permission. File content to apply: ```json {…}``` Grant write to apply.").
+// Writing that whole reply verbatim corrupts the file — this broke a real
+// client build's package.json (invalid JSON → uninstallable). When a fenced
+// block is present we return ONLY its contents; otherwise we trim stray fences.
+func extractResolvedFileContent(resp string) string {
+	if i := strings.Index(resp, "```"); i >= 0 {
+		rest := resp[i+3:]
+		// Drop the optional language tag on the opening fence line.
+		if nl := strings.IndexByte(rest, '\n'); nl >= 0 {
+			rest = rest[nl+1:]
+		}
+		if j := strings.Index(rest, "```"); j >= 0 {
+			return strings.TrimSpace(rest[:j])
+		}
+	}
+	return strings.TrimSpace(stripCodeFences(resp))
+}
 
 func (cr *ConflictResolver) emitResolutionEvent(storyID string, files []string, rounds int) {
 	evt := state.NewEvent(state.EventStoryProgress, "conflict-resolver", storyID, map[string]any{

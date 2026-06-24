@@ -259,6 +259,58 @@ func TestValidateSplit_OverlappingFiles(t *testing.T) {
 	}
 }
 
+// Sequential split children (chained by dependency edges) may touch the same
+// file — they never run in parallel, so there is no conflict. This is the exact
+// shape the tech-lead re-plan path produces, and rejecting it hard-paused real
+// builds (clipforge: "overlapping owned file: src/cli/index.ts").
+func TestValidateSplitWithEdges_OrderedOverlapAllowed(t *testing.T) {
+	fs := testEscalationStore(t)
+	esc := NewEscalationMachine(fs, defaultRoutingConfig())
+
+	children := []SplitChild{
+		{Suffix: "a", OwnedFiles: []string{"src/cli/index.ts"}, Complexity: 2},
+		{Suffix: "b", OwnedFiles: []string{"src/cli/index.ts"}, Complexity: 2},
+	}
+	// b depends on a → they are ordered, so sharing index.ts is safe.
+	edges := [][]string{{"b", "a"}}
+	if err := esc.ValidateSplitWithEdges(0, children, 5, edges); err != nil {
+		t.Errorf("ordered children sharing a file should be allowed, got: %v", err)
+	}
+}
+
+func TestValidateSplitWithEdges_ChainOverlapAllowed(t *testing.T) {
+	fs := testEscalationStore(t)
+	esc := NewEscalationMachine(fs, defaultRoutingConfig())
+
+	children := []SplitChild{
+		{Suffix: "a", OwnedFiles: []string{"shared.ts"}, Complexity: 2},
+		{Suffix: "b", OwnedFiles: []string{"shared.ts"}, Complexity: 2},
+		{Suffix: "c", OwnedFiles: []string{"shared.ts"}, Complexity: 2},
+	}
+	// Fully sequential chain c->b->a (the split path's edge shape).
+	edges := [][]string{{"b", "a"}, {"c", "b"}}
+	if err := esc.ValidateSplitWithEdges(0, children, 5, edges); err != nil {
+		t.Errorf("sequential chain sharing a file should be allowed, got: %v", err)
+	}
+}
+
+func TestValidateSplitWithEdges_ParallelOverlapRejected(t *testing.T) {
+	fs := testEscalationStore(t)
+	esc := NewEscalationMachine(fs, defaultRoutingConfig())
+
+	children := []SplitChild{
+		{Suffix: "a", OwnedFiles: []string{"base.ts"}, Complexity: 2},
+		{Suffix: "b", OwnedFiles: []string{"shared.ts"}, Complexity: 2},
+		{Suffix: "c", OwnedFiles: []string{"shared.ts"}, Complexity: 2},
+	}
+	// b and c both depend on a but NOT on each other → they run in parallel and
+	// both claim shared.ts → genuine conflict, must still be rejected.
+	edges := [][]string{{"b", "a"}, {"c", "a"}}
+	if err := esc.ValidateSplitWithEdges(0, children, 5, edges); err == nil {
+		t.Error("parallel children sharing a file must be rejected")
+	}
+}
+
 func TestValidateSplit_UnsafeSuffix(t *testing.T) {
 	fs := testEscalationStore(t)
 	esc := NewEscalationMachine(fs, defaultRoutingConfig())

@@ -450,6 +450,13 @@ func (m *Monitor) rebaseAndMerge(ctx context.Context, storyID, branch, repoDir, 
 
 	log.Printf("[pipeline] rebase succeeded for %s, proceeding to merge", storyID)
 
+	// Pre-merge gate: keep the base branch green. If this story's rebased state
+	// turns a green base red, block the merge so the failure is fixed on the
+	// branch instead of poisoning every later story's repo-wide QA.
+	if err := m.verifyRebasedQA(ctx, storyID, branch, worktreePath); err != nil {
+		return MergeResult{}, err
+	}
+
 	return m.merger.Merge(storyID, storyID, repoDir, branch)
 }
 

@@ -372,6 +372,12 @@ Every failure is a chance to make the system stronger:
 - **Operational:** ~5h rolling session cap. Still keep ≤~2 builds concurrent on one Max subscription. A capacity pause is now clean and accurate — after the stated reset time, `vxd resume <req-id>` continues from where it left off (no burned tiers).
 - Tests: `internal/llm/capacity_test.go`, `classify_internal_test.go`, `internal/engine/post_execution_test.go::TestPostExecutionPipeline_ReviewError_Capacity`.
 
+### Factory hardening 2026-06-24 (split-repair + engineering standards + pre-merge QA gate)
+Surfaced while using vxd as a software factory across 6 real builds.
+- **Tier-3 split repair (Bug #2):** `escalation.go ValidateSplitWithEdges` is edge-aware — overlapping owned files between sub-stories are allowed when the children are sequenced (the split path chains them via suffix edges from `monitor_escalation.go`); only *parallel* overlaps are rejected. Stops valid tier-3 splits from hard-pausing the requirement. Validated live (clipforge s-009 split proceeded, no "split invalid" pause).
+- **Engineering standards in planning:** `planner.go` decomposition prompt carries an ENGINEERING STANDARDS block (boundary input validation, XSS/injection defense on web surfaces, SOLID/hexagonal, no dead code, error handling, happy+failure tests). `buildScribeStory` now requires a Training/Getting-Started tutorial + rendered `docs/architecture.svg` + `docs/sequence.svg` (real SVG, never Mermaid). Pinned by `TestPlanner_PromptIncludesEngineeringStandards` + extended `TestPlanner_EmitsScribeStory`.
+- **Pre-merge QA gate:** `internal/engine/premerge.go verifyRebasedQA` + `qa.go` re-run lint/build/test on the REBASED worktree before merge and block only when a story turns a GREEN base RED — evaluating the base in-place via `git.CheckoutRef` (reuses installed deps; a pre-existing-red base never blames the story). Wired into `rebaseAndMerge`; gated by `qa.disable_pre_merge_verify` (default false = gate ON). Test: `premerge_test.go`.
+
 ### Audit hardening 2026-06-24
 Robustness pass from an adversarial principles audit (correctness/flakiness gaps the bulletproofing pass left open). Each fix is TDD-pinned.
 - **Empty-plan strand (CRITICAL):** `Planner.plan` had no zero-stories guard (only `RePlan` did). A Tech-Lead `[]` response emitted `REQ_PLANNED` with no stories and stranded the requirement forever after a paid call. Now errors before any emission. Also rejects stories with empty `id`/`title` at the LLM boundary.

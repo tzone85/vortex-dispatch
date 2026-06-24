@@ -22,9 +22,34 @@ func NewEscalationMachine(es state.EventStore, routing config.RoutingConfig) *Es
 	return &EscalationMachine{eventStore: es, routing: routing}
 }
 
-// CurrentTier returns the highest to_tier from STORY_ESCALATED events for
-// the given story. Returns 0 if no escalation events exist.
+// latestResetTime returns the timestamp of the most recent STORY_RESET event
+// for the story, or the zero time if none. A STORY_RESET clears the escalation
+// history so a story stuck at a high tier for a transient reason (e.g. a 429
+// capacity storm) can be retried from tier 0 rather than re-pausing forever.
+func (e *EscalationMachine) latestResetTime(storyID string) (time.Time, error) {
+	events, err := e.eventStore.List(state.EventFilter{
+		Type:    state.EventStoryReset,
+		StoryID: storyID,
+	})
+	if err != nil {
+		return time.Time{}, err
+	}
+	var latest time.Time
+	for _, evt := range events {
+		if evt.Timestamp.After(latest) {
+			latest = evt.Timestamp
+		}
+	}
+	return latest, nil
+}
+
+// CurrentTier returns the highest to_tier from STORY_ESCALATED events that
+// occurred AFTER the latest STORY_RESET. Returns 0 if there are no such events.
 func (e *EscalationMachine) CurrentTier(storyID string) (int, error) {
+	resetAt, err := e.latestResetTime(storyID)
+	if err != nil {
+		return 0, err
+	}
 	events, err := e.eventStore.List(state.EventFilter{
 		Type:    state.EventStoryEscalated,
 		StoryID: storyID,
@@ -35,6 +60,9 @@ func (e *EscalationMachine) CurrentTier(storyID string) (int, error) {
 
 	maxTier := 0
 	for _, evt := range events {
+		if !evt.Timestamp.After(resetAt) {
+			continue // escalation predates the latest reset — ignore.
+		}
 		payload := state.DecodePayload(evt.Payload)
 		if toTier, ok := payload["to_tier"].(float64); ok && int(toTier) > maxTier {
 			maxTier = int(toTier)
@@ -54,12 +82,15 @@ func (e *EscalationMachine) lastEscalationTime(storyID string) (time.Time, error
 	if err != nil {
 		return time.Time{}, err
 	}
-	if len(events) == 0 {
-		return time.Time{}, nil
+	// Scope to the current attempt window: ignore escalations before the latest
+	// STORY_RESET, and use the reset time itself as the floor so retry counts
+	// after a reset start fresh.
+	resetAt, err := e.latestResetTime(storyID)
+	if err != nil {
+		return time.Time{}, err
 	}
-
-	latest := events[0].Timestamp
-	for _, evt := range events[1:] {
+	latest := resetAt
+	for _, evt := range events {
 		if evt.Timestamp.After(latest) {
 			latest = evt.Timestamp
 		}

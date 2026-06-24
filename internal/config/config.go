@@ -188,6 +188,11 @@ type SSHRunnerConfig struct {
 // QAConfig controls quality assurance checks.
 type QAConfig struct {
 	SuccessCriteria []SuccessCriterion `yaml:"success_criteria,omitempty"`
+	// DisablePreMergeVerify turns OFF the repo-wide pre-merge QA gate. The gate
+	// re-runs lint/build/test on the rebased worktree before merging and blocks
+	// a story that turns a green base branch red (keeping main always-green).
+	// Default (false) = gate ON. It never blocks when the base is already red.
+	DisablePreMergeVerify bool `yaml:"disable_pre_merge_verify,omitempty"`
 }
 
 // SuccessCriterion defines a declarative QA check.

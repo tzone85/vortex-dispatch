@@ -196,25 +196,61 @@ func (e *EscalationMachine) ValidateSplitWithEdges(parentSplitDepth int, childre
 		suffixSet[child.Suffix] = true
 	}
 
-	ownedFiles := make(map[string]bool)
-	for _, child := range children {
-		for _, f := range child.OwnedFiles {
-			if ownedFiles[f] {
-				return fmt.Errorf("overlapping owned file: %s", f)
-			}
-			ownedFiles[f] = true
-		}
-		if child.Complexity > maxComplexity {
-			return fmt.Errorf("child complexity %d exceeds max %d", child.Complexity, maxComplexity)
-		}
-	}
-
+	// Validate edges structurally and build a directed dependency graph.
+	// edge = [after, before]: "after" depends on (runs strictly after) "before".
+	adj := make(map[string][]string, len(edges))
 	for _, edge := range edges {
 		if len(edge) != 2 {
 			return fmt.Errorf("dependency edge must have exactly 2 elements, got %d", len(edge))
 		}
 		if !suffixSet[edge[0]] || !suffixSet[edge[1]] {
 			return fmt.Errorf("dependency edge references unknown suffix: %v", edge)
+		}
+		adj[edge[0]] = append(adj[edge[0]], edge[1])
+	}
+
+	// orderedByEdges reports whether two child suffixes are sequenced relative
+	// to each other — one transitively depends on the other, so they never run
+	// in parallel. Overlapping owned files are a conflict only between PARALLEL
+	// children; sequential children touching the same file is safe. The
+	// tech-lead split path chains all children, making every pair ordered — so
+	// rejecting their shared files hard-paused real builds for no reason.
+	reaches := func(from, to string) bool {
+		seen := map[string]bool{from: true}
+		stack := []string{from}
+		for len(stack) > 0 {
+			n := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			for _, m := range adj[n] {
+				if m == to {
+					return true
+				}
+				if !seen[m] {
+					seen[m] = true
+					stack = append(stack, m)
+				}
+			}
+		}
+		return false
+	}
+	orderedByEdges := func(x, y string) bool {
+		return x == y || reaches(x, y) || reaches(y, x)
+	}
+
+	// Edge-aware overlap check: a file may be claimed by multiple children only
+	// if every pair of claimants is ordered (sequential), never parallel.
+	fileOwners := make(map[string][]string)
+	for _, child := range children {
+		for _, f := range child.OwnedFiles {
+			for _, prev := range fileOwners[f] {
+				if !orderedByEdges(child.Suffix, prev) {
+					return fmt.Errorf("overlapping owned file: %s", f)
+				}
+			}
+			fileOwners[f] = append(fileOwners[f], child.Suffix)
+		}
+		if child.Complexity > maxComplexity {
+			return fmt.Errorf("child complexity %d exceeds max %d", child.Complexity, maxComplexity)
 		}
 	}
 

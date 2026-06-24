@@ -308,8 +308,15 @@ func (m *Monitor) handleTechLeadEscalation(ctx context.Context, story PlannedSto
 		})
 	}
 
-	// Validate split constraints before mutating.
-	if err := m.escalation.ValidateSplit(storyData.SplitDepth, children, m.config.Planning.MaxStoryComplexity); err != nil {
+	// Validate split constraints before mutating. The children are chained
+	// sequentially below (each depends on the previous), so pass those same
+	// suffix edges to the validator: overlapping owned files between sequential
+	// children are safe and must not hard-pause the requirement.
+	var validateEdges [][]string
+	for i := 1; i < len(children); i++ {
+		validateEdges = append(validateEdges, []string{children[i].Suffix, children[i-1].Suffix})
+	}
+	if err := m.escalation.ValidateSplitWithEdges(storyData.SplitDepth, children, m.config.Planning.MaxStoryComplexity, validateEdges); err != nil {
 		log.Printf("[tech-lead] split validation failed for %s: %v", storyID, err)
 		m.pauseRequirement(storyID, fmt.Sprintf("tech lead split invalid: %v", err))
 		return

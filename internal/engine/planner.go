@@ -154,6 +154,15 @@ IMPORTANT:
 - Keep story complexity at or below %d.
 - For simple requirements (1-2 files), prefer fewer stories (1-2) over many small ones.
 
+ENGINEERING STANDARDS — every code story's description AND acceptance_criteria MUST bake these in (this project is a software factory; output must be production-grade):
+- Input validation: validate all inputs at system boundaries; reject malformed input with clear, specific errors; never trust external data (user input, files, API responses).
+- Security: for any web/HTML/API/templating surface, prevent XSS (escape/encode all output, sanitize HTML) and injection (parameterized queries, no string-built SQL/commands); never reflect unsanitized input into responses or markup. State the specific protection in the acceptance criteria.
+- SOLID + clean architecture: single-responsibility units, depend on interfaces not concretions, keep core/domain logic free of I/O (hexagonal core/shell split); files focused and small.
+- Proper wiring: everything built must be reachable from a real entry point (CLI command, HTTP route, public export) — no dead/unreferenced code. Acceptance criteria must assert the wiring (e.g. "route registered and returns 200", "command appears in --help").
+- Error handling: handle errors explicitly at every level; no silent failures; user-facing messages must not leak internals/stack traces.
+- Tests: every code story includes tests covering the happy path AND at least one failure/edge path.
+- Docs as you go: stories that add a public surface document it (in docs/ or the relevant module doc) so the final README/training can link real content.
+
 CRITICAL RULES:
 - Respond ONLY with the JSON array. No prose, no explanations, no questions.
 - Do NOT ask clarification questions. Make reasonable assumptions and proceed.
@@ -470,22 +479,24 @@ const scribeStorySuffix = "scribe-readme"
 // agent to be greenfield-aware and confine edits on an existing README to the
 // vxd:scribe markers so hand-written content is never clobbered.
 func buildScribeStory(prefix, requirement string, deps []string) PlannedStory {
-	desc := fmt.Sprintf(`Update README.md to document what this requirement delivered: %s
+	desc := fmt.Sprintf(`Document the project to software-factory standard for what this requirement delivered: %s
 
-Write for a reader who is new to the project — explain what it is, how to run it, and how to use it. Requirements:
-- Be accurate to what was actually built and merged; do not invent features.
-- Link to the other docs in this repo where they exist (e.g. docs/, training/usage guides) so the README is the entry point to fuller context.
-- Use SVG diagrams (no Mermaid) if a diagram helps.
-- Greenfield-aware: if README.md is empty or a bare stub, author a complete README. If it already has substantial hand-written content, edit ONLY inside the markers `+"`<!-- vxd:scribe:start -->`"+` ... `+"`<!-- vxd:scribe:end -->`"+` (create that block at the end if absent) — never rewrite or delete existing prose outside the markers.`, requirement)
+Write for a reader who is new to the project. Deliver ALL of the following:
+- README.md: explain what it is, how to install/run it, and how to use it — accurate to what was actually built and merged (do not invent features). Link to docs/ and the training guide so the README is the entry point.
+- A "Training" / "Getting Started Tutorial" section (in README or docs/training.md, linked from the README): a step-by-step hands-on walkthrough that takes a new user from zero to a working result, with copy-pasteable commands and expected output.
+- docs/architecture.svg: an architecture diagram authored as a real rendered SVG file (valid <svg>…</svg> XML). NOT Mermaid, NOT a code fence, NOT a .mmd file — an actual .svg.
+- docs/sequence.svg: a sequence diagram of the primary user flow, also as a real rendered SVG file (valid <svg>…</svg> XML). NOT Mermaid.
+- Reference both SVGs from the README (e.g. via ![Architecture](docs/architecture.svg)).
+- Greenfield-aware: if README.md is empty or a bare stub, author a complete README. If it already has substantial hand-written content, edit ONLY inside the markers `+"`<!-- vxd:scribe:start -->`"+` ... `+"`<!-- vxd:scribe:end -->`"+` (create that block at the end if absent) — never rewrite or delete existing prose outside the markers. The docs/*.svg and training files are new files and may be authored freely.`, requirement)
 
 	return PlannedStory{
 		ID:                 prefix + "-" + scribeStorySuffix,
-		Title:              "Document the project in README.md and link the generated docs",
+		Title:              "Document the project: README + training tutorial + SVG architecture & sequence diagrams",
 		Description:        desc,
-		AcceptanceCriteria: FlexibleString("README.md exists and accurately documents the delivered functionality with run/usage instructions; it links the other repo docs where present; on a pre-existing README, edits are confined to the vxd:scribe markers and existing content outside them is unchanged."),
-		Complexity:         3,
+		AcceptanceCriteria: FlexibleString("README.md accurately documents the delivered functionality with install/run/usage instructions and links docs/ + the training guide; a step-by-step Training/Getting-Started tutorial exists (README section or docs/training.md) with copy-pasteable commands; docs/architecture.svg and docs/sequence.svg exist as valid rendered SVG (<svg> XML, NOT Mermaid/code-fence/.mmd) and are referenced from the README; on a pre-existing README, edits are confined to the vxd:scribe markers and existing content outside them is unchanged."),
+		Complexity:         5,
 		DependsOn:          deps,
-		OwnedFiles:         []string{"README.md"},
+		OwnedFiles:         []string{"README.md", "docs/architecture.svg", "docs/sequence.svg", "docs/training.md"},
 		WaveHint:           "sequential",
 	}
 }

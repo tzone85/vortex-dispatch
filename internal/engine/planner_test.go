@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tzone85/vortex-dispatch/internal/config"
@@ -182,8 +183,28 @@ func TestPlanner_EmitsScribeStory(t *testing.T) {
 	if scribe.ID != "r-001-scribe-readme" {
 		t.Fatalf("expected scribe id r-001-scribe-readme, got %q", scribe.ID)
 	}
-	if len(scribe.OwnedFiles) != 1 || scribe.OwnedFiles[0] != "README.md" {
-		t.Fatalf("scribe should own README.md, got %v", scribe.OwnedFiles)
+	// Scribe owns the README plus the software-factory doc artifacts (training
+	// guide + rendered SVG architecture/sequence diagrams).
+	wantOwned := map[string]bool{
+		"README.md": false, "docs/architecture.svg": false,
+		"docs/sequence.svg": false, "docs/training.md": false,
+	}
+	for _, f := range scribe.OwnedFiles {
+		if _, ok := wantOwned[f]; ok {
+			wantOwned[f] = true
+		}
+	}
+	for f, seen := range wantOwned {
+		if !seen {
+			t.Errorf("scribe should own %s, got %v", f, scribe.OwnedFiles)
+		}
+	}
+	// Standards must be baked into the scribe brief.
+	d := scribe.Description + " " + string(scribe.AcceptanceCriteria)
+	for _, must := range []string{"architecture.svg", "sequence.svg", "Training", "NOT Mermaid"} {
+		if !strings.Contains(d, must) {
+			t.Errorf("scribe brief missing %q", must)
+		}
 	}
 	if len(scribe.DependsOn) != 2 {
 		t.Fatalf("scribe should depend on both stories, got %v", scribe.DependsOn)
@@ -192,6 +213,33 @@ func TestPlanner_EmitsScribeStory(t *testing.T) {
 	// Disabled: just the 2 stories.
 	if off := run(false); len(off.Stories) != 2 {
 		t.Fatalf("expected 2 stories with scribe disabled, got %d", len(off.Stories))
+	}
+}
+
+// The decomposition prompt must carry the software-factory engineering
+// standards so every generated story bakes them into its acceptance criteria.
+func TestPlanner_PromptIncludesEngineeringStandards(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0644)
+
+	resp := `[{"id":"s-001","title":"A","description":"d","acceptance_criteria":"ac","complexity":3,"depends_on":[]}]`
+	client := llm.NewReplayClient(llm.CompletionResponse{Content: resp})
+	cfg := config.DefaultConfig()
+	cfg.Planning.EmitScribeStory = false
+	es, _ := state.NewFileStore(filepath.Join(dir, "e.jsonl"))
+	defer es.Close()
+	ps, _ := state.NewSQLiteStore(":memory:")
+	defer ps.Close()
+	planner := engine.NewPlanner(client, cfg, es, ps)
+	if _, err := planner.Plan(context.Background(), "r-001", "Build a web API", dir); err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+
+	prompt := client.CallAt(0).Messages[0].Content
+	for _, must := range []string{"Input validation", "XSS", "SOLID", "wiring", "Tests:", "Error handling"} {
+		if !strings.Contains(prompt, must) {
+			t.Errorf("decomposition prompt missing engineering standard %q", must)
+		}
 	}
 }
 

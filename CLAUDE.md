@@ -154,6 +154,7 @@ dashboard:
 | `vxd reject-plan` | Reject a plan with feedback |
 | `vxd review <story-id>` | View PR diff before approving (`--open` to open in browser) |
 | `vxd reject <story-id>` | Reject a story's PR with feedback |
+| `vxd retry <story-id>` | Reset a story's escalation tier (STORY_RESET) and re-queue it to draft — transient-failure recovery (`--reason`); run `vxd resume` after |
 | `vxd projects` | List all projects |
 | `vxd agents` | List active agents |
 | `vxd events` | View event log |

@@ -43,6 +43,7 @@ func init() {
 	rootCmd.AddCommand(newReviewCmd())
 	rootCmd.AddCommand(newApproveCmd())
 	rootCmd.AddCommand(newRejectCmd())
+	rootCmd.AddCommand(newRetryCmd())
 	rootCmd.AddCommand(newLearnCmd())
 	rootCmd.AddCommand(newBackupCmd())
 	rootCmd.AddCommand(newImproveCmd())

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/tzone85/vortex-dispatch/internal/criteria"
 )
 
 func newReviewCmd() *cobra.Command {
@@ -51,6 +52,13 @@ func runReviewStory(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Fprintf(out, "Complexity: %d | Wave: %d | Escalation Tier: %d\n\n",
 		story.Complexity, story.Wave, story.EscalationTier)
+
+	if desc := strings.TrimSpace(story.Description); desc != "" {
+		fmt.Fprintf(out, "Description:\n%s\n\n", desc)
+	}
+	if ac := criteria.FormatMarkdown(story.AcceptanceCriteria); ac != "" {
+		fmt.Fprintf(out, "Acceptance Criteria:\n%s\n\n", ac)
+	}
 
 	if openBrowser && story.PRUrl != "" {
 		openURL(story.PRUrl)

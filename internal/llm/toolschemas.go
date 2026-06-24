@@ -58,7 +58,7 @@ func techLeadSchema() *ToolSchema {
 							"id":                 {Type: "string", Description: "Short identifier (e.g., s-001)"},
 							"title":              {Type: "string", Description: "Brief title"},
 							"description":        {Type: "string", Description: "What to implement, including exact file paths"},
-							"acceptance_criteria": {Type: "string", Description: "How to verify it's done"},
+							"acceptance_criteria": {Type: "string", Description: "3-6 discrete, human-readable criteria, one per line starting with '- '. Each line is a single plain-language verifiable outcome (intent first, exact command in parentheses at the end). A human reading only this must understand what the story delivers."},
 							"complexity":          {Type: "integer", Description: "Fibonacci score (1, 2, 3, 5, 8, 13)"},
 							"depends_on":          {Type: "array", Description: "Story IDs this depends on", Items: &SchemaProperty{Type: "string"}},
 							"owned_files":         {Type: "array", Description: "Exact file paths this story creates or modifies", Items: &SchemaProperty{Type: "string"}},

@@ -185,14 +185,22 @@ function renderPipeline(p) {
  */
 function dbStatusGlyph(status) {
   switch (status) {
-    case "created":  return "\u2713"; // ✓
-    case "failed":   return "\u2717"; // ✗
-    case "retained": return "R";
-    default:         return "";
+    case "created":
+      return "\u2713"; // ✓
+    case "failed":
+      return "\u2717"; // ✗
+    case "retained":
+      return "R";
+    default:
+      return "";
   }
 }
 
 function renderStories(stories) {
+  // acceptance_criteria_items is a server-supplied map of story_id -> string[]
+  // (criteria already split into readable items by the Go criteria package).
+  const acItems =
+    (currentState && currentState.acceptance_criteria_items) || {};
   // db_statuses is a server-supplied map of story_id -> status string.
   // All values are passed through esc() before being placed in innerHTML.
   const dbStatuses = (currentState && currentState.db_statuses) || {};
@@ -243,18 +251,22 @@ function renderStories(stories) {
         dbGlyph +
         "</td>" +
         "<td>" +
+        '<span class="story-title-toggle" title="Show description & acceptance criteria"' +
+        " onclick=\"toggleStoryDetail('" +
+        storyId +
+        "')\">" +
         esc(s.title) +
-        "</td>" +
+        "</span></td>" +
         "<td>" +
         '<button class="btn-action" title="Retry"' +
         " onclick=\"sendCommand('retry_story', {story_id:'" +
         storyId +
-        "'})\">"+
+        "'})\">" +
         "&#x21BB;</button>" +
         '<button class="btn-action" title="Escalate"' +
         " onclick=\"sendCommand('escalate_story', {story_id:'" +
         storyId +
-        "'})\">"+
+        "'})\">" +
         "&#x2191;</button>" +
         '<button class="btn-action" title="Reassign"' +
         " onclick=\"confirmAction('Reassign " +
@@ -265,10 +277,56 @@ function renderStories(stories) {
         "', target_tier:0}); })\">" +
         "&#x21C4;</button>" +
         "</td>" +
-        "</tr>"
+        "</tr>" +
+        storyDetailRow(storyId, s.description, acItems[s.id])
       );
     })
     .join("");
+}
+
+/**
+ * Build the hidden detail row for a story: plain-language description plus the
+ * acceptance criteria as a bulleted checklist, so a user can click the title
+ * and understand the story's intent.
+ */
+function storyDetailRow(storyId, description, items) {
+  const desc = (description || "").trim();
+  const list = Array.isArray(items) ? items : [];
+  if (!desc && !list.length) {
+    return (
+      '<tr class="story-detail" id="detail-' +
+      storyId +
+      '" hidden><td colspan="7" class="muted">No description or acceptance criteria recorded.</td></tr>'
+    );
+  }
+  let inner = "";
+  if (desc) {
+    inner +=
+      '<div class="detail-desc"><strong>Description</strong><p>' +
+      esc(desc) +
+      "</p></div>";
+  }
+  if (list.length) {
+    inner +=
+      '<div class="detail-ac"><strong>Acceptance Criteria</strong><ul>' +
+      list.map((i) => "<li>" + esc(i) + "</li>").join("") +
+      "</ul></div>";
+  }
+  return (
+    '<tr class="story-detail" id="detail-' +
+    storyId +
+    '" hidden><td colspan="7">' +
+    inner +
+    "</td></tr>"
+  );
+}
+
+/** Toggle the visibility of a story's detail row. */
+function toggleStoryDetail(storyId) {
+  const row = document.getElementById("detail-" + storyId);
+  if (row) {
+    row.hidden = !row.hidden;
+  }
 }
 
 function eventClass(type) {

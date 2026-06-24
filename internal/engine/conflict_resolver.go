@@ -164,6 +164,24 @@ func (cr *ConflictResolver) RebaseWithResolution(ctx context.Context, storyID, w
 				return fmt.Errorf("read conflicted file %s: %w", file, rErr)
 			}
 
+			// Line-oriented ignore/attribute configs (.gitignore, .dockerignore,
+			// …): resolve deterministically by UNION of both sides. These files
+			// have no semantic ordering, so combining every unique line is the
+			// correct merge — and crucially it avoids sending them to the LLM,
+			// which has repeatedly returned commentary instead of file content
+			// and aborted the whole merge (e.g. a single .gitignore conflict
+			// killing an otherwise-clean rebase).
+			if isUnionMergeableConfig(file) {
+				resolved := unionResolveConflict(string(content))
+				if wErr := os.WriteFile(absPath, []byte(resolved+"\n"), 0o644); wErr != nil {
+					_ = vxdgit.RebaseAbort(worktreePath)
+					return fmt.Errorf("write union-resolved %s: %w", file, wErr)
+				}
+				cr.emitEscalationEvent(storyID, file, "union_merge_deterministic")
+				log.Printf("[conflict-resolver] deterministic union merge for %s in %s", file, storyID)
+				continue
+			}
+
 			// Try senior resolver first (fast path).
 			resolved, seniorErr := cr.resolveFile(ctx, file, string(content))
 
@@ -239,6 +257,52 @@ func (cr *ConflictResolver) RebaseWithResolution(ctx context.Context, storyID, w
 
 	_ = vxdgit.RebaseAbort(worktreePath) // best-effort cleanup; resolution-exhausted error is what matters
 	return fmt.Errorf("conflict resolution exhausted after %d rounds", cr.maxRounds)
+}
+
+// unionMergeableConfigs are line-oriented config files with no semantic line
+// ordering, where the correct conflict resolution is the union of both sides.
+var unionMergeableConfigs = map[string]bool{
+	".gitignore":      true,
+	".dockerignore":   true,
+	".npmignore":      true,
+	".eslintignore":   true,
+	".prettierignore": true,
+	".gitattributes":  true,
+}
+
+// isUnionMergeableConfig reports whether a conflicted path is a line-oriented
+// config that should be resolved by union rather than by the LLM.
+func isUnionMergeableConfig(file string) bool {
+	base := file
+	if i := strings.LastIndexByte(base, '/'); i >= 0 {
+		base = base[i+1:]
+	}
+	return unionMergeableConfigs[base]
+}
+
+// unionResolveConflict resolves a conflicted line-oriented file by taking the
+// union of all non-marker lines, de-duplicated, preserving first-seen order.
+// Conflict-marker lines (<<<<<<<, |||||||, =======, >>>>>>>) are dropped.
+func unionResolveConflict(conflicted string) string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, line := range strings.Split(conflicted, "\n") {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "<<<<<<<") || strings.HasPrefix(t, "=======") ||
+			strings.HasPrefix(t, ">>>>>>>") || strings.HasPrefix(t, "|||||||") {
+			continue
+		}
+		if seen[line] {
+			continue
+		}
+		seen[line] = true
+		out = append(out, line)
+	}
+	// Trim a single trailing empty line so callers can re-append exactly one.
+	for len(out) > 0 && strings.TrimSpace(out[len(out)-1]) == "" {
+		out = out[:len(out)-1]
+	}
+	return strings.Join(out, "\n")
 }
 
 // handleBinaryConflict applies a deterministic policy for binary-file conflicts

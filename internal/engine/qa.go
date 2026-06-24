@@ -110,29 +110,7 @@ func (q *QA) Run(ctx context.Context, storyID, worktreePath string) (QAResult, e
 		return QAResult{}, fmt.Errorf("project qa started: %w", err)
 	}
 
-	checks := []struct {
-		name    string
-		command string
-	}{
-		{"lint", q.config.LintCommand},
-		{"build", q.config.BuildCommand},
-		{"test", q.config.TestCommand},
-	}
-
-	result := QAResult{Passed: true}
-
-	for _, check := range checks {
-		if check.command == "" {
-			continue
-		}
-
-		checkResult := q.runCheck(ctx, worktreePath, check.name, check.command)
-		result.Checks = append(result.Checks, checkResult)
-
-		if !checkResult.Passed {
-			result.Passed = false
-		}
-	}
+	result := q.RunCommandChecks(ctx, worktreePath)
 
 	// Evaluate declarative success criteria (if configured).
 	if len(q.config.SuccessCriteria) > 0 {
@@ -185,6 +163,51 @@ func (q *QA) Run(ctx context.Context, storyID, worktreePath string) (QAResult, e
 	}
 
 	return result, nil
+}
+
+// RunCommandChecks runs the configured lint/build/test commands against a
+// worktree and returns the aggregate result WITHOUT emitting any events. It is
+// the pure command-execution core shared by Run (story QA) and the pre-merge
+// integration gate (verifyRebasedQA), which re-runs these checks on the
+// rebased worktree to keep the base branch green.
+func (q *QA) RunCommandChecks(ctx context.Context, worktreePath string) QAResult {
+	checks := []struct {
+		name    string
+		command string
+	}{
+		{"lint", q.config.LintCommand},
+		{"build", q.config.BuildCommand},
+		{"test", q.config.TestCommand},
+	}
+
+	result := QAResult{Passed: true}
+	for _, check := range checks {
+		if check.command == "" {
+			continue
+		}
+		checkResult := q.runCheck(ctx, worktreePath, check.name, check.command)
+		result.Checks = append(result.Checks, checkResult)
+		if !checkResult.Passed {
+			result.Passed = false
+		}
+	}
+	return result
+}
+
+// preMergeDecision decides whether a story's merge must be blocked because its
+// rebased worktree fails the repo-wide checks. The rule is deadlock-free: only
+// block when the story turns a GREEN base RED. If the base branch is already
+// failing the same checks, the breakage is not attributable to this story, so
+// it is allowed through (blocking would deadlock every story behind a
+// pre-existing main failure).
+func preMergeDecision(rebased, base QAResult) (block bool, reason string) {
+	if rebased.Passed {
+		return false, ""
+	}
+	if !base.Passed {
+		return false, "base branch already failing the same checks — not attributable to this story"
+	}
+	return true, "pre-merge verify: story turns a green base red: " + rebased.FailureSummary()
 }
 
 // computeQualityScore derives a 1-5 quality rating from QA results.

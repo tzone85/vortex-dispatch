@@ -152,6 +152,25 @@ func RebaseOnto(worktreePath, upstream string) error {
 	return nil
 }
 
+// CheckoutRef checks out a ref in the given worktree. When detach is true the
+// HEAD is detached at the ref (used to evaluate the base branch state in-place,
+// reusing the worktree's already-installed dependencies). The worktree must be
+// clean. On failure the worktree is left untouched and the error is returned.
+func CheckoutRef(worktreePath, ref string, detach bool) error {
+	args := []string{"checkout"}
+	if detach {
+		args = append(args, "--detach")
+	}
+	args = append(args, ref)
+	cmd := exec.Command("git", args...)
+	cmd.Dir = worktreePath
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git checkout %s: %w (%s)", ref, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // GHAvailable reports whether the gh CLI binary is on PATH.
 func GHAvailable() bool {
 	_, err := exec.LookPath("gh")

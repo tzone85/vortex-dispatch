@@ -133,7 +133,12 @@ func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (
 	}
 
 	if envelope.IsError {
-		return CompletionResponse{}, fmt.Errorf("claude CLI returned error: %s", envelope.Result)
+		// The CLI can exit 0 yet carry an error envelope (e.g. a session-limit
+		// 429 whose subtype is "success"). Route through classifyCLIError so
+		// capacity/billing/auth conditions are typed, not flattened to a plain
+		// error that the escalation chain can't recognise.
+		return CompletionResponse{}, classifyCLIError(
+			fmt.Errorf("claude CLI returned error envelope"), []byte(raw))
 	}
 
 	result := trimCodeFences(strings.TrimSpace(envelope.Result))
@@ -186,9 +191,17 @@ func classifyCLIError(err error, output []byte) error {
 		}
 	}
 
-	if strings.Contains(lower, "rate limit") || strings.Contains(lower, "too many requests") {
+	// Capacity exhaustion: rate limit, Max session limit, or overloaded. These
+	// are transient — the request succeeds after the limit resets — so they are
+	// typed (Retryable) and recognised by IsCapacityError/IsRateLimited rather
+	// than left as a plain error that cascades through the escalation chain.
+	if ContainsCapacitySignature(text) {
+		status := 429
+		if strings.Contains(lower, "overloaded") || strings.Contains(text, `"api_error_status":529`) {
+			status = 529
+		}
 		return &APIError{
-			StatusCode: 429,
+			StatusCode: status,
 			Message:    text,
 			Retryable:  true,
 		}

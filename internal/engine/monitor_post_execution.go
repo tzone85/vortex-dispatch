@@ -111,6 +111,16 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 		return
 	}
 	if diff == "" {
+		// A session/rate-limited agent also produces an empty diff. Distinguish
+		// it from a genuinely unproductive agent by inspecting its session log:
+		// if it was capacity-limited, pause cleanly instead of burning an
+		// escalation attempt on a failure the agent never had a chance to avoid.
+		if m.agentLogHasCapacityError(storyID) {
+			log.Printf("[pipeline] no changes for %s but agent was capacity/session-limited — pausing without escalation", storyID)
+			outcomeForRelease = devdb.OutcomePaused
+			m.pauseRequirement(storyID, capacityPauseReason("agent execution", fmt.Errorf("session limit hit; agent produced no code")))
+			return
+		}
 		log.Printf("[pipeline] no changes produced for %s, resetting to draft for re-dispatch", storyID)
 		m.resetStoryToDraft(storyID, "monitor", "agent produced no code changes")
 		return
@@ -165,6 +175,13 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 				log.Printf("[pipeline] FATAL: non-retryable API error — pausing requirement for %s: %v", storyID, err)
 				outcomeForRelease = devdb.OutcomePaused
 				m.pauseRequirement(storyID, fmt.Sprintf("fatal API error: %v", err))
+				return
+			}
+			// Transient capacity/session limit in the reviewer — pause cleanly
+			// (resume after reset) rather than reject the story as low-quality.
+			if llm.IsCapacityError(err) {
+				outcomeForRelease = devdb.OutcomePaused
+				m.pauseRequirement(storyID, capacityPauseReason("code review", err))
 				return
 			}
 			log.Printf("[pipeline] review error for %s: %v", storyID, err)
@@ -310,6 +327,13 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 				log.Printf("[pipeline] FATAL: non-retryable API error during merge for %s: %v", storyID, err)
 				outcomeForRelease = devdb.OutcomePaused
 				m.pauseRequirement(storyID, fmt.Sprintf("fatal API error during merge: %v", err))
+				return
+			}
+			// Capacity/session limit during conflict resolution — pause cleanly
+			// instead of resetting to draft (which would burn an escalation
+			// attempt and eventually exhaust all tiers on a transient limit).
+			if m.pauseIfCapacity(storyID, "merge conflict resolution", err) {
+				outcomeForRelease = devdb.OutcomePaused
 				return
 			}
 			log.Printf("[pipeline] merge error for %s: %v", storyID, err)
@@ -521,6 +545,11 @@ func (m *Monitor) pauseRequirement(storyID, reason string) {
 func pauseResumeHint(reason string) string {
 	r := strings.ToLower(reason)
 	switch {
+	// Capacity/session limit first: it co-occurs with words like "limit" that
+	// the billing branch also matches, so it must win to give correct guidance.
+	case strings.Contains(r, "capacity/session limit") || strings.Contains(r, "session limit") ||
+		strings.Contains(r, "rate limit") || strings.Contains(r, "too many requests"):
+		return "LLM capacity/session limit reached — wait for the stated reset time, then 'vxd resume'"
 	case strings.Contains(r, "credit") || strings.Contains(r, "billing") ||
 		strings.Contains(r, "quota") || strings.Contains(r, "insufficient"):
 		return "LLM credit/billing limit — top up credits or check your subscription"

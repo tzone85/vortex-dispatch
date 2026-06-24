@@ -436,9 +436,10 @@ func TestPostExecutionPipeline_ReviewError_NonFatal(t *testing.T) {
 
 	_, worktreePath := setupWorktreeWithDiff(t)
 
-	// Non-fatal error (rate limit).
-	rateErr := fmt.Errorf("rate limited")
-	errorClient := &errorLLMClient{err: rateErr}
+	// Ordinary non-fatal error — NOT a capacity/rate limit (which now pauses)
+	// and NOT fatal (which pauses). Should reset the story to draft for retry.
+	ordErr := fmt.Errorf("reviewer returned malformed response")
+	errorClient := &errorLLMClient{err: ordErr}
 	reviewer := NewReviewer(errorClient, "test-model", 4000, es, ps)
 
 	cfg := config.Config{
@@ -462,6 +463,53 @@ func TestPostExecutionPipeline_ReviewError_NonFatal(t *testing.T) {
 	failEvents, _ := es.List(state.EventFilter{Type: state.EventStoryReviewFailed, StoryID: "s-pe-nf"})
 	if len(failEvents) < 1 {
 		t.Error("expected STORY_REVIEW_FAILED for non-fatal error")
+	}
+}
+
+// TestPostExecutionPipeline_ReviewError_Capacity verifies that a capacity /
+// session-limit error during review PAUSES the requirement (resume after reset)
+// rather than resetting to draft — which would burn an escalation attempt on a
+// transient limit the story never had a chance to avoid.
+func TestPostExecutionPipeline_ReviewError_Capacity(t *testing.T) {
+	es, ps, cleanup := newPostExecTestStores(t)
+	defer cleanup()
+
+	storyEvt := state.NewEvent(state.EventStoryCreated, "tl", "s-pe-cap", map[string]any{
+		"id": "s-pe-cap", "req_id": "r-cap", "title": "Task", "description": "desc", "complexity": 3,
+	})
+	es.Append(storyEvt)
+	ps.Project(storyEvt)
+
+	_, worktreePath := setupWorktreeWithDiff(t)
+
+	// Session-limit envelope, exactly as the claude CLI surfaces it.
+	capErr := fmt.Errorf(`reviewer LLM call: claude CLI error: exit status 1 (output: {"is_error":true,"api_error_status":429,"result":"You've hit your session limit · resets 12:20pm"})`)
+	errorClient := &errorLLMClient{err: capErr}
+	reviewer := NewReviewer(errorClient, "test-model", 4000, es, ps)
+
+	cfg := config.Config{
+		Routing: config.RoutingConfig{MaxRetriesBeforeEscalation: 2},
+	}
+	m := NewMonitor(nil, nil, reviewer, nil, nil, cfg, es, ps)
+
+	ag := ActiveAgent{
+		Assignment: Assignment{
+			StoryID: "s-pe-cap", AgentID: "agent-1",
+			SessionName: "vxd-test-cap", Branch: "vxd/s-pe-cap",
+		},
+		WorktreePath: worktreePath,
+	}
+
+	m.postExecutionPipeline(context.Background(), ag, worktreePath)
+
+	// Must PAUSE the requirement, not reset to draft.
+	pauseEvents, _ := es.List(state.EventFilter{Type: state.EventReqPaused})
+	if len(pauseEvents) < 1 {
+		t.Error("expected REQ_PAUSED for capacity/session-limit error during review")
+	}
+	failEvents, _ := es.List(state.EventFilter{Type: state.EventStoryReviewFailed, StoryID: "s-pe-cap"})
+	if len(failEvents) != 0 {
+		t.Errorf("capacity error must not emit STORY_REVIEW_FAILED (burns escalation); got %d", len(failEvents))
 	}
 }
 

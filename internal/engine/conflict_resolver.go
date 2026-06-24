@@ -437,6 +437,14 @@ resolved file content — no explanations, no markdown fences.`,
 		return "", err
 	}
 
+	// Defensive: some CLI versions surface a session-limit / overloaded notice
+	// as successful content rather than an error envelope. Don't mistake it for
+	// a bad resolution ("commentary") — surface it as a capacity error so the
+	// pipeline pauses-and-resumes instead of burning the escalation chain.
+	if llm.ContainsCapacitySignature(resp.Content) {
+		return "", &llm.APIError{StatusCode: 429, Message: resp.Content, Retryable: true}
+	}
+
 	resolved := extractResolvedFileContent(resp.Content)
 
 	if strings.Contains(resolved, "<<<<<<<") || strings.Contains(resolved, ">>>>>>>") {

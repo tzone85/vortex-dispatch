@@ -250,7 +250,14 @@ func (s *SQLiteStore) Project(evt Event) error {
 	case EventStoryRejected:
 		return s.updateStoryStatus(evt.StoryID, "draft")
 	case EventStoryReset:
-		return s.updateStoryStatus(evt.StoryID, "draft")
+		// A reset returns the story to draft AND zeroes the cached escalation
+		// tier so the dispatcher routes it fresh (the event-sourced CurrentTier
+		// already scopes escalations to the latest reset; this keeps the
+		// denormalized column consistent so routeStory doesn't see a stale tier).
+		if err := s.updateStoryStatus(evt.StoryID, "draft"); err != nil {
+			return err
+		}
+		return s.updateStoryEscalationTier(evt.StoryID, 0)
 
 	case EventStoryEscalated:
 		return s.projectStoryEscalated(evt, payload)
@@ -730,6 +737,19 @@ func (s *SQLiteStore) ArchiveStoriesByReq(reqID string) error {
 		reqID,
 	)
 	return err
+}
+
+// updateStoryEscalationTier sets the cached escalation_tier column for a story.
+// Used by STORY_RESET to return a story to tier 0 so the dispatcher routes it
+// fresh after a transient-failure recovery.
+func (s *SQLiteStore) updateStoryEscalationTier(storyID string, tier int) error {
+	if _, err := s.db.Exec(
+		`UPDATE stories SET escalation_tier = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		tier, storyID,
+	); err != nil {
+		return fmt.Errorf("update story escalation_tier: %w", err)
+	}
+	return nil
 }
 
 func (s *SQLiteStore) projectStoryEscalated(evt Event, payload map[string]any) error {

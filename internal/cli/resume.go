@@ -752,10 +752,30 @@ func (g *ghOpsAdapter) MergePR(repoDir string, prNumber int) error {
 	return vxdgit.MergePR(repoDir, prNumber)
 }
 
-// recoverOrphanedStories finds stories stuck in "in_progress" with no live
-// tmux session and a worktree containing committed work. It returns ActiveAgent
-// entries that the monitor will immediately detect as terminated, routing them
-// through postExecutionPipeline (review → QA → merge).
+// isRecoverableStalledStatus reports whether a story in this status, with a
+// worktree of committed work but no live agent session, should be re-routed
+// through the post-execution pipeline on resume.
+//
+// "in_progress" is the classic orphan (agent died mid-implementation). But a
+// story whose agent FINISHED emits STORY_COMPLETED, which projects to "review";
+// if the monitor is then killed (e.g. a session-limit pause) before review→QA→
+// merge runs, the story is stranded in "review" (or "qa") forever: it is not
+// dispatchable (not "draft") and never merges, blocking every dependent story.
+// Recovering these post-agent states is what lets an interrupted build resume
+// cleanly instead of stalling with "no stories ready for dispatch".
+func isRecoverableStalledStatus(status string) bool {
+	switch status {
+	case "in_progress", "review", "qa":
+		return true
+	default:
+		return false
+	}
+}
+
+// recoverOrphanedStories finds stories stalled mid-pipeline (agent finished or
+// died) with no live tmux session and a worktree containing committed work. It
+// returns ActiveAgent entries that the monitor will immediately detect as
+// terminated, routing them through postExecutionPipeline (review → QA → merge).
 func recoverOrphanedStories(stories []state.Story, proj *state.SQLiteStore, cfg config.Config) []engine.ActiveAgent {
 	worktreeBase := filepath.Join(expandHome(cfg.Workspace.StateDir), "worktrees")
 
@@ -775,7 +795,7 @@ func recoverOrphanedStories(stories []state.Story, proj *state.SQLiteStore, cfg 
 
 	var orphans []engine.ActiveAgent
 	for _, story := range stories {
-		if story.Status != "in_progress" {
+		if !isRecoverableStalledStatus(story.Status) {
 			continue
 		}
 
@@ -792,6 +812,12 @@ func recoverOrphanedStories(stories []state.Story, proj *state.SQLiteStore, cfg 
 
 		if ag, ok := agentByID[story.AgentID]; ok {
 			if ag.SessionName != "" {
+				// If the real agent session is still alive, the story is
+				// genuinely in flight — leave it to the live monitor rather
+				// than yanking it into post-execution.
+				if tmux.SessionExists(ag.SessionName) {
+					continue
+				}
 				sessionName = ag.SessionName
 			}
 			if ag.Runtime != "" {

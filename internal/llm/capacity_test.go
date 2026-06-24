@@ -26,6 +26,12 @@ func TestIsCapacityError(t *testing.T) {
 		{name: "rate limit string", err: fmt.Errorf("claude CLI error: rate limit exceeded"), expect: true},
 		{name: "too many requests string", err: fmt.Errorf("too many requests"), expect: true},
 		{name: "overloaded string", err: fmt.Errorf("the service is currently overloaded"), expect: true},
+		// Transient network/transport failures (api_error_status null) — must
+		// also classify as transient so they take the clean-pause path.
+		{name: "socket closed string", err: fmt.Errorf(`claude CLI error: exit status 1 (output: {"is_error":true,"api_error_status":null,"result":"API Error: The socket connection was closed unexpectedly"})`), expect: true},
+		{name: "connection reset", err: fmt.Errorf("read tcp: connection reset by peer"), expect: true},
+		{name: "i/o timeout", err: fmt.Errorf("dial tcp: i/o timeout"), expect: true},
+		{name: "503 service unavailable", err: fmt.Errorf("503 service unavailable"), expect: true},
 		{name: "api_error_status 429 embedded", err: fmt.Errorf(`output: {"api_error_status":429}`), expect: true},
 		{name: "api_error_status 529 embedded", err: fmt.Errorf(`output: {"api_error_status":529}`), expect: true},
 

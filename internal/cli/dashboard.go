@@ -30,7 +30,8 @@ func newDashboardCmd() *cobra.Command {
 	cmd.Flags().Bool("all", false, "Show all requirements including archived and from other repos")
 	cmd.Flags().Bool("web", false, "Launch web dashboard instead of TUI")
 	cmd.Flags().Int("port", 8787, "Web server port")
-	cmd.Flags().Bool("no-open", false, "Don't open browser automatically (web mode)")
+	cmd.Flags().Bool("no-open", false, "(deprecated; no-open is now the default) Don't open browser automatically (web mode)")
+	cmd.Flags().Bool("open", false, "Open the browser when the web dashboard starts (web mode). Off by default — the URL is always printed.")
 	cmd.Flags().String("pidfile", "", "Write the web server's PID to this file (web mode only). Used by `vxd req` auto-spawn so later runs can reuse the daemon.")
 	cmd.Flags().String("bootstrap-file", "", "Write the initial single-use bootstrap nonce to this file with mode 0o600 (web mode only). Used by `vxd req` auto-spawn.")
 	cmd.SilenceUsage = true
@@ -96,6 +97,8 @@ func runDashboard(cmd *cobra.Command, _ []string) error {
 
 		web.Version = version
 		noOpen, _ := cmd.Flags().GetBool("no-open")
+		openFlag, _ := cmd.Flags().GetBool("open")
+		noOpen = dashboardNoOpen(noOpen, openFlag)
 		pidfile, _ := cmd.Flags().GetString("pidfile")
 		bootstrapFile, _ := cmd.Flags().GetString("bootstrap-file")
 
@@ -220,4 +223,12 @@ func pidStarted(pid int) (time.Time, error) {
 		return time.Time{}, nil //nolint:nilerr // intentional: no /proc → no uptime
 	}
 	return st.ModTime(), nil
+}
+
+// dashboardNoOpen decides whether the web dashboard daemon should SKIP opening a
+// browser. No-open is the default: a browser opens only when --open is passed
+// explicitly, or never when --no-open is passed. This stops auto-spawned (or any
+// stray) daemons from popping browser windows — the URL is always printed.
+func dashboardNoOpen(noOpenFlag, openFlag bool) bool {
+	return noOpenFlag || !openFlag
 }

@@ -933,6 +933,7 @@ func (s *SQLiteStore) StoryDBStatusByReq(reqID string) (map[string]string, error
 		FROM story_databases sd
 		JOIN stories st ON st.id = sd.story_id
 		WHERE st.req_id = ?
+		ORDER BY sd.created_at ASC, sd.rowid ASC
 	`, reqID)
 	if err != nil {
 		return nil, err
@@ -943,10 +944,8 @@ func (s *SQLiteStore) StoryDBStatusByReq(reqID string) (map[string]string, error
 		if err := rows.Scan(&sid, &st); err != nil {
 			return nil, err
 		}
-		// If multiple rows per story (rare), the latest non-deleted wins.
-		if existing, ok := out[sid]; ok && existing != "deleted" {
-			continue
-		}
+		// Rows are ordered oldest-first, so the last write per story wins —
+		// the displayed status reflects the most recently provisioned DB.
 		out[sid] = st
 	}
 	return out, rows.Err()
@@ -955,7 +954,7 @@ func (s *SQLiteStore) StoryDBStatusByReq(reqID string) (map[string]string, error
 // StoryDBStatusAll returns the same map but unscoped to a requirement.
 func (s *SQLiteStore) StoryDBStatusAll() (map[string]string, error) {
 	out := make(map[string]string)
-	rows, err := s.db.Query(`SELECT story_id, status FROM story_databases`)
+	rows, err := s.db.Query(`SELECT story_id, status FROM story_databases ORDER BY created_at ASC, rowid ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -965,9 +964,7 @@ func (s *SQLiteStore) StoryDBStatusAll() (map[string]string, error) {
 		if err := rows.Scan(&sid, &st); err != nil {
 			return nil, err
 		}
-		if existing, ok := out[sid]; ok && existing != "deleted" {
-			continue
-		}
+		// Oldest-first ordering means the last write per story wins.
 		out[sid] = st
 	}
 	return out, rows.Err()

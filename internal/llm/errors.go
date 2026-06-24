@@ -77,6 +77,21 @@ var capacitySignatures = []string{
 	`"api_error_status":529`,
 	`"api_error_status": 429`,
 	`"api_error_status": 529`,
+
+	// Transient network/transport failures. Like a session limit, these are not
+	// a story-quality problem and succeed on retry/resume — so they must take
+	// the clean-pause path, not burn the escalation chain. Surfaced by the CLI
+	// as e.g. "API Error: The socket connection was closed unexpectedly".
+	"socket connection was closed",
+	"connection closed unexpectedly",
+	"connection reset",
+	"connection refused",
+	"i/o timeout",
+	"tls handshake timeout",
+	"unexpected eof",
+	"service unavailable",
+	"bad gateway",
+	"gateway timeout",
 }
 
 // ContainsCapacitySignature reports whether a raw string carries a capacity /

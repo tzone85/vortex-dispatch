@@ -13,7 +13,7 @@ import (
 // capacity / session-limit exhaustion at a given pipeline stage. The "capacity
 // limit" phrasing routes pauseResumeHint to the correct operator guidance.
 func capacityPauseReason(stage string, err error) string {
-	return fmt.Sprintf("LLM capacity/session limit during %s — resume after reset: %v", stage, err)
+	return fmt.Sprintf("transient LLM capacity/network error during %s — resume after it clears: %v", stage, err)
 }
 
 // pauseIfCapacity inspects an LLM-call error. If it is a transient capacity

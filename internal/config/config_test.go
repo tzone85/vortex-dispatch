@@ -199,8 +199,11 @@ func TestDefaultConfig_IncludesModels(t *testing.T) {
 	if cfg.Models.TechLead.Provider != "anthropic" {
 		t.Fatalf("expected tech_lead provider 'anthropic', got %s", cfg.Models.TechLead.Provider)
 	}
-	if cfg.Models.Junior.Provider != "google" {
-		t.Fatalf("expected junior provider 'google', got %s", cfg.Models.Junior.Provider)
+	// Junior defaults to the Claude CLI subscription path (claude-haiku-4-5);
+	// the previous "google"/"gemma-4-27b-it" default was a 404 model. See
+	// TestDefaultConfig_NoInvalidJuniorModel.
+	if cfg.Models.Junior.Provider != "anthropic" {
+		t.Fatalf("expected junior provider 'anthropic', got %s", cfg.Models.Junior.Provider)
 	}
 	if cfg.Models.TechLead.MaxTokens != 16000 {
 		t.Fatalf("expected tech_lead max_tokens 16000, got %d", cfg.Models.TechLead.MaxTokens)

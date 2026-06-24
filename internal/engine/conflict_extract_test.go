@@ -33,3 +33,38 @@ func TestExtractResolvedFileContent(t *testing.T) {
 		t.Fatalf("fenced-only extraction failed: %q", g)
 	}
 }
+
+func TestLooksLikeResolverChatter(t *testing.T) {
+	// Real prose-only replies that DESTROYED files when written verbatim. The
+	// resolver emitted commentary with NO fenced block, so extraction returned
+	// the prose itself.
+	chatter := []string{
+		// The stylesheet that got reduced to commentary (app rendered unstyled).
+		"Conflict resolved. Kept both sides:\n\n- HEAD primitives — `.btn*`\nNo selector collisions — separate class namespaces, all functionality retained.",
+		"Resolved file content:",
+		"Resolved content (merge keeps both sides' functionality):",
+		"Permission denied by harness. Cannot write the file myself. Resolved content below:",
+		"Working tree is `master` (no `src/`), so I can't write the file here.",
+		"Both sides merged — HEAD link tests + branch tests. Write blocked on permission, so resolved content below:",
+		"Want me to apply this on branch vxd/abc and run the tests?",
+	}
+	for _, c := range chatter {
+		if !looksLikeResolverChatter(c) {
+			t.Errorf("expected chatter to be flagged:\n%q", c)
+		}
+	}
+
+	// Real merged source must NOT be flagged (no false positives).
+	code := []string{
+		"package main\n\nfunc main() {}\n",
+		"import { useState } from 'react';\nexport const App = () => null;",
+		".ui-button { color: red; }\n.app-layout { display: flex; }",
+		"{\n  \"name\": \"isiqalo-pos-frontend\",\n  \"private\": true\n}",
+		"// resolve the promise, then return the merged list of items\nconst x = await resolve();",
+	}
+	for _, c := range code {
+		if looksLikeResolverChatter(c) {
+			t.Errorf("real source wrongly flagged as chatter:\n%q", c)
+		}
+	}
+}

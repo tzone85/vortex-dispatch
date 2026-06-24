@@ -91,9 +91,9 @@ workspace:
   state_dir: ~/.vxd
   backend: sqlite
 models:
-  tech_lead: {provider: anthropic, model: claude-opus-4-20250514}
-  senior: {provider: anthropic, model: claude-sonnet-4-20250514}
-  junior: {provider: google, model: gemma-4-27b-it}
+  tech_lead: {provider: anthropic, model: claude-opus-4-8}
+  senior: {provider: anthropic, model: claude-opus-4-7}
+  junior: {provider: anthropic, model: claude-haiku-4-5}  # was google/gemma-4-27b-it — a 404 model that killed the junior tier
 routing:
   junior_max_complexity: 3
   max_retries_before_escalation: 2
@@ -374,6 +374,7 @@ Robustness pass from an adversarial principles audit (correctness/flakiness gaps
 
 ### Model ID Compatibility
 - **Use undated aliases, not dated snapshots.** Current defaults: `claude-opus-4-8` (tech_lead), `claude-sonnet-4-6` (senior/qa/manager), `claude-haiku-4-5` (cheapest). All three are verified working on the Claude CLI subscription tier.
+- **Default execution tiers are all-Anthropic (2026-06-24 fix).** `DefaultConfig` previously set junior/intermediate/supervisor to `{google, gemma-4-27b-it}` — a model that 404s on the Google AI API (it does not exist on `v1beta`). Every low-complexity story spawned a gemini agent that died in ~10s producing no code, then limped forward by escalating to senior. Defaults are now `{anthropic, claude-haiku-4-5}` so a fresh install works with only the Claude CLI configured (no Google AI key/quota). `TestDefaultConfig_NoInvalidJuniorModel` pins this. **A model 404 in the agent runtime surfaces as "agent produced no code changes," NOT as a model error — if a whole tier silently produces nothing, validate the model ID with `gemini -m <id> -p OK` / `claude --model <id> -p OK` first.**
 - **Dated snapshot IDs retire.** The old defaults `claude-opus-4-20250514` / `claude-sonnet-4-20250514` retired **2026-06-15** and now return HTTP 404 ("model may not exist or you may not have access"). Dated `-4-6-` IDs (e.g. `claude-sonnet-4-6-20250620`) also do NOT work on the CLI subscription tier. Prefer the bare alias (`claude-sonnet-4-6`), which the subscription resolves to the current snapshot.
 - **A 404 model error cascades into a false escalation.** When the reviewer/manager LLM call 404s on a retired model, the pipeline treats it as a story-quality failure: reset → tier-1 → manager → tech-lead split → max-split-depth → requirement paused with a misleading "top up your API credits" message. If a whole requirement pauses and the logs show `api_error_status:404` / "model may not exist", fix the model IDs first — it is not a credit or code-quality problem.
 - Always test a model ID with `claude --model <id> -p "test" --max-turns 1` before setting it as a default.

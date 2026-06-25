@@ -42,6 +42,7 @@ func TestPlanner_Plan(t *testing.T) {
 
 	cfg := config.DefaultConfig()
 	cfg.Planning.EmitScribeStory = false
+	cfg.Planning.EmitIntegrationStory = false
 	planner := engine.NewPlanner(client, cfg, eventStore, projStore)
 
 	result, err := planner.Plan(context.Background(), "r-001", "Add user authentication", dir)
@@ -166,6 +167,7 @@ func TestPlanner_EmitsScribeStory(t *testing.T) {
 		defer projStore.Close()
 		cfg := config.DefaultConfig()
 		cfg.Planning.EmitScribeStory = emit
+		cfg.Planning.EmitIntegrationStory = false // isolate scribe in this test
 		planner := engine.NewPlanner(llm.NewReplayClient(llm.CompletionResponse{Content: resp}), cfg, eventStore, projStore)
 		result, err := planner.Plan(context.Background(), "r-001", "Build a thing", dir)
 		if err != nil {
@@ -226,6 +228,7 @@ func TestPlanner_PromptIncludesEngineeringStandards(t *testing.T) {
 	client := llm.NewReplayClient(llm.CompletionResponse{Content: resp})
 	cfg := config.DefaultConfig()
 	cfg.Planning.EmitScribeStory = false
+	cfg.Planning.EmitIntegrationStory = false
 	es, _ := state.NewFileStore(filepath.Join(dir, "e.jsonl"))
 	defer es.Close()
 	ps, _ := state.NewSQLiteStore(":memory:")
@@ -239,6 +242,47 @@ func TestPlanner_PromptIncludesEngineeringStandards(t *testing.T) {
 	for _, must := range []string{"Input validation", "XSS", "SOLID", "wiring", "Tests:", "Error handling"} {
 		if !strings.Contains(prompt, must) {
 			t.Errorf("decomposition prompt missing engineering standard %q", must)
+		}
+	}
+}
+
+// The integration story must be emitted (depending on all code stories) and
+// carry the wiring + smoke-test instructions that close the compose gap.
+func TestPlanner_EmitsIntegrationStory(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0644)
+
+	resp := `[
+		{"id":"s-001","title":"A","description":"d","acceptance_criteria":"ac","complexity":3,"depends_on":[]},
+		{"id":"s-002","title":"B","description":"d","acceptance_criteria":"ac","complexity":3,"depends_on":["s-001"]}
+	]`
+	es, _ := state.NewFileStore(filepath.Join(dir, "e.jsonl"))
+	defer es.Close()
+	ps, _ := state.NewSQLiteStore(":memory:")
+	defer ps.Close()
+	cfg := config.DefaultConfig()
+	cfg.Planning.EmitScribeStory = false // isolate the integration story
+	planner := engine.NewPlanner(llm.NewReplayClient(llm.CompletionResponse{Content: resp}), cfg, es, ps)
+	result, err := planner.Plan(context.Background(), "r-001", "Build a web API", dir)
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+
+	// 2 code stories + 1 integration = 3; integration is last and depends on both.
+	if len(result.Stories) != 3 {
+		t.Fatalf("expected 3 stories (2 + integration), got %d", len(result.Stories))
+	}
+	integ := result.Stories[len(result.Stories)-1]
+	if integ.ID != "r-001-integrate" {
+		t.Fatalf("expected integration story id r-001-integrate, got %q", integ.ID)
+	}
+	if len(integ.DependsOn) != 2 {
+		t.Errorf("integration story should depend on all code stories, got %v", integ.DependsOn)
+	}
+	brief := integ.Description + " " + string(integ.AcceptanceCriteria)
+	for _, must := range []string{"entry point", "smoke test", "adapter", "404", "mock"} {
+		if !strings.Contains(brief, must) {
+			t.Errorf("integration brief missing %q", must)
 		}
 	}
 }
@@ -358,6 +402,7 @@ func TestPlan_ParsesOwnedFiles(t *testing.T) {
 	client := llm.NewReplayClient(llm.CompletionResponse{Content: response})
 	cfg := config.DefaultConfig()
 	cfg.Planning.EmitScribeStory = false
+	cfg.Planning.EmitIntegrationStory = false
 	planner := engine.NewPlanner(client, cfg, eventStore, projStore)
 
 	result, err := planner.Plan(context.Background(), "r-002", "Add API layer", dir)
@@ -411,6 +456,7 @@ func TestPlan_RejectsExcessiveComplexity(t *testing.T) {
 	client := llm.NewReplayClient(llm.CompletionResponse{Content: response})
 	cfg := config.DefaultConfig()
 	cfg.Planning.EmitScribeStory = false
+	cfg.Planning.EmitIntegrationStory = false
 	cfg.Planning.MaxStoryComplexity = 5
 	planner := engine.NewPlanner(client, cfg, eventStore, projStore)
 
@@ -444,6 +490,7 @@ func TestPlan_RejectsFileOverlap(t *testing.T) {
 	client := llm.NewReplayClient(llm.CompletionResponse{Content: response})
 	cfg := config.DefaultConfig()
 	cfg.Planning.EmitScribeStory = false
+	cfg.Planning.EmitIntegrationStory = false
 	planner := engine.NewPlanner(client, cfg, eventStore, projStore)
 
 	// Overlapping files should be auto-sequenced instead of rejected.
@@ -494,6 +541,7 @@ func TestRePlan_CreatesReplacementStories(t *testing.T) {
 
 	cfg := config.DefaultConfig()
 	cfg.Planning.EmitScribeStory = false
+	cfg.Planning.EmitIntegrationStory = false
 	planner := engine.NewPlanner(client, cfg, eventStore, projStore)
 
 	stories, err := planner.RePlan(context.Background(), "s-001", "r-001", "Story failed 3 times: test compilation error in handler.go")

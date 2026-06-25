@@ -68,6 +68,13 @@ type PlanningConfig struct {
 	// (greenfield-aware, edits only within vxd:scribe markers on existing
 	// READMEs) plus links the generated docs. Clients can opt out per project.
 	EmitScribeStory bool `yaml:"emit_scribe_story"`
+	// EmitIntegrationStory, when true (default), makes the planner append a
+	// final "integration" story (before the scribe) that depends on all code
+	// stories, wires every component into the application entry point, bridges
+	// interface mismatches with adapters, and writes an end-to-end smoke test
+	// that boots the app and asserts the documented surface responds. Closes the
+	// systemic gap where per-story unit tests pass but the whole never composes.
+	EmitIntegrationStory bool `yaml:"emit_integration_story"`
 }
 
 // WorkspaceConfig holds workspace-level settings.

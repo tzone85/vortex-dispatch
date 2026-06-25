@@ -58,6 +58,7 @@ func DefaultConfig() Config {
 			MaxStoryComplexity:     5,
 			DesignApproach:         "ddd-tdd",
 			EmitScribeStory:        true,
+			EmitIntegrationStory:   true,
 		},
 		Billing: BillingConfig{
 			DefaultRate: 150.0,

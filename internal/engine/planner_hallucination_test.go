@@ -95,6 +95,7 @@ func TestPlanner_AcceptsValidDependencies(t *testing.T) {
 	}
 	cfg := config.DefaultConfig()
 	cfg.Planning.EmitScribeStory = false
+	cfg.Planning.EmitIntegrationStory = false
 	p := engine.NewPlanner(llm.NewReplayClient(resp), cfg, es, ps)
 
 	result, err := p.Plan(context.Background(), "req-valid", "Build feature", t.TempDir())

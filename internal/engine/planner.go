@@ -306,6 +306,22 @@ architecture and conventions when planning stories.`, profileContext)
 		}
 	}
 
+	// Integration story: a final code story that depends on every other code
+	// story, wires all independently-built components into the application
+	// entry point, reconciles interface mismatches with adapters, and writes a
+	// smoke test that BOOTS the app and asserts the documented surface actually
+	// responds. This closes the systemic gap where per-story unit tests pass
+	// (against mocks) but the whole never composes — unwired handlers, no auth,
+	// incompatible interfaces. The smoke test runs in QA / the pre-merge gate,
+	// so a non-functional whole fails the build instead of "completing".
+	if persist && p.config.Planning.EmitIntegrationStory && len(stories) > 0 {
+		deps := make([]string, 0, len(stories))
+		for _, s := range stories {
+			deps = append(deps, s.ID)
+		}
+		stories = append(stories, buildIntegrationStory(prefix, requirement, deps))
+	}
+
 	// README Scribe: append a final story that documents what was built. It
 	// depends on every other story so it runs last (after all code is merged),
 	// owns README.md, and is greenfield-aware. Skipped for ephemeral estimates
@@ -478,6 +494,39 @@ const scribeStorySuffix = "scribe-readme"
 // other story (deps are already prefixed), owns README.md, and instructs the
 // agent to be greenfield-aware and confine edits on an existing README to the
 // vxd:scribe markers so hand-written content is never clobbered.
+// buildIntegrationStory constructs the final integration story. It runs after
+// every code story (depends on all of them) and is responsible for making the
+// independently-built components actually compose into a working application.
+func buildIntegrationStory(prefix, requirement string, deps []string) PlannedStory {
+	desc := fmt.Sprintf(`Integrate everything the other stories built into ONE working application for this requirement: %s
+
+The other stories each built and unit-tested a component in isolation (often against mocks). Your job is to make the WHOLE thing actually run end-to-end. This is the most important story — a build that passes unit tests but does not run is a failure.
+
+Do ALL of the following:
+- Wire every component into the application entry point (e.g. main.go / app.py / server / index.ts / CLI root). Every handler, route, command, page, and middleware that a story built MUST be reachable from the real entry point. Audit for dangling wires: a feature whose unit test passes but that is never registered in the entry point is a bug.
+- Apply cross-cutting middleware that stories built but could not wire themselves (authentication, logging, CORS, rate limiting) at the entry point. If an auth/API-key middleware exists, it MUST actually guard the documented protected routes.
+- Reconcile interface mismatches between components with thin adapters. Independently-built stories often declare slightly different interfaces (e.g. one returns []Conflict, another *ValidationResult); add the adapter so the real implementation — not a mock — is wired in. Do NOT leave a production path depending on a test-only mock.
+- Add a SMOKE TEST that boots the application and exercises the documented surface end-to-end: for a server, start it and assert each documented endpoint responds with the expected status (NOT 404) and that protected routes reject missing credentials; for a CLI, run the documented commands and assert real output; for a UI, render the primary flow. The smoke test must FAIL if a feature is unreachable or unwired.
+- Fix any wiring/compile/type errors this integration surfaces so the full app builds and all tests (including your smoke test) pass.
+
+Make reasonable, conventional choices for any route paths or wiring details the requirement leaves unspecified, and note them briefly in code comments.`, requirement)
+
+	return PlannedStory{
+		ID:                 prefix + "-integrate",
+		Title:              "Integrate all components into a working app + end-to-end smoke test",
+		Description:        desc,
+		AcceptanceCriteria: FlexibleString("Every documented feature is reachable from the real application entry point (no dangling/unwired handlers, commands, or pages); cross-cutting middleware (auth etc.) actually guards the documented routes; interface mismatches between components are bridged with adapters so the production path uses real implementations, not mocks; a smoke test boots the app and asserts the documented surface responds end-to-end (protected routes reject missing credentials, documented endpoints do not 404) and that smoke test passes along with the full build/test suite."),
+		Complexity:         5,
+		DependsOn:          deps,
+		// No declared owned_files: integration legitimately touches the entry
+		// point (owned by the skeleton story) and adds adapter/smoke-test files.
+		// It depends on every story, so it runs last with no parallel conflict;
+		// the edge-aware overlap check permits the sequenced entry-point edit.
+		OwnedFiles: []string{},
+		WaveHint:   "sequential",
+	}
+}
+
 func buildScribeStory(prefix, requirement string, deps []string) PlannedStory {
 	desc := fmt.Sprintf(`Document the project to software-factory standard for what this requirement delivered: %s
 

@@ -45,6 +45,7 @@ func TestPlanner_AllowsCleanRequirement(t *testing.T) {
 	}
 	cfg := config.DefaultConfig()
 	cfg.Planning.EmitScribeStory = false
+	cfg.Planning.EmitIntegrationStory = false
 	p := NewPlanner(llm.NewReplayClient(resp), cfg, es, ps)
 
 	result, err := p.Plan(context.Background(), "req-003",

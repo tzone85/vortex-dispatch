@@ -38,6 +38,7 @@ func TestPlan_RejectsEmptyStoryList(t *testing.T) {
 	client := llm.NewReplayClient(llm.CompletionResponse{Content: "[]"})
 	cfg := config.DefaultConfig()
 	cfg.Planning.EmitScribeStory = false
+	cfg.Planning.EmitIntegrationStory = false
 	planner := engine.NewPlanner(client, cfg, eventStore, projStore)
 
 	_, err := planner.Plan(context.Background(), "r-empty", "Build nothing", dir)
@@ -72,6 +73,7 @@ func TestPlan_RejectsStoryWithEmptyID(t *testing.T) {
 	client := llm.NewReplayClient(llm.CompletionResponse{Content: response})
 	cfg := config.DefaultConfig()
 	cfg.Planning.EmitScribeStory = false
+	cfg.Planning.EmitIntegrationStory = false
 	planner := engine.NewPlanner(client, cfg, eventStore, projStore)
 
 	if _, err := planner.Plan(context.Background(), "r-emptyid", "Has a blank story", dir); err == nil {

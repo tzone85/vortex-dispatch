@@ -126,6 +126,7 @@ func TestGoogleAI_FullPipeline_PlanDispatchReviewQAMerge(t *testing.T) {
 
 	cfg := config.DefaultConfig()
 	cfg.Planning.EmitScribeStory = false
+	cfg.Planning.EmitIntegrationStory = false
 
 	// Wire both planner and reviewer to Google AI (for this test)
 	googleClient := llm.NewRetryClient(
@@ -341,6 +342,7 @@ func TestGoogleAI_FallbackMidPipeline(t *testing.T) {
 	os.WriteFile(filepath.Join(repoDir, "go.mod"), []byte("module fallback-e2e"), 0644)
 	cfg := config.DefaultConfig()
 	cfg.Planning.EmitScribeStory = false
+	cfg.Planning.EmitIntegrationStory = false
 
 	// --- Phase 1: Plan (succeeds via Google) ---
 	planner := engine.NewPlanner(fallbackClient, cfg, es, ps)

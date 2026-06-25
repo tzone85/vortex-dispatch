@@ -61,6 +61,44 @@ func ConflictedFiles(worktreePath string) ([]string, error) {
 	return files, nil
 }
 
+// ConflictSides returns the two competing versions of a conflicted file from
+// the index: ours (stage :2:, the branch being rebased ONTO — i.e. the base)
+// and theirs (stage :3:, the commit being replayed — i.e. the story branch).
+// A side may be empty with a nil error when the file was added on only one side
+// (no stage entry); callers must tolerate an empty side. Both stages missing is
+// an error (not a normal 3-way text conflict).
+func ConflictSides(worktreePath, file string) (ours, theirs []byte, err error) {
+	read := func(stage string) ([]byte, error) {
+		cmd := exec.Command("git", "show", stage+":"+file)
+		cmd.Dir = worktreePath
+		return cmd.Output()
+	}
+	ours, oErr := read(":2")
+	theirs, tErr := read(":3")
+	if oErr != nil && tErr != nil {
+		return nil, nil, fmt.Errorf("no index stages for %s (ours: %v; theirs: %v)", file, oErr, tErr)
+	}
+	return ours, theirs, nil
+}
+
+// CheckoutTheirs resolves a conflicted file by taking the theirs side (stage
+// :3:, the story branch's version during a rebase) and staging it. Used as a
+// deterministic last resort when LLM resolution cannot produce file content, so
+// a single unresolvable file never aborts the whole story.
+func CheckoutTheirs(worktreePath, file string) error {
+	co := exec.Command("git", "checkout", "--theirs", "--", file)
+	co.Dir = worktreePath
+	if out, err := co.CombinedOutput(); err != nil {
+		return fmt.Errorf("git checkout --theirs %s: %w (%s)", file, err, strings.TrimSpace(string(out)))
+	}
+	add := exec.Command("git", "add", "-f", "--", file)
+	add.Dir = worktreePath
+	if out, err := add.CombinedOutput(); err != nil {
+		return fmt.Errorf("git add %s after checkout --theirs: %w (%s)", file, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // StageFiles stages the specified files in the worktree (git add -f).
 // Uses -f to force-add files that may be gitignored (e.g., VXD's own
 // .vxd-prompts directory which appears in conflict resolution).

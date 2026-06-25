@@ -148,7 +148,13 @@ Instructions:
 		return
 	}
 
-	// Commit the documentation update (README + generated docs/ diagrams)
+	// Factory documentation standard: fill any remaining shortfall — a
+	// getting-started training guide and Architecture Decision Records when the
+	// agent did not supply them, then a deterministic docs/ index over the lot.
+	ensureFactoryDocs(ctx, repoDir, reqTitle, fileTree, projectInfo, client, model)
+
+	// Commit the documentation update (README + generated docs/ diagrams, ADRs,
+	// training guide, and index)
 	commitDocumentation(repoDir)
 
 	action := "created"

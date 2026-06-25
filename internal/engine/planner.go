@@ -530,22 +530,24 @@ Make reasonable, conventional choices for any route paths or wiring details the 
 func buildScribeStory(prefix, requirement string, deps []string) PlannedStory {
 	desc := fmt.Sprintf(`Document the project to software-factory standard for what this requirement delivered: %s
 
-Write for a reader who is new to the project. Deliver ALL of the following:
-- README.md: explain what it is, how to install/run it, and how to use it — accurate to what was actually built and merged (do not invent features). Link to docs/ and the training guide so the README is the entry point.
-- A "Training" / "Getting Started Tutorial" section (in README or docs/training.md, linked from the README): a step-by-step hands-on walkthrough that takes a new user from zero to a working result, with copy-pasteable commands and expected output.
+Write for a reader who is new to the project. Deliver the COMPLETE software-factory documentation set:
+- README.md: explain what it is, how to install/run it, and how to use it — accurate to what was actually built and merged (do not invent features). It is the entry point: link to docs/ (the docs index), the training guide, and the Architecture Decision Records.
+- docs/training.md: a "Getting Started" step-by-step hands-on walkthrough that takes a new user from zero to a working result, with copy-pasteable commands and expected output.
 - docs/architecture.svg: an architecture diagram authored as a real rendered SVG file (valid <svg>…</svg> XML). NOT Mermaid, NOT a code fence, NOT a .mmd file — an actual .svg.
 - docs/sequence.svg: a sequence diagram of the primary user flow, also as a real rendered SVG file (valid <svg>…</svg> XML). NOT Mermaid.
-- Reference both SVGs from the README (e.g. via ![Architecture](docs/architecture.svg)).
-- Greenfield-aware: if README.md is empty or a bare stub, author a complete README. If it already has substantial hand-written content, edit ONLY inside the markers `+"`<!-- vxd:scribe:start -->`"+` ... `+"`<!-- vxd:scribe:end -->`"+` (create that block at the end if absent) — never rewrite or delete existing prose outside the markers. The docs/*.svg and training files are new files and may be authored freely.`, requirement)
+- docs/adr/0001-*.md … : Architecture Decision Records for the significant, hard-to-reverse decisions (persistence, layering, offline-vs-network, auth, a key algorithm, an error-handling contract, etc.), each grounded in the real code with Status/Context/Decision/Consequences. Add docs/adr/README.md as an index.
+- docs/README.md: a documentation index linking the README, training guide, both SVGs, and the ADRs.
+- Reference both SVGs from the README (e.g. via ![Architecture](docs/architecture.svg)) and link docs/ + docs/adr/.
+- Greenfield-aware: if README.md is empty or a bare stub, author a complete README. If it already has substantial hand-written content, edit ONLY inside the markers `+"`<!-- vxd:scribe:start -->`"+` ... `+"`<!-- vxd:scribe:end -->`"+` (create that block at the end if absent) — never rewrite or delete existing prose outside the markers. The docs/ files are new and may be authored freely.`, requirement)
 
 	return PlannedStory{
 		ID:                 prefix + "-" + scribeStorySuffix,
-		Title:              "Document the project: README + training tutorial + SVG architecture & sequence diagrams",
+		Title:              "Document the project: README + training + SVG diagrams + ADRs + docs index",
 		Description:        desc,
-		AcceptanceCriteria: FlexibleString("README.md accurately documents the delivered functionality with install/run/usage instructions and links docs/ + the training guide; a step-by-step Training/Getting-Started tutorial exists (README section or docs/training.md) with copy-pasteable commands; docs/architecture.svg and docs/sequence.svg exist as valid rendered SVG (<svg> XML, NOT Mermaid/code-fence/.mmd) and are referenced from the README; on a pre-existing README, edits are confined to the vxd:scribe markers and existing content outside them is unchanged."),
+		AcceptanceCriteria: FlexibleString("README.md accurately documents the delivered functionality with install/run/usage instructions and links docs/, the training guide, and the ADRs; docs/training.md is a step-by-step Getting-Started tutorial with copy-pasteable commands; docs/architecture.svg and docs/sequence.svg exist as valid rendered SVG (<svg> XML, NOT Mermaid/code-fence/.mmd) and are referenced from the README; docs/adr/ contains Architecture Decision Records (Status/Context/Decision/Consequences) plus an index, grounded in the real code; docs/README.md is a documentation index; on a pre-existing README, edits are confined to the vxd:scribe markers and existing content outside them is unchanged."),
 		Complexity:         5,
 		DependsOn:          deps,
-		OwnedFiles:         []string{"README.md", "docs/architecture.svg", "docs/sequence.svg", "docs/training.md"},
+		OwnedFiles:         []string{"README.md", "docs/architecture.svg", "docs/sequence.svg", "docs/training.md", "docs/adr", "docs/README.md"},
 		WaveHint:           "sequential",
 	}
 }

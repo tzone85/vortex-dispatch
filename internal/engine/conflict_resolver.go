@@ -2,6 +2,8 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -14,6 +16,15 @@ import (
 	"github.com/tzone85/vortex-dispatch/internal/llm"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
+
+// errUnmergeable signals that the LLM responded but could NOT produce usable
+// merged file content — it returned conversational commentary, or left conflict
+// markers in place. This is a genuine resolution dead-end: retrying the same
+// model will not help, so a deterministic story-branch fallback is appropriate.
+// It is deliberately distinct from API/transport errors (exhausted client,
+// network blip, 429, auth) — there a retry or resume may yet succeed, so the
+// resolver must abort rather than silently take a side.
+var errUnmergeable = errors.New("resolver could not produce merged file content")
 
 // oversizedBinaryPattern matches compiled binary names that should be removed
 // rather than kept when they appear as merge conflicts.
@@ -182,6 +193,29 @@ func (cr *ConflictResolver) RebaseWithResolution(ctx context.Context, storyID, w
 				continue
 			}
 
+			// JSON config files (package.json, tsconfig.json, …): both sides
+			// usually ADD keys, so a deep structural union is the correct, fully
+			// deterministic resolution — and it sidesteps the LLM, which kept
+			// returning commentary instead of merged JSON for exactly these files
+			// and thrashed the story through every escalation tier. If either
+			// side is not valid JSON the merge errors and we fall through to the
+			// LLM path unchanged.
+			if isStructuredJSONMergeable(file) {
+				if ours, theirs, sErr := vxdgit.ConflictSides(worktreePath, file); sErr == nil {
+					if merged, mErr := structuralJSONMerge(ours, theirs); mErr == nil {
+						if wErr := os.WriteFile(absPath, merged, 0o644); wErr != nil {
+							_ = vxdgit.RebaseAbort(worktreePath)
+							return fmt.Errorf("write JSON-merged %s: %w", file, wErr)
+						}
+						cr.emitEscalationEvent(storyID, file, "structural_json_merge_deterministic")
+						log.Printf("[conflict-resolver] deterministic structural JSON merge for %s in %s", file, storyID)
+						continue
+					} else {
+						log.Printf("[conflict-resolver] structural JSON merge unavailable for %s (%v) — falling back to LLM", file, mErr)
+					}
+				}
+			}
+
 			// Try senior resolver first (fast path).
 			resolved, seniorErr := cr.resolveFile(ctx, file, string(content))
 
@@ -194,21 +228,53 @@ func (cr *ConflictResolver) RebaseWithResolution(ctx context.Context, storyID, w
 					tlCtx := cr.buildTechLeadContext(ctx, storyID, worktreePath, file)
 					resolved, rErr = cr.resolveFileTechLead(ctx, file, string(content), tlCtx)
 					if rErr != nil {
-						cr.emitEscalationEvent(storyID, file, "tech_lead_failed")
-						_ = vxdgit.RebaseAbort(worktreePath) // best-effort cleanup; original error is what matters
-						if llm.IsFatalAPIError(rErr) {
-							log.Printf("[conflict-resolver] FATAL: Tech Lead API error for %s: %v", storyID, rErr)
+						// Only a genuine resolution dead-end (the model returned
+						// commentary or left conflict markers) gets the
+						// deterministic fallback. API/transport errors (fatal,
+						// capacity, transient client failures) must abort so the
+						// pipeline pauses/escalates — a retry or resume may yet
+						// produce a correct merge, and we must not silently take a
+						// side under a transient outage.
+						if !errors.Is(rErr, errUnmergeable) {
+							cr.emitEscalationEvent(storyID, file, "tech_lead_failed")
+							_ = vxdgit.RebaseAbort(worktreePath) // best-effort cleanup; original error is what matters
+							if llm.IsFatalAPIError(rErr) {
+								log.Printf("[conflict-resolver] FATAL: Tech Lead API error for %s: %v", storyID, rErr)
+							}
+							return fmt.Errorf("tech lead resolve %s: %w", file, rErr)
 						}
-						return fmt.Errorf("tech lead resolve %s: %w", file, rErr)
+						// The LLM cannot merge this file. Rather than abort the
+						// whole story and thrash through every escalation tier
+						// forever, resolve deterministically by keeping the
+						// story-branch version; the pre-merge QA gate and
+						// post-merge integration build then validate it.
+						if fbErr := vxdgit.CheckoutTheirs(worktreePath, file); fbErr != nil {
+							_ = vxdgit.RebaseAbort(worktreePath)
+							return fmt.Errorf("deterministic fallback for %s after tech-lead failure (%v): %w", file, rErr, fbErr)
+						}
+						cr.emitEscalationEvent(storyID, file, "deterministic_fallback_theirs")
+						log.Printf("[conflict-resolver] %s: LLM could not merge %s (%v) — kept story-branch version (--theirs); QA/integration build will validate", storyID, file, rErr)
+						continue
 					}
 					cr.emitEscalationEvent(storyID, file, "tech_lead_resolved")
 				} else if seniorErr != nil {
 					// No tech lead available and senior failed.
-					_ = vxdgit.RebaseAbort(worktreePath) // best-effort cleanup; original error is what matters
-					if llm.IsFatalAPIError(seniorErr) {
-						log.Printf("[conflict-resolver] FATAL: API error during conflict resolution for %s: %v", storyID, seniorErr)
+					if !errors.Is(seniorErr, errUnmergeable) {
+						_ = vxdgit.RebaseAbort(worktreePath) // best-effort cleanup; original error is what matters
+						if llm.IsFatalAPIError(seniorErr) {
+							log.Printf("[conflict-resolver] FATAL: API error during conflict resolution for %s: %v", storyID, seniorErr)
+						}
+						return fmt.Errorf("LLM resolve %s: %w", file, seniorErr)
 					}
-					return fmt.Errorf("LLM resolve %s: %w", file, seniorErr)
+					// Resolution dead-end with no tech lead to escalate to: take
+					// the deterministic story-branch fallback instead of aborting.
+					if fbErr := vxdgit.CheckoutTheirs(worktreePath, file); fbErr != nil {
+						_ = vxdgit.RebaseAbort(worktreePath)
+						return fmt.Errorf("deterministic fallback for %s after senior failure (%v): %w", file, seniorErr, fbErr)
+					}
+					cr.emitEscalationEvent(storyID, file, "deterministic_fallback_theirs")
+					log.Printf("[conflict-resolver] %s: senior could not merge %s and no tech lead configured (%v) — kept story-branch version (--theirs)", storyID, file, seniorErr)
+					continue
 				} else if needsTechLead {
 					// Senior succeeded but the round was integration-level
 					// (>3 files). Policy says escalate to Tech Lead — but
@@ -303,6 +369,95 @@ func unionResolveConflict(conflicted string) string {
 		out = out[:len(out)-1]
 	}
 	return strings.Join(out, "\n")
+}
+
+// structuredJSONConfigs are JSON config files where both sides typically ADD
+// keys (dependencies, scripts, compilerOptions) and the correct resolution is a
+// deep union of the two objects — not picking one side, and never the LLM. This
+// is the file class that repeatedly deadlocked the LLM resolver: it returned
+// conversational commentary instead of merged JSON for package.json/tsconfig,
+// aborting an otherwise-clean rebase and thrashing the story through every
+// escalation tier. Lock files are deliberately excluded (handled separately,
+// regenerated by the build).
+var structuredJSONConfigs = map[string]bool{
+	"package.json":     true,
+	"tsconfig.json":    true,
+	"jsconfig.json":    true,
+	"composer.json":    true,
+	"app.json":         true,
+	".babelrc":         true,
+	".eslintrc.json":   true,
+	".prettierrc.json": true,
+	"nest-cli.json":    true,
+}
+
+// isStructuredJSONMergeable reports whether a conflicted path is a JSON config
+// that should be resolved by a deep structural union rather than by the LLM.
+// Matches known basenames plus the tsconfig.<env>.json family. Lock files are
+// excluded (isGeneratedLockFile owns those).
+func isStructuredJSONMergeable(file string) bool {
+	base := filepath.Base(file)
+	if isGeneratedLockFile(base) {
+		return false
+	}
+	if structuredJSONConfigs[base] {
+		return true
+	}
+	// tsconfig.build.json, tsconfig.spec.json, etc.
+	return strings.HasPrefix(base, "tsconfig.") && strings.HasSuffix(base, ".json")
+}
+
+// structuralJSONMerge deep-merges the two sides of a JSON conflict. Objects are
+// unioned key-by-key (recursively), so both sides' dependencies/scripts/options
+// are preserved. For any non-object position (scalars, arrays, or a type
+// mismatch) the theirs side — the story branch being rebased — wins, since it
+// is the newer intent being layered on. Returns an error if either side is not
+// valid JSON, so the caller can fall back to the LLM path for non-JSON content.
+func structuralJSONMerge(ours, theirs []byte) ([]byte, error) {
+	// An empty side (file added on only one side) means there is nothing to
+	// merge — keep the present side verbatim.
+	if len(strings.TrimSpace(string(ours))) == 0 {
+		return theirs, nil
+	}
+	if len(strings.TrimSpace(string(theirs))) == 0 {
+		return ours, nil
+	}
+	var o, t any
+	if err := json.Unmarshal(ours, &o); err != nil {
+		return nil, fmt.Errorf("ours side is not valid JSON: %w", err)
+	}
+	if err := json.Unmarshal(theirs, &t); err != nil {
+		return nil, fmt.Errorf("theirs side is not valid JSON: %w", err)
+	}
+	merged := deepMergeJSON(o, t)
+	out, err := json.MarshalIndent(merged, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshal merged JSON: %w", err)
+	}
+	return append(out, '\n'), nil
+}
+
+// deepMergeJSON recursively unions two decoded JSON values. When both are
+// objects, keys are unioned and shared keys are merged recursively. Otherwise
+// theirs (the story side) wins.
+func deepMergeJSON(ours, theirs any) any {
+	om, ok1 := ours.(map[string]any)
+	tm, ok2 := theirs.(map[string]any)
+	if !ok1 || !ok2 {
+		return theirs
+	}
+	result := make(map[string]any, len(om)+len(tm))
+	for k, v := range om {
+		result[k] = v
+	}
+	for k, tv := range tm {
+		if ov, exists := result[k]; exists {
+			result[k] = deepMergeJSON(ov, tv)
+		} else {
+			result[k] = tv
+		}
+	}
+	return result
 }
 
 // handleBinaryConflict applies a deterministic policy for binary-file conflicts
@@ -409,7 +564,7 @@ File: %s
 
 	// Sanity check: resolved content must not contain conflict markers.
 	if strings.Contains(resolved, "<<<<<<<") || strings.Contains(resolved, ">>>>>>>") {
-		return "", fmt.Errorf("LLM output still contains conflict markers")
+		return "", fmt.Errorf("LLM output still contains conflict markers: %w", errUnmergeable)
 	}
 
 	// Sanity check: reject conversational commentary. When the model returns
@@ -417,7 +572,7 @@ File: %s
 	// stylesheet reduced to "Conflict resolved. Kept both sides…"). Failing here
 	// escalates to the Tech Lead instead of corrupting the file.
 	if looksLikeResolverChatter(resolved) {
-		return "", fmt.Errorf("LLM returned commentary, not file content")
+		return "", fmt.Errorf("LLM returned commentary, not file content: %w", errUnmergeable)
 	}
 
 	return resolved, nil
@@ -512,11 +667,11 @@ resolved file content — no explanations, no markdown fences.`,
 	resolved := extractResolvedFileContent(resp.Content)
 
 	if strings.Contains(resolved, "<<<<<<<") || strings.Contains(resolved, ">>>>>>>") {
-		return "", fmt.Errorf("tech lead output still contains conflict markers")
+		return "", fmt.Errorf("tech lead output still contains conflict markers: %w", errUnmergeable)
 	}
 
 	if looksLikeResolverChatter(resolved) {
-		return "", fmt.Errorf("tech lead returned commentary, not file content")
+		return "", fmt.Errorf("tech lead returned commentary, not file content: %w", errUnmergeable)
 	}
 
 	return resolved, nil

@@ -185,11 +185,12 @@ func TestPlanner_EmitsScribeStory(t *testing.T) {
 	if scribe.ID != "r-001-scribe-readme" {
 		t.Fatalf("expected scribe id r-001-scribe-readme, got %q", scribe.ID)
 	}
-	// Scribe owns the README plus the software-factory doc artifacts (training
-	// guide + rendered SVG architecture/sequence diagrams).
+	// Scribe owns the README plus the full software-factory doc set (training
+	// guide, rendered SVG architecture/sequence diagrams, ADRs, docs index).
 	wantOwned := map[string]bool{
 		"README.md": false, "docs/architecture.svg": false,
 		"docs/sequence.svg": false, "docs/training.md": false,
+		"docs/adr": false, "docs/README.md": false,
 	}
 	for _, f := range scribe.OwnedFiles {
 		if _, ok := wantOwned[f]; ok {
@@ -201,9 +202,10 @@ func TestPlanner_EmitsScribeStory(t *testing.T) {
 			t.Errorf("scribe should own %s, got %v", f, scribe.OwnedFiles)
 		}
 	}
-	// Standards must be baked into the scribe brief.
+	// Standards must be baked into the scribe brief: SVG diagrams (no Mermaid),
+	// a training guide, ADRs, and a docs index.
 	d := scribe.Description + " " + string(scribe.AcceptanceCriteria)
-	for _, must := range []string{"architecture.svg", "sequence.svg", "Training", "NOT Mermaid"} {
+	for _, must := range []string{"architecture.svg", "sequence.svg", "training.md", "NOT Mermaid", "docs/adr", "docs/README.md"} {
 		if !strings.Contains(d, must) {
 			t.Errorf("scribe brief missing %q", must)
 		}

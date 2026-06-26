@@ -3,6 +3,7 @@ package engine
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -97,5 +98,82 @@ func TestIntegrationBuild_GoProjectFailsOnBrokenCode(t *testing.T) {
 	// The error should contain something from the compiler.
 	if len(err.Error()) == 0 {
 		t.Error("expected non-empty error message from build failure")
+	}
+}
+
+// TestIntegrationBuild_DetectsPythonProject pins the gap that let a Python
+// FastAPI build (pulsereview) merge with endpoints declared-but-unwired and
+// receive NO post-merge integration verification at all: Python was not a
+// recognised project kind, so detectProjectKind returned projectUnknown and the
+// gate was a silent no-op. Each canonical Python marker must now classify.
+func TestIntegrationBuild_DetectsPythonProject(t *testing.T) {
+	for _, marker := range []string{"pyproject.toml", "setup.py", "setup.cfg", "requirements.txt"} {
+		t.Run(marker, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, marker), []byte("# marker\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if kind := detectProjectKind(dir); kind != projectPython {
+				t.Errorf("marker %s: expected projectPython, got %v", marker, kind)
+			}
+		})
+	}
+}
+
+// TestIntegrationCommand_PythonRunsTestsWhenPresent proves the recurrence guard:
+// a Python project that ships a test suite is verified post-merge by running
+// pytest. Combined with the planner's assembled-app acceptance criteria, a
+// future "route declared but not wired" defect fails that suite here and
+// dispatches an integration-fix story — instead of merging green as before.
+func TestIntegrationCommand_PythonRunsTestsWhenPresent(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte("[project]\nname='x'\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "tests"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	argv, ok := integrationCommand(detectProjectKind(dir), dir)
+	if !ok {
+		t.Fatal("expected a verification command for a Python project with tests/, got skip")
+	}
+	if got := strings.Join(argv, " "); !strings.Contains(got, "pytest") {
+		t.Errorf("expected pytest verification command, got %q", got)
+	}
+}
+
+// TestIntegrationCommand_PythonWithoutTestsSkips mirrors the Node "no build
+// script → skip" guard: a Python project with no discoverable test suite must
+// not invoke pytest (which would error with "no tests ran" and produce a false
+// integration-fix).
+func TestIntegrationCommand_PythonWithoutTestsSkips(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "requirements.txt"), []byte("fastapi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := integrationCommand(detectProjectKind(dir), dir); ok {
+		t.Error("expected skip (no tests) for a Python project without a test suite")
+	}
+}
+
+// TestIntegrationCommand_GoAndNodeUnchanged guards against a regression in the
+// existing command selection while refactoring detection into a pure helper.
+func TestIntegrationCommand_GoAndNodeUnchanged(t *testing.T) {
+	goDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(goDir, "go.mod"), []byte("module x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if argv, ok := integrationCommand(detectProjectKind(goDir), goDir); !ok || strings.Join(argv, " ") != "go build ./..." {
+		t.Errorf("go: got %v ok=%v", argv, ok)
+	}
+
+	nodeDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(nodeDir, "package.json"), []byte(`{"scripts":{"build":"tsc"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if argv, ok := integrationCommand(detectProjectKind(nodeDir), nodeDir); !ok || strings.Join(argv, " ") != "npm run build" {
+		t.Errorf("node: got %v ok=%v", argv, ok)
 	}
 }

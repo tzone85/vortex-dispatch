@@ -218,6 +218,23 @@ func TestProject_ReqAnalyzed(t *testing.T) {
 	}
 }
 
+func TestProject_ReqBlocked(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewSQLiteStore(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer s.Close()
+
+	s.Project(NewEvent(EventReqSubmitted, "", "", map[string]any{"id": "REQ-BL1", "title": "Blocked"}))
+	s.Project(NewEvent(EventReqBlocked, "", "", map[string]any{"id": "REQ-BL1"}))
+
+	req, _ := s.GetRequirement("REQ-BL1")
+	if req.Status != "blocked" {
+		t.Errorf("expected blocked, got %s", req.Status)
+	}
+}
+
 func TestProject_ReqCompleted(t *testing.T) {
 	dir := t.TempDir()
 	s, err := NewSQLiteStore(filepath.Join(dir, "test.db"))

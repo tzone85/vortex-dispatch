@@ -57,20 +57,46 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 			generateDocumentation(ctx, repoDir, reqTitle, storyTitles, m.docClient, m.docModel)
 		}
 
-		// Run verification loop (Cycle 1): check build, tests, hallucinations, artifacts.
 		repoDir := "."
 		if wd, err := os.Getwd(); err == nil {
 			repoDir = wd
 		}
-		verifyResult := RunVerificationLoop(ctx, repoDir, 1)
 
+		// Pull merged changes into the local checkout FIRST so verification
+		// runs against the true composed mainline (all merged PRs), not a
+		// stale pre-VXD checkout. Without this, the repo's local files lag
+		// behind origin and the gate would verify the wrong tree.
+		pullBaseAfterMerge(repoDir, m.config.Merge.BaseBranch)
+
+		// Leave the workspace neat: remove dangling branches (and their open
+		// PRs) from stories that never merged. Merged branches are already gone.
+		m.cleanupDanglingBranches(rc.ReqID, repoDir)
+
+		// Completion gate: verify the composed mainline (build + tests) and
+		// auto-fix a red build up to a bounded number of cycles. Only emit
+		// REQ_COMPLETED when verification is green; otherwise emit REQ_BLOCKED
+		// so a requirement is never reported complete on code that does not
+		// compile. Falls back to the legacy advisory verification when no gate
+		// is wired (e.g. dry-run or no LLM client).
+		if m.completionGate != nil {
+			if m.completionGate.Run(ctx, rc.ReqID, repoDir) {
+				m.emitRequirementOutcome(rc.ReqID, state.EventReqCompleted, "REQ_COMPLETED")
+			} else {
+				log.Printf("[gate] %s: completion blocked — see .vxd-fix-gaps.md; run 'vxd resume %s --godmode' after addressing the gaps", rc.ReqID, rc.ReqID)
+				m.emitRequirementOutcome(rc.ReqID, state.EventReqBlocked, "REQ_BLOCKED")
+			}
+			return nil
+		}
+
+		// Legacy advisory verification (no gate wired): check build/tests and
+		// write a fix-gaps file, but complete the requirement regardless.
+		verifyResult := RunVerificationLoop(ctx, repoDir, 1)
 		if ShouldRunFixCycle(verifyResult) {
 			log.Printf("[verify] cycle 1 found %d gaps — generating fix requirement", len(verifyResult.Gaps))
 			fixReq := GapsToRequirement(verifyResult.Gaps, filepath.Base(repoDir))
 			if fixReq != "" {
-				// Write the fix requirement for manual or auto re-dispatch
 				fixPath := filepath.Join(repoDir, ".vxd-fix-gaps.md")
-				if err := os.WriteFile(fixPath, []byte(fixReq), 0644); err != nil {
+				if err := os.WriteFile(fixPath, []byte(fixReq), 0o600); err != nil {
 					log.Printf("[verify] failed to write fix requirement to %s: %v", fixPath, err)
 				} else {
 					log.Printf("[verify] fix requirement written to %s", fixPath)
@@ -81,25 +107,7 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 			log.Printf("[verify] cycle 1 clean — no critical gaps found")
 		}
 
-		// Pull merged changes into the local checkout so the repo
-		// reflects all merged PRs. Without this, local files are stale
-		// and tools that read the repo see pre-VXD state.
-		// Note: repoDir here is the shadowed local (line 977), which
-		// resolves to cwd — the actual project root where VXD was invoked.
-		pullBaseAfterMerge(repoDir, m.config.Merge.BaseBranch)
-
-		// Leave the workspace neat: remove dangling branches (and their open
-		// PRs) from stories that never merged. Merged branches are already gone.
-		m.cleanupDanglingBranches(rc.ReqID, repoDir)
-
-		// Mark requirement complete.
-		compEvt := state.NewEvent(state.EventReqCompleted, "monitor", "", map[string]any{"id": rc.ReqID})
-		if appErr := m.eventStore.Append(compEvt); appErr != nil {
-			log.Printf("[pipeline] append REQ_COMPLETED for %s: %v", rc.ReqID, appErr)
-		}
-		if projErr := m.projStore.Project(compEvt); projErr != nil {
-			log.Printf("[pipeline] project REQ_COMPLETED for %s: %v", rc.ReqID, projErr)
-		}
+		m.emitRequirementOutcome(rc.ReqID, state.EventReqCompleted, "REQ_COMPLETED")
 		return nil
 	}
 
@@ -264,6 +272,19 @@ func FindDependents(stories []PlannedStory, storyID string) []string {
 // This forwarder preserves the engine.IsStoryComplete public API.
 func IsStoryComplete(status string) bool {
 	return state.IsStoryComplete(status)
+}
+
+// emitRequirementOutcome appends and projects a terminal requirement event
+// (REQ_COMPLETED or REQ_BLOCKED), logging any store error with context. label
+// is the human-readable event name used in log lines.
+func (m *Monitor) emitRequirementOutcome(reqID string, evtType state.EventType, label string) {
+	evt := state.NewEvent(evtType, "monitor", "", map[string]any{"id": reqID})
+	if appErr := m.eventStore.Append(evt); appErr != nil {
+		log.Printf("[pipeline] append %s for %s: %v", label, reqID, appErr)
+	}
+	if projErr := m.projStore.Project(evt); projErr != nil {
+		log.Printf("[pipeline] project %s for %s: %v", label, reqID, projErr)
+	}
 }
 
 // simulateDryRunChanges writes a placeholder file and commits it so the

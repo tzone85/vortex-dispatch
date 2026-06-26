@@ -497,6 +497,23 @@ func runResume(cmd *cobra.Command, args []string) error {
 		))
 	}
 
+	// Enable the requirement-completion verification gate: after all stories
+	// merge, verify the composed mainline (build + tests) and only emit
+	// REQ_COMPLETED when it is green — auto-fixing a red build for a bounded
+	// number of cycles (godmode client required to apply fixes), else emit
+	// REQ_BLOCKED. This closes the gap where a requirement was reported complete
+	// on code that does not compile. Skipped in dry-run (no real toolchain) and
+	// when explicitly disabled via qa.disable_completion_gate.
+	if !dryRun && !s.Config.QA.DisableCompletionGate {
+		fixCycles := completionFixCycles(s.Config.QA.CompletionFixCycles)
+		senior := s.Config.Models.Senior
+		monitor.SetCompletionGate(engine.NewCompletionGate(
+			llmClient, senior.Model, senior.MaxTokens, fixCycles,
+			s.Config.Merge.BaseBranch, s.Events, s.Proj,
+		))
+		log.Printf("[resume] completion gate enabled (auto-fix cycles=%d)", fixCycles)
+	}
+
 	rc := &engine.RunContext{
 		ReqID:          reqID,
 		PlannedStories: plannedStories,
@@ -654,6 +671,21 @@ func buildQAConfig(cfg config.Config, projectDir, repoDir string) engine.QAConfi
 		})
 	}
 	return qaCfg
+}
+
+// completionFixCycles maps the configured qa.completion_fix_cycles value to the
+// number of auto-fix cycles the completion gate should run: 0 selects the
+// default of 2; a negative value disables auto-fix (hard gate — verify once,
+// block on red); a positive value passes through verbatim.
+func completionFixCycles(configured int) int {
+	switch {
+	case configured == 0:
+		return 2
+	case configured < 0:
+		return 0
+	default:
+		return configured
+	}
 }
 
 // resolveReviewerClient picks the client + model config for the post-execution

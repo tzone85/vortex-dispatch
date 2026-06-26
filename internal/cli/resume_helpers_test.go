@@ -140,3 +140,23 @@ func TestRunResume_FlagsParse(t *testing.T) {
 	}
 }
 
+
+func TestCompletionFixCycles(t *testing.T) {
+	cases := []struct {
+		name     string
+		input    int
+		expected int
+	}{
+		{"zero uses default of 2", 0, 2},
+		{"positive value passes through", 3, 3},
+		{"one passes through", 1, 1},
+		{"negative disables auto-fix (hard gate)", -1, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := completionFixCycles(tc.input); got != tc.expected {
+				t.Errorf("completionFixCycles(%d) = %d, want %d", tc.input, got, tc.expected)
+			}
+		})
+	}
+}

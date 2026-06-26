@@ -200,6 +200,18 @@ type QAConfig struct {
 	// a story that turns a green base branch red (keeping main always-green).
 	// Default (false) = gate ON. It never blocks when the base is already red.
 	DisablePreMergeVerify bool `yaml:"disable_pre_merge_verify,omitempty"`
+	// DisableCompletionGate turns OFF the requirement-completion verification
+	// gate. The gate verifies the composed mainline (build + tests) after all
+	// stories merge and only emits REQ_COMPLETED when it is green — otherwise it
+	// auto-fixes a red build (see CompletionFixCycles) and, failing that, emits
+	// REQ_BLOCKED. Default (false) = gate ON. When disabled, the legacy advisory
+	// verification runs and the requirement always completes.
+	DisableCompletionGate bool `yaml:"disable_completion_gate,omitempty"`
+	// CompletionFixCycles is the number of automatic fix cycles the completion
+	// gate runs against a red composed mainline before blocking. 0 uses the
+	// default of 2. Set to a negative value to disable auto-fix (hard gate only:
+	// verify once, block on red).
+	CompletionFixCycles int `yaml:"completion_fix_cycles,omitempty"`
 }
 
 // SuccessCriterion defines a declarative QA check.

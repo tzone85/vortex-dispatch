@@ -25,3 +25,21 @@ func TestResume_WiresTechLeadFixer(t *testing.T) {
 		}
 	}
 }
+
+// TestResume_WiresCompletionGate guards the requirement-completion gate against
+// the same dead-wire class: the gate blocks REQ_COMPLETED on a red composed
+// mainline, but only if runResume actually constructs and attaches it. This
+// scans the resume source to confirm the gate is built and wired.
+func TestResume_WiresCompletionGate(t *testing.T) {
+	src, err := os.ReadFile("resume.go")
+	if err != nil {
+		t.Fatalf("read resume.go: %v", err)
+	}
+	code := string(src)
+
+	for _, want := range []string{"NewCompletionGate(", "SetCompletionGate("} {
+		if !strings.Contains(code, want) {
+			t.Errorf("resume.go must wire the completion gate: missing %q", want)
+		}
+	}
+}

@@ -35,6 +35,8 @@ const (
 	EventStoryQAStarted       EventType = "STORY_QA_STARTED"
 	EventStoryQAPassed        EventType = "STORY_QA_PASSED"
 	EventStoryQAFailed        EventType = "STORY_QA_FAILED"
+	EventStorySecurityPassed  EventType = "STORY_SECURITY_PASSED"
+	EventStorySecurityFailed  EventType = "STORY_SECURITY_FAILED"
 	EventStoryPRCreated       EventType = "STORY_PR_CREATED"
 	EventStoryMerged          EventType = "STORY_MERGED"
 	EventStoryEscalated       EventType = "STORY_ESCALATED"
@@ -63,6 +65,10 @@ const (
 	EventWorktreePruned EventType = "WORKTREE_PRUNED"
 	EventBranchDeleted  EventType = "BRANCH_DELETED"
 	EventGCCompleted    EventType = "GC_COMPLETED"
+
+	// Security agent events.
+	EventSecurityScanCompleted EventType = "SECURITY_SCAN_COMPLETED"
+	EventSecurityRuleLearned   EventType = "SECURITY_RULE_LEARNED"
 
 	// Review gate events.
 	EventReviewModeSet         EventType = "REVIEW_MODE_SET"

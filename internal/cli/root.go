@@ -45,6 +45,7 @@ func init() {
 	rootCmd.AddCommand(newRejectCmd())
 	rootCmd.AddCommand(newRetryCmd())
 	rootCmd.AddCommand(newLearnCmd())
+	rootCmd.AddCommand(newSecurityCmd())
 	rootCmd.AddCommand(newBackupCmd())
 	rootCmd.AddCommand(newImproveCmd())
 	rootCmd.AddCommand(newAutoresearchCmd())

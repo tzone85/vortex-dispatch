@@ -19,6 +19,7 @@ const (
 	EventReqPaused    EventType = "REQ_PAUSED"
 	EventReqResumed   EventType = "REQ_RESUMED"
 	EventReqCompleted EventType = "REQ_COMPLETED"
+	EventReqBlocked   EventType = "REQ_BLOCKED"
 	EventReqEstimated EventType = "REQ_ESTIMATED"
 
 	// Story lifecycle events.

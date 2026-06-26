@@ -114,6 +114,10 @@ func DefaultConfig() Config {
 				},
 			},
 		},
+		Security: SecurityConfig{
+			GateSeverity: "high",
+			AutoLearn:    true,
+		},
 		SLA: SLAConfig{
 			MaxMinutesPerComplexity: IntKeyMap{
 				1:  60,   // 1hr

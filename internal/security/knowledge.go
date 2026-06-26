@@ -57,10 +57,25 @@ type KnowledgeBase struct {
 	Rules   []VulnRule `json:"rules"`
 }
 
-// Has reports whether a rule with the given ID exists.
+// Has reports whether a rule with the given ID exists (exact ID match; used for
+// Add dedup).
 func (kb *KnowledgeBase) Has(id string) bool {
 	for _, r := range kb.Rules {
 		if r.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// Covers reports whether the given vulnerability-class id is already represented
+// in the knowledge base — matching either a rule's ID or its CWE field. An
+// OWASP-indexed baseline rule (ID "A03:2021", CWE "CWE-89") therefore covers a
+// finding whose class id is "CWE-89", so the agent does not re-learn a class it
+// already ships guidance for.
+func (kb *KnowledgeBase) Covers(id string) bool {
+	for _, r := range kb.Rules {
+		if r.ID == id || (r.CWE != "" && r.CWE == id) {
 			return true
 		}
 	}

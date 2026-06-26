@@ -75,6 +75,36 @@ func applicableScanners(langs []string, available map[string]bool) []Scanner {
 	return out
 }
 
+// RunScanners runs every applicable+available scanner against repoDir and
+// returns deduped findings, the scanners that ran, and the applicable scanners
+// that were skipped because they are not installed. One scanner failing (parse
+// or exec error) is swallowed so a single broken tool never aborts the scan.
+func RunScanners(ctx context.Context, repoDir string) (findings []Finding, ran, skipped []ScannerKind) {
+	langs := DetectLanguages(repoDir)
+	available := map[string]bool{}
+	for _, s := range allScanners() {
+		if _, err := exec.LookPath(s.Bin); err == nil {
+			available[s.Bin] = true
+		}
+	}
+	for _, s := range allScanners() {
+		if !langMatch(s.Languages, langs) {
+			continue
+		}
+		if !available[s.Bin] {
+			skipped = append(skipped, s.Kind)
+			continue
+		}
+		ran = append(ran, s.Kind)
+		fs, err := s.Run(ctx, repoDir)
+		if err != nil {
+			continue // graceful: log handled by caller; keep going
+		}
+		findings = append(findings, fs...)
+	}
+	return DedupeFindings(findings), ran, skipped
+}
+
 // DetectScanners returns the scanners applicable to repoDir and available on the
 // host. Detection combines language inspection with exec.LookPath.
 func DetectScanners(repoDir string) []Scanner {

@@ -240,6 +240,33 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 		log.Printf("[pipeline] QA passed for %s", storyID)
 	}
 
+	// 2.5 Security gate (per-story, pre-merge). Runs the security agent
+	// (scanners + LLM threat-model review) on the story's worktree. A finding at
+	// or above the gate severity PAUSES the requirement for a human decision
+	// (fix on the branch, dismiss, or merge anyway) rather than escalating —
+	// security findings need judgment, not a retry that burns a tier. A
+	// security-tool failure is logged and never blocks the merge.
+	if m.securityGate != nil {
+		storyTitle := storyID
+		if story, gErr := m.projStore.GetStory(storyID); gErr == nil {
+			storyTitle = story.Title
+		}
+		passed, summary, secErr := m.securityGate.ReviewStory(pipelineCtx, storyID, storyTitle, diff, ag.WorktreePath)
+		switch {
+		case secErr != nil:
+			if m.pauseIfCapacity(storyID, "security review", secErr) {
+				return
+			}
+			log.Printf("[pipeline] security review error for %s (continuing to merge): %v", storyID, secErr)
+		case !passed:
+			log.Printf("[pipeline] security gate FLAGGED %s: %s", storyID, summary)
+			m.pauseRequirement(storyID, fmt.Sprintf("security gate: %s (review the finding, then fix on the branch or `vxd resume <req> --godmode` to proceed)", summary))
+			return
+		default:
+			log.Printf("[pipeline] security gate passed for %s", storyID)
+		}
+	}
+
 	// Write checkpoint before merge for crash recovery.
 	if m.checkpointPath != "" {
 		cp := Checkpoint{

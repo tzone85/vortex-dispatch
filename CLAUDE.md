@@ -50,6 +50,9 @@ Tier 4: Pause (human intervention required)
 - `STORY_SPLIT` — tech lead decomposed into child stories
 - `STORY_SLA_BREACHED` — story exceeded per-complexity duration limit (configurable via `sla.max_minutes_per_complexity`)
 - `REQ_BLOCKED` — completion gate could not get the composed mainline green after its auto-fix budget; requirement status → `blocked` instead of `completed` (resume with `--godmode` after addressing `.vxd-fix-gaps.md`)
+- `STORY_SECURITY_PASSED` / `STORY_SECURITY_FAILED` — per-story security gate result; a FAILED gate pauses the requirement (human decision) rather than escalating
+- `SECURITY_SCAN_COMPLETED` — a standalone `vxd security scan` finished (findings count, max severity)
+- `SECURITY_RULE_LEARNED` — the security agent added a new vulnerability class to the knowledge base from a confirmed finding (self-upskilling)
 
 ### Event Sourcing
 - **Source of truth**: `events.jsonl` (append-only, fsync'd)
@@ -128,6 +131,11 @@ qa:
       path: coverage.html
   disable_completion_gate: false  # default false = gate ON (verify composed mainline before REQ_COMPLETED)
   completion_fix_cycles: 2        # auto-fix attempts vs a red mainline before REQ_BLOCKED (0→2, negative→hard gate)
+security:
+  disable_gate: false      # default false = per-story security gate ON
+  gate_severity: high      # block threshold: critical|high|medium|low
+  auto_learn: true         # grow the knowledge base from confirmed high+ findings
+  kb_path: ""              # default <state_dir>/security/knowledge.json
 billing:
   default_rate: 150.0
   currency: USD
@@ -187,6 +195,8 @@ dashboard:
 | `vxd opportunity sources` | Show discovered sources pending approval |
 | `vxd opportunity approve-source <url>` | Approve a discovered source for active scraping |
 | `vxd learn [path]` | Run repo analysis (`--force`, `--pass 1\|2\|3`, `--json`) |
+| `vxd security scan [path]` | Run the security agent on a repo (scanners + optional `--llm` review); `--json`, `--min <severity>` for CI exit code; auto-grows the knowledge base |
+| `vxd security kb` | Show the security knowledge base — version, baseline + learned rules (`--json`) |
 | `vxd backup` | Create tar.gz archive of project state (`--output DIR`) |
 | `vxd gc` | Garbage-collect branches + expired logs |
 | `vxd improve log` | Browse improvement changelog (`--disposition`, `--category`, `--since`, `--errors`) |
@@ -430,6 +440,18 @@ Closes the long-standing caveat: **vxd reported `REQ_COMPLETED` on code that did
 - **Graceful degradation as a safety property:** a nil client (no godmode / no LLM) makes the gate a **hard gate** — verify once, block on red, no auto-fix. The dangerous failure mode (silently completing on red) is impossible regardless of wiring, because the gate and the auto-fix are separate concerns. `completion_fix_cycles` < 0 forces hard-gate even with a client.
 - **Config:** `qa.disable_completion_gate` (default false = ON), `qa.completion_fix_cycles` (0→2, negative→hard gate; `completionFixCycles` in resume.go pins the mapping).
 - **Tests:** `completion_gate_test.go` (green-first→no-fix, red→green→auto-fix once, stays-red→block after maxCycles, nil-client→hard-gate, writes gaps file, `emitRequirementOutcome`→`blocked` status against real stores via injectable `verify`/`pull` seams), `projection_test.go::TestProject_ReqBlocked`, `resume_helpers_test.go::TestCompletionFixCycles`, `resume_wiring_test.go::TestResume_WiresCompletionGate`. **NXD port pending.**
+
+### Security agent (internal/security + engine/security_gate.go, 2026-06-26)
+A self-upskilling security agent embedded in vxd's core so every build is reviewed for vulnerabilities and every future build inherits what past ones taught it.
+- **`internal/security/`** — the agent's brains, LLM-free and fully unit-tested:
+  - `knowledge.go` `KnowledgeBase`: a versioned, JSON-persisted rule set seeded with the **OWASP Top 10 (2021)** + high-value CWEs (798 secrets, 22 path traversal, 79 XSS), each with detection + remediation guidance. `Add` is immutable, version-bumping, dedup-by-ID; `Covers(id)` matches a rule ID **or** its CWE (so an OWASP-indexed class isn't re-learned); `Checklist(langs)` renders markdown for prompts. This is the upskilling store at `<state_dir>/security/knowledge.json`.
+  - `scanners.go` orchestrates real SAST/secret/dep tools — **gosec, govulncheck, gitleaks, semgrep, npm audit** — with language-aware applicability + PATH detection (graceful degrade; a missing tool is *listed as skipped*, never silently dropped). Pure parsers per tool turn real output into `Finding`s — no hallucinated vulns. `RunScanners` is the orchestration entrypoint.
+  - `languages.go` manifest+extension language detection; `report.go` severity tally + markdown; `severity.go`/`finding.go` ranking + dedup.
+- **`engine/security_gate.go`** `SecurityGate` — two entry points: `ScanRepo` (standalone whole-repo, `vxd security scan`) and `ReviewStory` (per-story pre-merge, wired in `monitor_post_execution.go` after QA, before merge). Combines deterministic scanners with an LLM threat-model review (whole-repo prose review, or inline-diff review for stories) against the KB checklist. A finding ≥ `security.gate_severity` (default high) **pauses** the requirement (human decision) rather than escalating — security needs judgment, not a tier-burning retry. A scanner failure never blocks merge.
+- **Self-upskilling:** confirmed high+ findings whose vuln CLASS (CWE → OWASP category → tool rule) isn't already `Covers`ed are added as `learned` rules, persisted, and announced via `SECURITY_RULE_LEARNED`. The grown KB is what the gate applies on the next build — and what `vxd security kb` shows.
+- **Forward-embedded in core:** the planner's ENGINEERING STANDARDS block now spells out the OWASP Top 10 so every planned story is *designed* secure; the per-story gate enforces the *live* KB at merge; `resume.go` wires both (`TestResume_WiresSecurityGate`). Skipped in dry-run and when `security.disable_gate`.
+- **Config:** `security.disable_gate` (default false=ON), `security.gate_severity`, `security.auto_learn` (default true), `security.kb_path`. **Events:** `STORY_SECURITY_PASSED/FAILED`, `SECURITY_SCAN_COMPLETED`, `SECURITY_RULE_LEARNED` (all in the projection switch; `TestProject_AllDeclaredEventsHandled` guards exhaustiveness).
+- **Tests:** `internal/security/*_test.go` (16: KB roundtrip/immutability/lang-filter/checklist/Covers, scanner applicability, all 5 parsers, report) + `engine/security_gate_test.go` (7: scan aggregation+event, block-on-critical, pass-below-threshold, self-upskill on new class, no-relearn known class, LLM-findings parse). **Host scanner install + NXD port pending.**
 
 ### Model ID Compatibility
 - **Use undated aliases, not dated snapshots.** Current defaults: `claude-opus-4-8` (tech_lead), `claude-sonnet-4-6` (senior/qa/manager), `claude-haiku-4-5` (cheapest). All three are verified working on the Claude CLI subscription tier.

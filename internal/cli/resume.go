@@ -26,6 +26,7 @@ import (
 	"github.com/tzone85/vortex-dispatch/internal/repolearn"
 	"github.com/tzone85/vortex-dispatch/internal/runtime"
 	"github.com/tzone85/vortex-dispatch/internal/scratchboard"
+	"github.com/tzone85/vortex-dispatch/internal/security"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 	"github.com/tzone85/vortex-dispatch/internal/tmux"
 )
@@ -512,6 +513,21 @@ func runResume(cmd *cobra.Command, args []string) error {
 			s.Config.Merge.BaseBranch, s.Events, s.Proj,
 		))
 		log.Printf("[resume] completion gate enabled (auto-fix cycles=%d)", fixCycles)
+	}
+
+	// Enable the per-story security gate: after QA and before merge, run the
+	// security agent (scanners + LLM threat-model review against the growable
+	// knowledge base) on each story and pause the requirement when a finding
+	// meets the gate severity. Skipped in dry-run and when disabled via
+	// security.disable_gate.
+	if !dryRun && !s.Config.Security.DisableGate {
+		gateSev := security.ParseSeverity(s.Config.Security.GateSeverity)
+		senior := s.Config.Models.Senior
+		monitor.SetSecurityGate(engine.NewSecurityGate(
+			llmClient, senior.Model, senior.MaxTokens, securityKBPath(s.Config),
+			gateSev, s.Config.Security.AutoLearn, s.Events, s.Proj,
+		))
+		log.Printf("[resume] security gate enabled (block at %s+, auto-learn=%v)", gateSev, s.Config.Security.AutoLearn)
 	}
 
 	rc := &engine.RunContext{

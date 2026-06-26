@@ -115,7 +115,13 @@ func DefaultConfig() Config {
 			},
 		},
 		Security: SecurityConfig{
-			GateSeverity: "high",
+			// The pipeline gate pauses a build only on CRITICAL findings (leaked
+			// secrets, LLM-confirmed injection/hardcoded credentials) so it is
+			// high-signal and does not stall builds on context-dependent SAST
+			// noise. The standalone `vxd security scan` reports high/medium too
+			// (default --min high) for thorough audits; operators can tighten the
+			// gate to "high" via security.gate_severity.
+			GateSeverity: "critical",
 			AutoLearn:    true,
 		},
 		SLA: SLAConfig{

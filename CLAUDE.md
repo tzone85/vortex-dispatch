@@ -133,7 +133,7 @@ qa:
   completion_fix_cycles: 2        # auto-fix attempts vs a red mainline before REQ_BLOCKED (0→2, negative→hard gate)
 security:
   disable_gate: false      # default false = per-story security gate ON
-  gate_severity: high      # block threshold: critical|high|medium|low
+  gate_severity: critical  # build-pausing threshold (critical|high|medium|low); critical = pause only on secrets/confirmed injection
   auto_learn: true         # grow the knowledge base from confirmed high+ findings
   kb_path: ""              # default <state_dir>/security/knowledge.json
 billing:

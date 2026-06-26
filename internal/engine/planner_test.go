@@ -248,6 +248,45 @@ func TestPlanner_PromptIncludesEngineeringStandards(t *testing.T) {
 	}
 }
 
+// TestPlanner_PromptMandatesAssembledAppEndpointTests pins the recurrence guard
+// for the compose-gap class observed on pulsereview: endpoint stories shipped
+// green because their unit tests used dependency overrides, while the assembled
+// app left routes 404 / dependencies unwired. The planner prompt MUST instruct
+// that endpoint/surface stories require an assembled-app integration test (no
+// overrides, route not 404, cross-endpoint shared state) — so such a test
+// exists, runs in QA + the post-merge gate, and fails when wiring is missing.
+func TestPlanner_PromptMandatesAssembledAppEndpointTests(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0644)
+
+	resp := `[{"id":"s-001","title":"A","description":"d","acceptance_criteria":"ac","complexity":3,"depends_on":[]}]`
+	client := llm.NewReplayClient(llm.CompletionResponse{Content: resp})
+	cfg := config.DefaultConfig()
+	cfg.Planning.EmitScribeStory = false
+	cfg.Planning.EmitIntegrationStory = false
+	es, _ := state.NewFileStore(filepath.Join(dir, "e.jsonl"))
+	defer es.Close()
+	ps, _ := state.NewSQLiteStore(":memory:")
+	defer ps.Close()
+	planner := engine.NewPlanner(client, cfg, es, ps)
+	if _, err := planner.Plan(context.Background(), "r-001", "Build a web API", dir); err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+
+	prompt := client.CallAt(0).Messages[0].Content
+	for _, must := range []string{
+		"Assembled-app verification",
+		"NO dependency overrides",
+		"not 404",
+		"app factory",
+		"visible through another",
+	} {
+		if !strings.Contains(prompt, must) {
+			t.Errorf("decomposition prompt missing assembled-app mandate %q", must)
+		}
+	}
+}
+
 // The integration story must be emitted (depending on all code stories) and
 // carry the wiring + smoke-test instructions that close the compose gap.
 func TestPlanner_EmitsIntegrationStory(t *testing.T) {

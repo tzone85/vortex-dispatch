@@ -22,6 +22,7 @@ type Config struct {
 	Runtimes     map[string]RuntimeConfig `yaml:"runtimes"`
 	Billing      BillingConfig            `yaml:"billing"`
 	QA           QAConfig                 `yaml:"qa"`
+	Security     SecurityConfig           `yaml:"security,omitempty"`
 	SLA          SLAConfig                `yaml:"sla"`
 	Secrets      SecretsConfig            `yaml:"secrets"`
 	Notify       NotifyConfig             `yaml:"notify,omitempty"`
@@ -212,6 +213,27 @@ type QAConfig struct {
 	// default of 2. Set to a negative value to disable auto-fix (hard gate only:
 	// verify once, block on red).
 	CompletionFixCycles int `yaml:"completion_fix_cycles,omitempty"`
+}
+
+// SecurityConfig controls the security agent: the per-story pre-merge security
+// gate, the standalone `vxd security scan`, and the self-upskilling knowledge
+// base shared by both.
+type SecurityConfig struct {
+	// DisableGate turns OFF the per-story pre-merge security gate. The gate runs
+	// the deterministic scanners + an LLM threat-model review on each story and
+	// pauses the requirement (for human decision) when a finding meets/exceeds
+	// GateSeverity. Default (false) = gate ON. The standalone scan command always
+	// works regardless of this flag.
+	DisableGate bool `yaml:"disable_gate,omitempty"`
+	// GateSeverity is the block threshold: a finding at or above this severity
+	// pauses the story. One of critical|high|medium|low. Empty ⇒ "high".
+	GateSeverity string `yaml:"gate_severity,omitempty"`
+	// AutoLearn grows the knowledge base from confirmed high+ findings so future
+	// builds inherit vulnerability classes seen in past ones. Default true.
+	AutoLearn bool `yaml:"auto_learn"`
+	// KBPath overrides where the knowledge base persists. Empty ⇒
+	// <state_dir>/security/knowledge.json.
+	KBPath string `yaml:"kb_path,omitempty"`
 }
 
 // SuccessCriterion defines a declarative QA check.

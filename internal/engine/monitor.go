@@ -102,6 +102,11 @@ type Monitor struct {
 	// requirement is marked complete, auto-fixing a red build up to a bounded
 	// number of cycles. Nil falls back to the legacy advisory verification.
 	completionGate *CompletionGate
+
+	// securityGate runs the security agent (scanners + LLM threat-model review)
+	// on each story before merge, pausing the requirement when a finding meets
+	// the gate severity. Nil disables the per-story security gate.
+	securityGate *SecurityGate
 }
 
 // SetNotifier configures the outbound webhook notifier (Slack, Discord, etc.).
@@ -223,6 +228,14 @@ func (m *Monitor) SetTechLeadFixer(f *TechLeadFixer) {
 // green (auto-fixing a red build up to the gate's cycle budget first).
 func (m *Monitor) SetCompletionGate(g *CompletionGate) {
 	m.completionGate = g
+}
+
+// SetSecurityGate wires the per-story security agent. When set, the monitor runs
+// security scanners + an LLM threat-model review on each story after QA and
+// before merge, pausing the requirement (for a human decision) when a finding
+// meets or exceeds the configured gate severity. Nil disables the gate.
+func (m *Monitor) SetSecurityGate(g *SecurityGate) {
+	m.securityGate = g
 }
 
 // RunContext carries the state needed for auto-resume across waves.

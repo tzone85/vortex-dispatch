@@ -97,6 +97,11 @@ type Monitor struct {
 	// techLeadFixer dispatches a focused fix story when the post-merge
 	// integration build on main fails. Nil disables the feature.
 	techLeadFixer *TechLeadFixer
+
+	// completionGate verifies the composed mainline (build + tests) before a
+	// requirement is marked complete, auto-fixing a red build up to a bounded
+	// number of cycles. Nil falls back to the legacy advisory verification.
+	completionGate *CompletionGate
 }
 
 // SetNotifier configures the outbound webhook notifier (Slack, Discord, etc.).
@@ -210,6 +215,14 @@ func (m *Monitor) HasDevDBLifecycle() bool {
 // command after each successful merge and invokes the fixer if it fails.
 func (m *Monitor) SetTechLeadFixer(f *TechLeadFixer) {
 	m.techLeadFixer = f
+}
+
+// SetCompletionGate wires the requirement-completion verification gate. When
+// set, the monitor verifies the composed mainline before emitting
+// REQ_COMPLETED and only completes the requirement when the build/tests are
+// green (auto-fixing a red build up to the gate's cycle budget first).
+func (m *Monitor) SetCompletionGate(g *CompletionGate) {
+	m.completionGate = g
 }
 
 // RunContext carries the state needed for auto-resume across waves.

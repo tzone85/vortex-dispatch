@@ -49,6 +49,7 @@ Tier 4: Pause (human intervention required)
 - `STORY_REWRITTEN` — manager rewrote story description/acceptance criteria
 - `STORY_SPLIT` — tech lead decomposed into child stories
 - `STORY_SLA_BREACHED` — story exceeded per-complexity duration limit (configurable via `sla.max_minutes_per_complexity`)
+- `REQ_BLOCKED` — completion gate could not get the composed mainline green after its auto-fix budget; requirement status → `blocked` instead of `completed` (resume with `--godmode` after addressing `.vxd-fix-gaps.md`)
 
 ### Event Sourcing
 - **Source of truth**: `events.jsonl` (append-only, fsync'd)
@@ -125,6 +126,8 @@ qa:
       value: "PASS"
     - kind: file_exists
       path: coverage.html
+  disable_completion_gate: false  # default false = gate ON (verify composed mainline before REQ_COMPLETED)
+  completion_fix_cycles: 2        # auto-fix attempts vs a red mainline before REQ_BLOCKED (0→2, negative→hard gate)
 billing:
   default_rate: 150.0
   currency: USD
@@ -418,6 +421,15 @@ The doc loop ships the FULL software-factory documentation set, not just README 
 - **`docs/README.md`** — documentation index. `ensureDocsIndex` is **fully deterministic** (no LLM): it scans `docs/` and links every guide (`.md`), diagram (`.svg`), and the ADR index. Regenerated last so it reflects everything else, and always present.
 - Every backstop is best-effort — a model failure logs and skips, never blocking requirement completion. The **scribe story** (`buildScribeStory`) instructs the agent to produce the whole set up front (its `OwnedFiles` + acceptance criteria now include `docs/adr` + `docs/README.md`); these backstops guarantee it ships even when the agent doesn't.
 - Tests: `factory_docs_test.go` (docs index determinism, humanize, training skip/generate, ADR parse/render/slug/skip/generate), the upgraded `TestGenerateDocumentation_ProducesSVGDiagrams` (README + 2 SVGs + training + ADRs + index all produced and committed), `planner_test.go::TestPlanner_EmitsScribeStory` (standards baked into the brief). **NXD port pending.**
+
+### Requirement-completion verification gate (completion_gate.go, 2026-06-26)
+Closes the long-standing caveat: **vxd reported `REQ_COMPLETED` on code that did not compile.** Per-story QA runs in isolated worktrees and cannot see cross-story drift (an unwired composition root, a missing interface method, an import mismatch). The composed mainline was verified by `RunVerificationLoop`, but the result was *advisory* — gaps were written to `.vxd-fix-gaps.md` and logged, then `REQ_COMPLETED` fired anyway. This is the bug that shipped pulsereview "merged" with its `/reviews`+`/digest` endpoints 404 (composition root never assembled).
+- **Where:** `internal/engine/completion_gate.go`. `CompletionGate.Run(ctx, reqID, repoDir) bool` runs in the requirement-completion path (`monitor_dispatch.go dispatchNextWave`, after `pullBaseAfterMerge` + `cleanupDanglingBranches`). Wired via `Monitor.SetCompletionGate` in `resume.go` next to `SetDocGenerator`/`SetTechLeadFixer` (`TestResume_WiresCompletionGate` guards the wire). Skipped in dry-run and when `qa.disable_completion_gate=true`.
+- **Order matters:** the local checkout is pulled to the composed mainline (`pullBaseAfterMerge`) **before** the gate verifies, so cycle 1 verifies the true merged tree, not a stale pre-VXD checkout (this reordering is itself part of the fix).
+- **Loop:** verify (`RunVerificationLoop` → `ShouldRunFixCycle`) → if green, emit `REQ_COMPLETED`. If red, run up to `completion_fix_cycles` (default 2) auto-fix cycles: dispatch a godmode fix agent (the same skip-permissions `llmClient` already used by the doc generator; runs `claude -p` in cwd, edits + commits + pushes the reconciliation), pull, re-verify. First green cycle → `REQ_COMPLETED`. Cycles exhausted → emit **`REQ_BLOCKED`** (new event → projects requirement status `"blocked"` in `sqlite.go`), leave `.vxd-fix-gaps.md`, and log `vxd resume <id> --godmode` guidance.
+- **Graceful degradation as a safety property:** a nil client (no godmode / no LLM) makes the gate a **hard gate** — verify once, block on red, no auto-fix. The dangerous failure mode (silently completing on red) is impossible regardless of wiring, because the gate and the auto-fix are separate concerns. `completion_fix_cycles` < 0 forces hard-gate even with a client.
+- **Config:** `qa.disable_completion_gate` (default false = ON), `qa.completion_fix_cycles` (0→2, negative→hard gate; `completionFixCycles` in resume.go pins the mapping).
+- **Tests:** `completion_gate_test.go` (green-first→no-fix, red→green→auto-fix once, stays-red→block after maxCycles, nil-client→hard-gate, writes gaps file, `emitRequirementOutcome`→`blocked` status against real stores via injectable `verify`/`pull` seams), `projection_test.go::TestProject_ReqBlocked`, `resume_helpers_test.go::TestCompletionFixCycles`, `resume_wiring_test.go::TestResume_WiresCompletionGate`. **NXD port pending.**
 
 ### Model ID Compatibility
 - **Use undated aliases, not dated snapshots.** Current defaults: `claude-opus-4-8` (tech_lead), `claude-sonnet-4-6` (senior/qa/manager), `claude-haiku-4-5` (cheapest). All three are verified working on the Claude CLI subscription tier.

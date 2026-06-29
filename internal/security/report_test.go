@@ -11,6 +11,7 @@ func sampleReport() Report {
 		Languages:   []string{"go"},
 		ScannersRun: []ScannerKind{ScannerGosec, ScannerGitleaks},
 		Skipped:     []ScannerKind{ScannerSemgrep},
+		Failed:      []ScannerKind{ScannerNpmAudit},
 		KBVersion:   1,
 		Findings: []Finding{
 			{Tool: "gitleaks", RuleID: "aws", Severity: SeverityCritical, File: "x.env", Line: 1, Title: "AWS key"},
@@ -47,7 +48,7 @@ func TestReport_HasAtLeast(t *testing.T) {
 
 func TestReport_FormatMarkdown(t *testing.T) {
 	md := sampleReport().FormatMarkdown()
-	for _, want := range []string{"AWS key", "x.env", "CRITICAL", "gosec", "Skipped"} {
+	for _, want := range []string{"AWS key", "x.env", "CRITICAL", "gosec", "Skipped", "Failed", "coverage lost", string(ScannerNpmAudit)} {
 		if !strings.Contains(md, want) {
 			t.Errorf("markdown missing %q\n---\n%s", want, md)
 		}

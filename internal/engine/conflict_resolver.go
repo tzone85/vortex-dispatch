@@ -560,6 +560,17 @@ File: %s
 		return "", err
 	}
 
+	// Defensive: some CLI versions surface a session-limit / overloaded notice as
+	// successful content rather than an error envelope. Without this guard the
+	// notice passes the marker/chatter checks below, is returned as a clean
+	// resolution, and gets written verbatim into the source file — corrupting it
+	// while the rebase "succeeds". Surface it as a capacity error (NOT
+	// errUnmergeable) so the caller aborts and the pipeline pauses-and-resumes
+	// after the limit resets, exactly as resolveFileTechLead already does.
+	if llm.ContainsCapacitySignature(resp.Content) {
+		return "", &llm.APIError{StatusCode: 429, Message: resp.Content, Retryable: true}
+	}
+
 	resolved := extractResolvedFileContent(resp.Content)
 
 	// Sanity check: resolved content must not contain conflict markers.

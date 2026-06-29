@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -76,10 +77,15 @@ func applicableScanners(langs []string, available map[string]bool) []Scanner {
 }
 
 // RunScanners runs every applicable+available scanner against repoDir and
-// returns deduped findings, the scanners that ran, and the applicable scanners
-// that were skipped because they are not installed. One scanner failing (parse
-// or exec error) is swallowed so a single broken tool never aborts the scan.
-func RunScanners(ctx context.Context, repoDir string) (findings []Finding, ran, skipped []ScannerKind) {
+// returns deduped findings, the scanners that ran clean, the applicable scanners
+// that were skipped because they are not installed, and the scanners that ran
+// but errored (exec crash, timeout, parse failure). A scanner failing never
+// aborts the scan, but its failure is NOT silently swallowed: it is logged and
+// reported in `failed` rather than counted as a clean run — otherwise a tool
+// that failed to inspect the code is indistinguishable from one that found
+// nothing, and the security gate would report a build as scanned-clean when
+// coverage was actually lost.
+func RunScanners(ctx context.Context, repoDir string) (findings []Finding, ran, skipped, failed []ScannerKind) {
 	langs := DetectLanguages(repoDir)
 	available := map[string]bool{}
 	for _, s := range allScanners() {
@@ -95,14 +101,19 @@ func RunScanners(ctx context.Context, repoDir string) (findings []Finding, ran, 
 			skipped = append(skipped, s.Kind)
 			continue
 		}
-		ran = append(ran, s.Kind)
 		fs, err := s.Run(ctx, repoDir)
 		if err != nil {
-			continue // graceful: log handled by caller; keep going
+			// Graceful degradation: keep scanning with the other tools, but make
+			// the coverage loss visible — a failed scan must never masquerade as
+			// a clean one.
+			failed = append(failed, s.Kind)
+			log.Printf("[security] scanner %s failed (coverage lost for this tool): %v", s.Kind, err)
+			continue
 		}
+		ran = append(ran, s.Kind)
 		findings = append(findings, fs...)
 	}
-	return DedupeFindings(findings), ran, skipped
+	return DedupeFindings(findings), ran, skipped, failed
 }
 
 // DetectScanners returns the scanners applicable to repoDir and available on the

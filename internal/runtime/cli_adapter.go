@@ -125,7 +125,7 @@ func (a *CLIAdapter) Prepare(cfg SessionConfig) (PreparedExecution, error) {
 		giPath := filepath.Join(cfg.WorkDir, ".gitignore")
 		existing, _ := os.ReadFile(giPath)
 		content := string(existing)
-		vxdPatterns := []string{"CLAUDE.md", "AGENTS.md", ".vxd-prompts/", ".serena/", "firebase-debug.log"}
+		vxdPatterns := []string{"CLAUDE.md", "AGENTS.md", ".vxd-prompts/", ".vxd-design/", ".serena/", "firebase-debug.log"}
 		var toAdd []string
 		for _, pat := range vxdPatterns {
 			if !strings.Contains(content, pat) {

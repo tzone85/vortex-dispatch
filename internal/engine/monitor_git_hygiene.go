@@ -88,6 +88,7 @@ func stripVXDArtifactsFromBranch(worktreePath, storyID string) {
 		"REQUIREMENT.md",
 		".vxd-prompts",
 		".vxd-db",
+		".vxd-design",
 		".serena",
 		".superpowers",
 	}
@@ -350,6 +351,7 @@ func ensureGitignorePatterns(worktreePath string) {
 		"REQUIREMENT.md",
 		"vxd.yaml",
 		".vxd-prompts/",
+		".vxd-design/",
 		".serena/",
 		"firebase-debug.log",
 	}

@@ -23,6 +23,7 @@ type PromptContext struct {
 	IsBugFix           bool   // true when the story is about fixing a bug
 	IsInfrastructure   bool   // true when the story involves Docker/CI/deployment
 	IsFrontend         bool   // true when the story builds/changes a user-facing web UI
+	DesignContext      string // Figma design reference (markdown), set for frontend stories when a design was pulled
 	WaveContext        string // summary of what prior stories built (from WAVE_CONTEXT.md)
 	DesignApproach     string // "ddd-tdd" (default), "tdd", "standard"
 }
@@ -119,6 +120,9 @@ BUG FIX — MANDATORY WORKFLOW:
 
 	if ctx.IsFrontend {
 		base += "\n" + FrontendDesignBrief
+		if ctx.DesignContext != "" {
+			base += "\n" + ctx.DesignContext + "\nThe design reference above OVERRIDES the generic design guidance: match the referenced Figma frames. Open the rendered PNGs listed above (they are in this worktree) and derive the palette, typography, spacing, and layout from them.\n"
+		}
 	}
 
 	if ctx.IsInfrastructure {

@@ -14,6 +14,7 @@ Welcome to the VXD (Vortex Dispatch) training guides. Whether you're a first-tim
 | [Model Selection](model-selection.md) | Provider options, execution vs verification tiers, cost comparison |
 | [Gemma 4 Guide](gemma-4-guide.md) | Google AI Studio free tier setup, fallback behavior, configuration |
 | [Monitoring and Intervention](monitoring.md) | Watchdog, supervisor, dashboard, escalations |
+| [Figma Design Integration](figma-integration.md) | Build UIs that match referenced Figma frames — one-time interactive auth, then fire-and-forget |
 
 ## Self-Improvement & Memory
 

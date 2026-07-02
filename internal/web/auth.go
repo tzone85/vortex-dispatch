@@ -232,6 +232,7 @@ func (a *authenticator) wrap(next http.Handler) http.Handler {
 				// proxied deployments still get the full protection.
 				secure := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 				// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure -- Secure is asserted conditionally above; unconditional Secure breaks plain-HTTP localhost auth
+				// #nosec G124 -- same rationale: Secure comes from the `secure` variable computed above (true under TLS or X-Forwarded-Proto:https)
 				http.SetCookie(w, &http.Cookie{
 					Name:     TokenCookieName,
 					Value:    a.token,

@@ -63,7 +63,10 @@ func TestCheckSecurityScanners_PartiallyMissing(t *testing.T) {
 	if !strings.Contains(res.Message, "gosec") {
 		t.Errorf("missing scanner gosec not named: %s", res.Message)
 	}
-	if strings.Contains(res.Message, "missing: gitleaks") || strings.Contains(res.Message, "missing: semgrep") {
+	// The message names only what is missing: "Security scanners missing:
+	// <list> — ... install: ...". Installed scanners must not appear in it
+	// (their names never occur in the install hints either).
+	if strings.Contains(res.Message, "gitleaks") || strings.Contains(res.Message, "semgrep") {
 		t.Errorf("installed scanners must not be listed as missing: %s", res.Message)
 	}
 }

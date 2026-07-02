@@ -165,7 +165,7 @@ func tailRequirementEvents(ctx context.Context, out interface {
 // events (REQ_*) carry no StoryID; they are matched by the req_id payload field.
 func eventMatchesReq(evt state.Event, reqID string) bool {
 	prefix := engine.StoryIDPrefix(reqID)
-	if evt.StoryID != "" && (evt.StoryID == prefix || strings.HasPrefix(evt.StoryID, prefix+"-")) {
+	if strings.HasPrefix(evt.StoryID, prefix+"-") {
 		return true
 	}
 	if len(evt.Payload) > 0 {

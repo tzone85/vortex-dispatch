@@ -246,6 +246,13 @@ func TestPlanner_PromptIncludesEngineeringStandards(t *testing.T) {
 			t.Errorf("decomposition prompt missing engineering standard %q", must)
 		}
 	}
+	// Frontend design is part of the factory standards: token-first foundation
+	// story, no default fonts, and the accessibility quality floor in criteria.
+	for _, must := range []string{"design-token", "Inter", "WCAG", "prefers-reduced-motion", "360px"} {
+		if !strings.Contains(prompt, must) {
+			t.Errorf("decomposition prompt missing frontend design standard %q", must)
+		}
+	}
 }
 
 // TestPlanner_PromptMandatesAssembledAppEndpointTests pins the recurrence guard

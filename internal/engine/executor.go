@@ -204,6 +204,7 @@ func (e *Executor) spawn(repoDir string, a Assignment, story PlannedStory) Spawn
 	isExisting := detectExistingCodebase(worktreePath)
 	isBug := detectBugFix(story.Title, story.Description)
 	isInfra := detectInfrastructure(story.Title, story.Description)
+	isFrontend := detectFrontend(story.Title, story.Description, story.OwnedFiles)
 
 	// Load RepoProfile if available to enrich prompts with pre-learned knowledge.
 	var techStackStr, lintCmd, buildCmd, testCmd string
@@ -233,6 +234,7 @@ func (e *Executor) spawn(repoDir string, a Assignment, story PlannedStory) Spawn
 		IsExistingCodebase: isExisting,
 		IsBugFix:           isBug,
 		IsInfrastructure:   isInfra,
+		IsFrontend:         isFrontend,
 		TechStack:          techStackStr,
 		LintCommand:        lintCmd,
 		BuildCommand:       buildCmd,
@@ -273,6 +275,7 @@ func (e *Executor) spawn(repoDir string, a Assignment, story PlannedStory) Spawn
 			IsExistingCodebase: isExisting,
 			IsBugFix:           isBug,
 			IsInfrastructure:   isInfra,
+			IsFrontend:         isFrontend,
 			IsRetry:            true,
 			RetryNumber:        len(attempts) + 1,
 			PriorAttempts:      priorAttempts,

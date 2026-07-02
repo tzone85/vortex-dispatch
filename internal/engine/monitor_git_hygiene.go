@@ -213,6 +213,7 @@ func stripBinariesFromBranch(worktreePath, storyID string) {
 	giPath := filepath.Join(worktreePath, ".gitignore")
 	giData, _ := os.ReadFile(giPath)
 	appendix := "\n# auto-detected binaries (stripped by vxd)\n" + strings.Join(binaries, "\n") + "\n"
+	// #nosec G703 -- giPath is <worktree>/.gitignore; the worktree root comes from vxd's own executor
 	if err := os.WriteFile(giPath, append(giData, []byte(appendix)...), 0o644); err != nil {
 		log.Printf("[hygiene] failed to append binary patterns to %s: %v (stripped binaries may reappear)", giPath, err)
 	}
@@ -368,6 +369,7 @@ func ensureGitignorePatterns(worktreePath string) {
 	}
 
 	appendix := "\n# VXD agent artifacts (auto-added)\n" + strings.Join(toAdd, "\n") + "\n"
+	// #nosec G703 -- giPath is <repo>/.gitignore in the operator's own checkout
 	if err := os.WriteFile(giPath, append(existing, []byte(appendix)...), 0o644); err != nil {
 		log.Printf("[gitignore] failed to update %s: %v", giPath, err)
 	}

@@ -157,7 +157,7 @@ func (s *Server) Start(ctx context.Context) error {
 	go s.hub.Run(ctx)
 
 	// Graceful shutdown
-	go func() {
+	go func() { // #nosec G118 -- the request-scoped ctx is already cancelled when this runs; graceful shutdown requires a fresh context
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()

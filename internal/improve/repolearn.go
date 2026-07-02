@@ -183,7 +183,7 @@ For each relevant pattern, output a JSON array with objects containing:
 Only include patterns with relevance >= 5. Output ONLY the JSON array.`, repo.Name, focusAreas, diffContent)
 
 	// Call LLM via Claude CLI
-	cmd := exec.CommandContext(ctx, rl.claudeCLI, "-p", prompt, "--output-format", "json")
+	cmd := exec.CommandContext(ctx, rl.claudeCLI, "-p", prompt, "--output-format", "json") // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command -- claudeCLI resolved from PATH; prompt is a single argv element, never shell-interpolated
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("claude CLI: %w", err)

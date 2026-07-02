@@ -234,16 +234,18 @@ func CheckProject() Result {
 func CheckStateDir() Result {
 	home := os.Getenv("HOME")
 	stateDir := filepath.Join(home, ".vxd", "projects")
+	// #nosec G703 -- stateDir derives from $HOME on the operator's own host; no untrusted input reaches this path
 	if _, err := os.Stat(stateDir); os.IsNotExist(err) {
 		return Result{Name: "state_dir", Severity: SeverityInfo, Passed: true,
 			Message: fmt.Sprintf("State dir: %s (will be created on first run)", stateDir)}
 	}
 	tmp := filepath.Join(stateDir, ".preflight-test")
+	// #nosec G703 G306 -- writability probe with throwaway content under $HOME
 	if err := os.WriteFile(tmp, []byte("test"), 0644); err != nil {
 		return Result{Name: "state_dir", Severity: SeverityInfo, Passed: false,
 			Message: fmt.Sprintf("State dir not writable: %s", stateDir)}
 	}
-	_ = os.Remove(tmp) // best-effort cleanup of the probe file
+	_ = os.Remove(tmp) // #nosec G703 -- best-effort cleanup of the probe file under $HOME
 	return Result{Name: "state_dir", Severity: SeverityInfo, Passed: true,
 		Message: fmt.Sprintf("State dir: %s", stateDir)}
 }

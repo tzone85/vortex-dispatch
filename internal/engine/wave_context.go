@@ -84,6 +84,7 @@ func appendToWaveContext(path, storyID, entry string) {
 
 	content += entry
 
+	// #nosec G703 -- path is <worktree>/WAVE_CONTEXT.md; the worktree root comes from vxd's own executor, not user input
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		log.Printf("[wave-context] failed to write %s: %v", path, err)
 	}

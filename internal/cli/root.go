@@ -37,6 +37,7 @@ func init() {
 	rootCmd.AddCommand(newDBCmd())
 	rootCmd.AddCommand(newEstimateCmd())
 	rootCmd.AddCommand(newPreflightCmd())
+	rootCmd.AddCommand(newFigmaCmd())
 	rootCmd.AddCommand(newReportCmd())
 	rootCmd.AddCommand(newApprovePlanCmd())
 	rootCmd.AddCommand(newRejectPlanCmd())

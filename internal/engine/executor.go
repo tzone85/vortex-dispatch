@@ -206,6 +206,17 @@ func (e *Executor) spawn(repoDir string, a Assignment, story PlannedStory) Spawn
 	isInfra := detectInfrastructure(story.Title, story.Description)
 	isFrontend := detectFrontend(story.Title, story.Description, story.OwnedFiles)
 
+	// Frontend stories build against the pulled Figma design when one exists:
+	// the markdown rides in the prompt and the rendered PNGs are copied into
+	// the worktree so the agent can open them.
+	designContext := ""
+	if isFrontend {
+		designContext = loadDesignContext(repoDir)
+		if designContext != "" {
+			copyDesignDir(repoDir, worktreePath)
+		}
+	}
+
 	// Load RepoProfile if available to enrich prompts with pre-learned knowledge.
 	var techStackStr, lintCmd, buildCmd, testCmd string
 	if e.projectDir != "" {
@@ -235,6 +246,7 @@ func (e *Executor) spawn(repoDir string, a Assignment, story PlannedStory) Spawn
 		IsBugFix:           isBug,
 		IsInfrastructure:   isInfra,
 		IsFrontend:         isFrontend,
+		DesignContext:      designContext,
 		TechStack:          techStackStr,
 		LintCommand:        lintCmd,
 		BuildCommand:       buildCmd,

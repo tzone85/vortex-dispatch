@@ -337,6 +337,7 @@ func lookPath(name string) (string, error) {
 			continue
 		}
 		full := filepath.Join(dir, name)
+		// #nosec G703 -- PATH lookup mirrors exec.LookPath; dirs come from the operator's own environment
 		if fi, err := os.Stat(full); err == nil && !fi.IsDir() {
 			return full, nil
 		}

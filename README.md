@@ -232,7 +232,7 @@ vhs docs/demo.tape
 | `vxd dashboard status` | Show whether the always-on dashboard daemon is running (PID, port, URL). |
 | `vxd dashboard stop` | SIGTERM the always-on dashboard daemon and remove its pidfile (idempotent). |
 | `vxd watch [req-id]` | Terminal-friendly always-on status: tails events for one requirement (defaults to the newest in the current repo) until terminal status or Ctrl+C. |
-| `vxd preflight` | Run pre-flight environment checks (15 checks, 3 severity tiers) |
+| `vxd preflight` | Run pre-flight environment checks (16 checks, 3 severity tiers) |
 | `vxd estimate <requirement>` | Estimate cost (`--quick`, `--json`, `--rate`, `--save`) |
 | `vxd report <req-id>` | Generate client delivery report (`--html`, `--internal`, `--output`) |
 | `vxd metrics [--req ID]` | Show pipeline performance metrics with agent activity stats |

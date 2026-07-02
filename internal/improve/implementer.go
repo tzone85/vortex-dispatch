@@ -119,7 +119,7 @@ RULES:
 
 Work in the current directory.`, finding.Title, finding.SourceURL, finding.ImplementationPlan, finding.TestStrategy)
 
-	cmd := exec.CommandContext(ctx, impl.claudePath, "-p", prompt, "--output-format", "json", "--max-turns", "25")
+	cmd := exec.CommandContext(ctx, impl.claudePath, "-p", prompt, "--output-format", "json", "--max-turns", "25") // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command -- claudePath resolved from PATH; prompt is a single argv element, injection-scanned by findingHasInjection
 	cmd.Dir = impl.repoPath
 	// Unset ANTHROPIC_API_KEY so Claude uses subscription (free) instead of
 	// exhausted API credits. Unset CLAUDECODE to prevent nested-session errors.
@@ -237,7 +237,7 @@ func (impl *Implementer) gitOutput(args ...string) (string, error) {
 }
 
 func (impl *Implementer) run(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
+	cmd := exec.Command(name, args...) // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command -- fixed git argv built by the caller within this package
 	cmd.Dir = impl.repoPath
 	out, err := cmd.CombinedOutput()
 	if err != nil {

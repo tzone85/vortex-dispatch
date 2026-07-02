@@ -59,7 +59,7 @@ The requirement text can be provided as:
 func forkReqDaemon(self, reqID, logPath string, extraArgs []string) *exec.Cmd {
 	// Build the child argv: vxd resume <reqID> [extraArgs...]
 	argv := append([]string{"resume", reqID}, extraArgs...)
-	cmd := exec.Command(self, argv...)
+	cmd := exec.Command(self, argv...) // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command -- re-execs vxd's own binary (os.Executable) to self-daemonize
 
 	// Detach from the current process group (platform-specific: Setsid on
 	// Unix, CREATE_NEW_PROCESS_GROUP on Windows).

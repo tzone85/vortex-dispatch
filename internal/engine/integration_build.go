@@ -102,7 +102,7 @@ func runIntegrationBuild(repoDir string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), integrationBuildTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command -- build command comes from operator vxd.yaml, gated by ValidateConfigShellCommand
 	cmd.Dir = repoDir
 	out, err := cmd.CombinedOutput()
 	if err != nil {

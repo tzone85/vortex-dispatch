@@ -172,7 +172,7 @@ dashboard:
 | `vxd metrics` | Success rates, timing, escalations, SLA breaches per requirement |
 | `vxd estimate "req"` | Cost estimation with `--quick`, `--json`, `--rate` |
 | `vxd report <req-id>` | Client delivery report (`--html`, `--internal`) |
-| `vxd preflight` | Run 15 pre-flight checks before dispatch |
+| `vxd preflight` | Run 16 pre-flight checks before dispatch |
 | `vxd approve <story-id>` | Approve a story PR for merge (`--all <req-id>` for batch) |
 | `vxd approve-plan` | Approve story plan before dispatch |
 | `vxd reject-plan` | Reject a plan with feedback |
@@ -451,7 +451,7 @@ A self-upskilling security agent embedded in vxd's core so every build is review
 - **Self-upskilling:** confirmed high+ findings whose vuln CLASS (CWE → OWASP category → tool rule) isn't already `Covers`ed are added as `learned` rules, persisted, and announced via `SECURITY_RULE_LEARNED`. The grown KB is what the gate applies on the next build — and what `vxd security kb` shows.
 - **Forward-embedded in core:** the planner's ENGINEERING STANDARDS block now spells out the OWASP Top 10 so every planned story is *designed* secure; the per-story gate enforces the *live* KB at merge; `resume.go` wires both (`TestResume_WiresSecurityGate`). Skipped in dry-run and when `security.disable_gate`.
 - **Config:** `security.disable_gate` (default false=ON), `security.gate_severity`, `security.auto_learn` (default true), `security.kb_path`. **Events:** `STORY_SECURITY_PASSED/FAILED`, `SECURITY_SCAN_COMPLETED`, `SECURITY_RULE_LEARNED` (all in the projection switch; `TestProject_AllDeclaredEventsHandled` guards exhaustiveness).
-- **Tests:** `internal/security/*_test.go` (16: KB roundtrip/immutability/lang-filter/checklist/Covers, scanner applicability, all 5 parsers, report) + `engine/security_gate_test.go` (7: scan aggregation+event, block-on-critical, pass-below-threshold, self-upskill on new class, no-relearn known class, LLM-findings parse). **Host scanner install + NXD port pending.**
+- **Tests:** `internal/security/*_test.go` (16: KB roundtrip/immutability/lang-filter/checklist/Covers, scanner applicability, all 5 parsers, report) + `engine/security_gate_test.go` (7: scan aggregation+event, block-on-critical, pass-below-threshold, self-upskill on new class, no-relearn known class, LLM-findings parse). Host scanners installed (gosec, govulncheck, gitleaks, semgrep); the `security_scanners` preflight check (`CheckSecurityScanners`, WARNING tier) reports any that go missing, with install hints from `security.InstallHint`. **NXD port pending.**
 
 ### Model ID Compatibility
 - **Use undated aliases, not dated snapshots.** Current defaults: `claude-opus-4-8` (tech_lead), `claude-sonnet-4-6` (senior/qa/manager), `claude-haiku-4-5` (cheapest). All three are verified working on the Claude CLI subscription tier.

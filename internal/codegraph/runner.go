@@ -96,7 +96,7 @@ func GraphDBPath(repoPath string) string {
 
 // run executes code-review-graph with the given args in the repo directory.
 func (r *Runner) run(ctx context.Context, repoPath string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, r.BinPath, args...)
+	cmd := exec.CommandContext(ctx, r.BinPath, args...) // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command -- BinPath is the code-review-graph binary resolved from PATH; args are fixed subcommands
 	cmd.Dir = repoPath
 
 	var stdout, stderr bytes.Buffer

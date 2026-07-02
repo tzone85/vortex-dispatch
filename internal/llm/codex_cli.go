@@ -69,7 +69,7 @@ func (c *CodexCLIClient) Complete(ctx context.Context, req CompletionRequest) (C
 		"-", // read the prompt from stdin
 	}
 
-	cmd := exec.CommandContext(ctx, c.cliPath, args...)
+	cmd := exec.CommandContext(ctx, c.cliPath, args...) // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command -- cliPath is the codex binary from PATH; model name gated by ValidateModelName, prompt via stdin
 	cmd.Stdin = strings.NewReader(prompt)
 	// Strip OPENAI_API_KEY so Codex uses the subscription, not API credits.
 	cmd.Env = FilterCodexEnv(os.Environ())

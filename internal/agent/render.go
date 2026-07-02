@@ -2,7 +2,7 @@ package agent
 
 import (
 	"bytes"
-	"text/template"
+	"text/template" // nosemgrep: go.lang.security.audit.xss.import-text-template.import-text-template -- renders agent prompts (plain text), never HTML
 )
 
 // TemplateContext holds all data available to prompt templates.

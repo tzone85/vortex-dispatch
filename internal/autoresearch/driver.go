@@ -161,7 +161,7 @@ func autoCommit(worktree, branch string) {
 }
 
 func runIn(dir string, args ...string) (string, error) {
-	cmd := exec.Command(args[0], args[1:]...)
+	cmd := exec.Command(args[0], args[1:]...) // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command -- args are fixed git/tooling argv built by this package, not user input
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	return string(out), err

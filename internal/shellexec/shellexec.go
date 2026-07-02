@@ -58,11 +58,11 @@ func filenameBase(p string) string {
 // Command returns an exec.Cmd that runs command via the host shell.
 func Command(command string) *exec.Cmd {
 	exe, flag := Shell()
-	return exec.Command(exe, flag, command)
+	return exec.Command(exe, flag, command) // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command -- documented trust boundary: shell commands come from operator vxd.yaml (see CLAUDE.md item 52)
 }
 
 // CommandContext is the context-aware variant of Command.
 func CommandContext(ctx context.Context, command string) *exec.Cmd {
 	exe, flag := Shell()
-	return exec.CommandContext(ctx, exe, flag, command)
+	return exec.CommandContext(ctx, exe, flag, command) // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command -- documented trust boundary: shell commands come from operator vxd.yaml (see CLAUDE.md item 52)
 }

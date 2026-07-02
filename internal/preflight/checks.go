@@ -17,6 +17,7 @@ import (
 	"github.com/tzone85/vortex-dispatch/internal/devdb/docker"
 	"github.com/tzone85/vortex-dispatch/internal/devdb/ghost"
 	"github.com/tzone85/vortex-dispatch/internal/engine"
+	"github.com/tzone85/vortex-dispatch/internal/security"
 )
 
 // --- CRITICAL checks ---
@@ -234,16 +235,18 @@ func CheckProject() Result {
 func CheckStateDir() Result {
 	home := os.Getenv("HOME")
 	stateDir := filepath.Join(home, ".vxd", "projects")
+	// #nosec G703 -- stateDir derives from $HOME on the operator's own host; no untrusted input reaches this path
 	if _, err := os.Stat(stateDir); os.IsNotExist(err) {
 		return Result{Name: "state_dir", Severity: SeverityInfo, Passed: true,
 			Message: fmt.Sprintf("State dir: %s (will be created on first run)", stateDir)}
 	}
 	tmp := filepath.Join(stateDir, ".preflight-test")
+	// #nosec G703 G306 -- writability probe with throwaway content under $HOME
 	if err := os.WriteFile(tmp, []byte("test"), 0644); err != nil {
 		return Result{Name: "state_dir", Severity: SeverityInfo, Passed: false,
 			Message: fmt.Sprintf("State dir not writable: %s", stateDir)}
 	}
-	_ = os.Remove(tmp) // best-effort cleanup of the probe file
+	_ = os.Remove(tmp) // #nosec G703 -- best-effort cleanup of the probe file under $HOME
 	return Result{Name: "state_dir", Severity: SeverityInfo, Passed: true,
 		Message: fmt.Sprintf("State dir: %s", stateDir)}
 }
@@ -324,6 +327,39 @@ func CheckBinaryPath(executablePath string) Result {
 		)}
 }
 
+// CheckSecurityScanners warns when security scanner binaries the per-story
+// security gate relies on are missing from PATH. The gate degrades gracefully
+// (a missing tool is skipped, never fatal), so this check is the only surface
+// that tells the operator scan coverage is reduced. lookPath is injected so
+// the check can be unit-tested; pass exec.LookPath for the real host.
+func CheckSecurityScanners(lookPath func(string) (string, error)) Result {
+	var installed, missing []string
+	var hints []string
+	seen := map[string]bool{}
+	for _, s := range security.KnownScanners() {
+		if seen[s.Bin] {
+			continue
+		}
+		seen[s.Bin] = true
+		if _, err := lookPath(s.Bin); err == nil {
+			installed = append(installed, s.Bin)
+			continue
+		}
+		missing = append(missing, s.Bin)
+		if hint := security.InstallHint(s.Bin); hint != "" {
+			hints = append(hints, hint)
+		}
+	}
+	if len(missing) == 0 {
+		return Result{Name: "security_scanners", Severity: SeverityWarning, Passed: true,
+			Message: fmt.Sprintf("Security scanners installed: %s", strings.Join(installed, ", "))}
+	}
+	return Result{Name: "security_scanners", Severity: SeverityWarning, Passed: false,
+		Message: fmt.Sprintf(
+			"Security scanners missing: %s — the security gate will skip them (reduced coverage). install: %s",
+			strings.Join(missing, ", "), strings.Join(hints, " && "))}
+}
+
 // --- Check sets ---
 
 // DispatchChecks returns the 9 checks run before every dispatch operation.
@@ -336,12 +372,13 @@ func DispatchChecks() []Check {
 	}
 }
 
-// AllChecks returns all 14 checks including informational ones shown by
+// AllChecks returns all 16 checks including informational ones shown by
 // `vxd preflight`.
 func AllChecks() []Check {
 	binaryCheck := func() Result { return CheckBinaryPath("") }
+	scannerCheck := func() Result { return CheckSecurityScanners(exec.LookPath) }
 	return append(DispatchChecks(),
-		binaryCheck,
+		binaryCheck, scannerCheck,
 		CheckConfig, CheckProject, CheckStateDir, CheckBillingConfig, CheckOllama,
 	)
 }

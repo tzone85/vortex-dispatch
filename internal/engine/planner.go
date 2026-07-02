@@ -488,6 +488,13 @@ func storyIDPrefix(reqID string) string {
 	return hex.EncodeToString(sum[:])[:8]
 }
 
+// StoryIDPrefix exposes the story-ID namespace derivation to other packages
+// (e.g. `vxd watch` matching events to a requirement). There is exactly one
+// way to map reqID → story prefix; callers must never truncate reqID themselves.
+func StoryIDPrefix(reqID string) string {
+	return storyIDPrefix(reqID)
+}
+
 // scribeStorySuffix is the stable, un-prefixed id of the README-scribe story.
 const scribeStorySuffix = "scribe-readme"
 

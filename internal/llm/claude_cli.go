@@ -58,7 +58,7 @@ func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (
 	// turns of file reads before producing a plan.
 	args = append(args, "--max-turns", "50")
 
-	cmd := exec.CommandContext(ctx, c.cliPath, args...)
+	cmd := exec.CommandContext(ctx, c.cliPath, args...) // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command -- cliPath is the claude binary from PATH; model name gated by ValidateModelName, prompt via stdin
 	cmd.Stdin = strings.NewReader(prompt)
 	// Strip ANTHROPIC_API_KEY so Claude Code uses the user's Max subscription
 	// instead of a potentially expired/empty API key. Also strip CLAUDECODE to

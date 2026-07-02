@@ -50,7 +50,7 @@ func BuildCmd(args SpawnArgs) (*exec.Cmd, error) {
 		cmdArgs = append(cmdArgs, "--no-open")
 	}
 
-	cmd := exec.Command(args.Self, cmdArgs...)
+	cmd := exec.Command(args.Self, cmdArgs...) // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command -- spawns vxd's own binary (os.Executable) as the dashboard daemon
 	cmd.Env = FilteredEnv()
 	return cmd, nil
 }

@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"log"
 	"math"
-	"math/rand"
+	"math/rand" // nosemgrep: go.lang.security.audit.crypto.math_random.math-random-used -- statistical sampling only; seeded from crypto/rand
 	"sync"
 )
 
@@ -52,7 +52,7 @@ func NewBayesSampler(classes []ExperimentClass, priorAlpha, priorBeta float64) *
 		classes:    append([]ExperimentClass(nil), classes...),
 		priorAlpha: priorAlpha,
 		priorBeta:  priorBeta,
-		rng:        rand.New(rand.NewSource(secureSeed())),
+		rng:        rand.New(rand.NewSource(secureSeed())), // #nosec G404 -- Thompson sampling needs statistical, not cryptographic, randomness; the seed itself comes from crypto/rand (secureSeed)
 	}
 }
 
@@ -73,6 +73,7 @@ func secureSeed() int64 {
 		log.Printf("[autoresearch] CRITICAL: crypto/rand.Read failed: %v — falling back to deterministic seed; Thompson sampling will be predictable for this process", err)
 		return 1
 	}
+	// #nosec G115 -- b is 8 random bytes; the uint64→int64 wraparound is harmless because only the bit pattern matters for a seed.
 	return int64(binary.LittleEndian.Uint64(b[:]))
 }
 
@@ -80,7 +81,7 @@ func secureSeed() int64 {
 func (s *BayesSampler) SetSeed(seed int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.rng = rand.New(rand.NewSource(seed))
+	s.rng = rand.New(rand.NewSource(seed)) // #nosec G404 -- deterministic test seeding by design
 }
 
 // Classes returns the class set this sampler covers.

@@ -230,7 +230,7 @@ func scanForHallucinations(repoDir string) []string {
 		if !isSourceExt(ext) {
 			return nil
 		}
-		data, err := os.ReadFile(path)
+		data, err := os.ReadFile(path) // #nosec G122 G304 -- best-effort read-only scan of the local repo tree; a TOCTOU race only skips a file
 		if err != nil {
 			return nil
 		}

@@ -116,6 +116,33 @@ func RunScanners(ctx context.Context, repoDir string) (findings []Finding, ran, 
 	return DedupeFindings(findings), ran, skipped, failed
 }
 
+// KnownScanners returns the full scanner registry regardless of PATH
+// availability or repo languages, so other packages — e.g. preflight — can
+// report on missing tools without duplicating the list.
+func KnownScanners() []Scanner {
+	return allScanners()
+}
+
+// InstallHint returns the install command for a scanner binary, or "" when no
+// hint is known. Hints target macOS/Homebrew and the Go toolchain — the two
+// supported operator setups.
+func InstallHint(bin string) string {
+	switch bin {
+	case "gosec":
+		return "go install github.com/securego/gosec/v2/cmd/gosec@latest"
+	case "govulncheck":
+		return "go install golang.org/x/vuln/cmd/govulncheck@latest"
+	case "gitleaks":
+		return "brew install gitleaks"
+	case "semgrep":
+		return "brew install semgrep"
+	case "npm":
+		return "brew install node"
+	default:
+		return ""
+	}
+}
+
 // DetectScanners returns the scanners applicable to repoDir and available on the
 // host. Detection combines language inspection with exec.LookPath.
 func DetectScanners(repoDir string) []Scanner {

@@ -137,6 +137,7 @@ func scrubFile(path string) bool {
 
 	// Write back without the preamble
 	cleaned := strings.Join(remaining, "\n")
+	// #nosec G703 -- path was produced by walking the local worktree; sanitizer rewrites the same file in place
 	if err := os.WriteFile(path, []byte(cleaned), 0644); err != nil {
 		log.Printf("[sanitize] failed to write cleaned file %s: %v", path, err)
 		return false
@@ -192,7 +193,7 @@ func validateNodeProject(dir string) error {
 	// Try tsc --noEmit first (TypeScript), then build
 	tscPath := filepath.Join(dir, "node_modules", ".bin", "tsc")
 	if fileExists(tscPath) {
-		cmd := exec.Command(tscPath, "--noEmit")
+		cmd := exec.Command(tscPath, "--noEmit") // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command -- fixed argv; tscPath is <worktree>/node_modules/.bin/tsc
 		cmd.Dir = dir
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("TypeScript check failed:\n%s", truncateOutput(string(out), 500))

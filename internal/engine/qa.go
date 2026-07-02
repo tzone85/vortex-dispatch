@@ -61,7 +61,7 @@ type ExecRunner struct{}
 // Run executes the given command in the specified working directory and
 // returns the combined stdout/stderr output.
 func (e *ExecRunner) Run(ctx context.Context, workDir, name string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := exec.CommandContext(ctx, name, args...) // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command -- QA commands come from operator vxd.yaml, gated by ValidateConfigShellCommand
 	cmd.Dir = workDir
 	out, err := cmd.CombinedOutput()
 	return string(out), err

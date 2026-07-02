@@ -100,7 +100,7 @@ func (d *ProposalDrafter) DraftProposal(ctx context.Context, opp Opportunity) (s
 	// Call Claude CLI. Strip ANTHROPIC_API_KEY so Claude uses Max subscription
 	// instead of API credits, and strip CLAUDECODE to prevent nested-session
 	// errors when VXD is invoked inside Claude Code (ENV-2).
-	cmd := exec.CommandContext(ctx, d.claudePath, "-p", prompt, "--output-format", "text")
+	cmd := exec.CommandContext(ctx, d.claudePath, "-p", prompt, "--output-format", "text") // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command -- claudePath resolved from PATH; prompt is a single argv element, never shell-interpolated
 	cmd.Dir = d.workDir
 	cmd.Env = llm.FilterClaudeEnv(os.Environ())
 

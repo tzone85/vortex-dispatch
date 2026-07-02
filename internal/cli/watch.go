@@ -6,10 +6,12 @@ import (
 	"os"
 	"os/signal"
 	"sort"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/tzone85/vortex-dispatch/internal/engine"
 	"github.com/tzone85/vortex-dispatch/internal/state"
 )
 
@@ -156,16 +158,29 @@ func tailRequirementEvents(ctx context.Context, out interface {
 }
 
 // eventMatchesReq returns true iff evt belongs to the watched requirement.
-// Story events carry ReqID via payload; cheaper to scan storyID against the
-// projection store than to JSON-decode every payload, so we accept both
-// direct ReqID matches and StoryID-belonging-to-this-req matches.
+// Story events are matched by their ID namespace: story IDs start with
+// engine.StoryIDPrefix(reqID) — sha256(reqID)[:8] for real (>8-char) reqIDs,
+// the reqID verbatim for short test fixtures. Comparing raw reqID prefixes
+// here would silently drop every story event in production. Requirement-level
+// events (REQ_*) carry no StoryID; they are matched by the req_id payload field.
 func eventMatchesReq(evt state.Event, reqID string) bool {
-	if evt.StoryID != "" && len(evt.StoryID) >= 8 && evt.StoryID[:8] == reqID[:min(8, len(reqID))] {
+	prefix := engine.StoryIDPrefix(reqID)
+	if strings.HasPrefix(evt.StoryID, prefix+"-") {
 		return true
 	}
-	// Many events carry ReqID in the payload — but rather than decode here,
-	// the StoryID-prefix check above already covers the majority. REQ_*
-	// events with no StoryID get routed via payload below.
+	if len(evt.Payload) > 0 {
+		// Requirement-level payload keys are not uniform across emitters:
+		// REQ_SUBMITTED/REQ_COMPLETED/REQ_BLOCKED carry "id", the planning
+		// heartbeat and story-adjacent events carry "req_id". Accept both;
+		// exact equality with the full reqID cannot collide with story IDs
+		// (those are always <8-char-prefix>-<suffix>).
+		payload := state.DecodePayload(evt.Payload)
+		for _, key := range []string{"req_id", "id"} {
+			if id, ok := payload[key].(string); ok && id == reqID {
+				return true
+			}
+		}
+	}
 	return false
 }
 

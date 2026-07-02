@@ -194,10 +194,10 @@ func TestDispatchChecks_Returns9(t *testing.T) {
 	}
 }
 
-func TestAllChecks_Returns15(t *testing.T) {
+func TestAllChecks_Returns16(t *testing.T) {
 	checks := preflight.AllChecks()
-	if len(checks) != 15 {
-		t.Fatalf("expected 15 total checks, got %d", len(checks))
+	if len(checks) != 16 {
+		t.Fatalf("expected 16 total checks, got %d", len(checks))
 	}
 }
 

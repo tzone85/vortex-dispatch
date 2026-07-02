@@ -64,6 +64,11 @@ func TestDetectFrontend(t *testing.T) {
 		{"review-is-not-view", "Code review automation for PRs", "LLM review of diffs", nil, false},
 		{"format-is-not-form", "Format output as JSON", "", nil, false},
 		{"build-is-not-ui", "Build the release pipeline", "artifact signing", nil, false},
+		// Server-side HTML and "responsive" infrastructure are NOT UI work.
+		{"html-email-is-backend", "Generate HTML email report", "render the weekly digest as text/html", nil, false},
+		{"responsive-gateway-is-backend", "Design a responsive API gateway", "low-latency request routing", nil, false},
+		// But real UI stories that mention html carry the file or another keyword.
+		{"html-with-owned-file", "Static marketing site", "", []string{"public/index.html"}, true},
 	}
 
 	for _, tt := range tests {

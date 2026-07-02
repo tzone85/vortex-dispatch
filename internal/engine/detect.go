@@ -101,15 +101,18 @@ func detectFrontend(title, description string, ownedFiles []string) bool {
 
 // frontendKeywordRe matches UI vocabulary as whole words only — plain substring
 // matching trips on "pagination" (page), "performance" (form), "review" (view).
+// Deliberately absent: "html" (server-side HTML emails/reports are backend
+// work; real UI stories carry .html in owned files or another keyword) and
+// "responsive" ("responsive API gateway" means fast, not responsive design).
 // Hoisted to package level so detection never recompiles it (perf convention).
 var frontendKeywordRe = regexp.MustCompile(`\b(` +
 	`frontend|front-end|ui|ux|user interface|` +
 	`landing page|page|screen|view|component|widget|` +
 	`dashboard|layout|styling|stylesheet|css|` +
 	`tailwind|react|vue|svelte|next\.js|nextjs|astro|` +
-	`design system|responsive|web app|webapp|website|` +
+	`design system|web app|webapp|website|` +
 	`form|modal|navbar|navigation bar|sidebar|button|` +
-	`theme|dark mode|typography|html` +
+	`theme|dark mode|typography` +
 	`)\b`)
 
 // detectInfrastructure checks if the story involves Docker, CI/CD, deployment,

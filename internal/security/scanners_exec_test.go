@@ -5,18 +5,25 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"testing"
 )
 
 // fakeTool installs an executable shell script named bin into dir that prints
-// output and exits with code. Scanners exit non-zero when they find issues, so
-// tests exercise both codes.
+// output and exits with code (verbatim — scanners use non-zero exits to mean
+// "findings present", and some distinguish exit 2). The heredoc sentinel is
+// collision-resistant so canned output can never terminate it early.
 func fakeTool(t *testing.T, dir, bin, output string, code int) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("fake-tool harness is POSIX-shell based")
 	}
-	script := "#!/bin/sh\ncat <<'FAKE_EOF'\n" + output + "\nFAKE_EOF\nexit " + map[bool]string{true: "0", false: "1"}[code == 0] + "\n"
+	const sentinel = "FAKE_SCANNER_OUTPUT_BOUNDARY_9f2c1d"
+	if strings.Contains(output, sentinel) {
+		t.Fatalf("canned output collides with the heredoc sentinel %s", sentinel)
+	}
+	script := "#!/bin/sh\ncat <<'" + sentinel + "'\n" + output + "\n" + sentinel + "\nexit " + strconv.Itoa(code) + "\n"
 	if err := os.WriteFile(filepath.Join(dir, bin), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -192,18 +199,23 @@ func TestScannerRun_PerKindDispatch(t *testing.T) {
 	installAllFakeScanners(t)
 	repo := seedRepo(t, map[string]string{"go.mod": "module x\n"})
 
+	// Note: Scanner.Run dispatches on Kind with hardcoded binary names and
+	// never reads Bin — Bin serves only the LookPath availability checks in
+	// RunScanners/DetectScanners. Bin values here mirror allScanners() (the
+	// npm-audit scanner execs "npm", not "npm-audit").
 	cases := []struct {
 		kind     ScannerKind
+		bin      string
 		wantTool string
 	}{
-		{ScannerGosec, "gosec"},
-		{ScannerGitleaks, "gitleaks"},
-		{ScannerSemgrep, "semgrep"},
-		{ScannerGovulncheck, "govulncheck"},
-		{ScannerNpmAudit, "npm-audit"},
+		{ScannerGosec, "gosec", "gosec"},
+		{ScannerGitleaks, "gitleaks", "gitleaks"},
+		{ScannerSemgrep, "semgrep", "semgrep"},
+		{ScannerGovulncheck, "govulncheck", "govulncheck"},
+		{ScannerNpmAudit, "npm", "npm-audit"},
 	}
 	for _, tc := range cases {
-		fs, err := Scanner{Kind: tc.kind, Bin: string(tc.kind)}.Run(context.Background(), repo)
+		fs, err := Scanner{Kind: tc.kind, Bin: tc.bin}.Run(context.Background(), repo)
 		if err != nil {
 			t.Errorf("%s: %v", tc.kind, err)
 			continue

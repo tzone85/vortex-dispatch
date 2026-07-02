@@ -22,6 +22,7 @@ type PromptContext struct {
 	IsExistingCodebase bool   // true when working on a client's existing repo
 	IsBugFix           bool   // true when the story is about fixing a bug
 	IsInfrastructure   bool   // true when the story involves Docker/CI/deployment
+	IsFrontend         bool   // true when the story builds/changes a user-facing web UI
 	WaveContext        string // summary of what prior stories built (from WAVE_CONTEXT.md)
 	DesignApproach     string // "ddd-tdd" (default), "tdd", "standard"
 }
@@ -114,6 +115,10 @@ BUG FIX — MANDATORY WORKFLOW:
 3. ROOT CAUSE: Understand WHY it's broken, not just WHAT is broken.
 4. FIX: Minimal change that addresses the root cause. Do not refactor.
 5. VERIFY: Failing test now passes. Full test suite still passes. No regressions.`
+	}
+
+	if ctx.IsFrontend {
+		base += "\n" + FrontendDesignBrief
 	}
 
 	if ctx.IsInfrastructure {

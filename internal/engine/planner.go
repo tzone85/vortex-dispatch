@@ -163,6 +163,7 @@ ENGINEERING STANDARDS — every code story's description AND acceptance_criteria
 - Error handling: handle errors explicitly at every level; no silent failures; user-facing messages must not leak internals/stack traces.
 - Tests: every code story includes tests covering the happy path AND at least one failure/edge path.
 - Docs as you go: stories that add a public surface document it (in docs/ or the relevant module doc) so the final README/training can link real content.
+- Frontend design (any story that builds or changes a user-facing web UI — vxd injects a full design brief into those agents, so plan for it): the FIRST UI story must establish a design-token foundation (palette of 4-6 named colors with one dominant + one accent, a display+body typeface pairing that is NOT Inter/Roboto/system defaults, spacing scale — as CSS custom properties or the framework theme) and every later UI story consumes those tokens, never ad-hoc values. UI acceptance criteria MUST include the quality floor: responsive to 360px, visible keyboard focus, WCAG AA contrast, prefers-reduced-motion respected, and designed empty/loading/error states. Copy is real product copy, never lorem ipsum or "Submit".
 
 CRITICAL RULES:
 - Respond ONLY with the JSON array. No prose, no explanations, no questions.

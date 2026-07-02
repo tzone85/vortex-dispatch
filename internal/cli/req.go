@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tzone85/vortex-dispatch/internal/agent"
 	"github.com/tzone85/vortex-dispatch/internal/engine"
+	"github.com/tzone85/vortex-dispatch/internal/figma"
 	"github.com/tzone85/vortex-dispatch/internal/llm"
 	"github.com/tzone85/vortex-dispatch/internal/repolearn"
 )
@@ -109,6 +110,30 @@ func runReq(cmd *cobra.Command, args []string) error {
 		client, err = buildPlanningClient(s.Config.Models.TechLead.Provider, godmode)
 		if err != nil {
 			return err
+		}
+	}
+
+	// Figma design references make this run interactive-ONCE: pulling the
+	// design needs an operator credential. Fail fast here — before any LLM
+	// spend — with the exact interactive step when it is missing. With a
+	// credential in place the run stays fire-and-forget.
+	if refs := figma.ParseURLs(requirement); len(refs) > 0 {
+		if dryRun {
+			fmt.Fprintf(cmd.OutOrStdout(), "[DRY RUN] Figma: %d design reference(s) detected — skipping pull\n", len(refs))
+		} else {
+			token, source, tokErr := figma.ResolveToken(expandHome(s.Config.Workspace.StateDir))
+			if tokErr != nil {
+				return tokErr
+			}
+			cwd, _ := os.Getwd()
+			fmt.Fprintf(cmd.OutOrStdout(), "Figma: %d design reference(s) detected — pulling design context (auth: %s)\n", len(refs), source)
+			dc, pullErr := figma.BuildDesignContext(cmd.Context(), figma.NewClient(token), refs, filepath.Join(cwd, figma.DirName))
+			if pullErr != nil {
+				return fmt.Errorf("figma pull: %w", pullErr)
+			}
+			if dc != nil {
+				fmt.Fprintf(cmd.OutOrStdout(), "Figma: design context + %d render(s) written to %s/ — the planner and frontend agents will build against them\n", len(dc.Images), figma.DirName)
+			}
 		}
 	}
 

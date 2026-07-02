@@ -199,6 +199,7 @@ vhs docs/demo.tape
 - **Supervisor oversight** -- periodic drift detection and reprioritization
 - **Senior code review** -- automated review via LLM with approve/request-changes verdicts
 - **Frontend design skill** -- UI-facing stories are detected (owned files + story text) and their agents receive an embedded design brief: token-first planning, one signature element, named anti-"AI slop" defaults banned, and a WCAG accessibility floor; the planner requires a design-token foundation story for web UIs
+- **Figma design integration** -- requirements can reference figma.com URLs; vxd pulls the frames (structure, styles, rendered PNGs) and the planner + frontend agents build to MATCH the design. Note: the first Figma run needs a one-time interactive auth session (`vxd figma auth`); every run after that is fire-and-forget as usual
 - **Automated QA pipeline** -- lint, build, and test with declarative success criteria (6 kinds)
 - **Auto-merge with PR creation** -- stories flow from code to merged PR hands-free
 - **LLM-powered conflict resolution** -- rebase conflicts auto-resolved; binary files handled without LLM (deterministic policy); complex/multi-file conflicts escalate to Tech Lead with full requirement DAG context
@@ -236,6 +237,8 @@ vhs docs/demo.tape
 | `vxd preflight` | Run pre-flight environment checks (16 checks, 3 severity tiers) |
 | `vxd estimate <requirement>` | Estimate cost (`--quick`, `--json`, `--rate`, `--save`) |
 | `vxd report <req-id>` | Generate client delivery report (`--html`, `--internal`, `--output`) |
+| `vxd figma auth` | One-time interactive session: store a Figma personal access token (validated, 0600) |
+| `vxd figma status` | Show whether Figma access is configured and for which account |
 | `vxd metrics [--req ID]` | Show pipeline performance metrics with agent activity stats |
 | `vxd learn [repo-path]` | Analyse a repository and build a persistent profile (`--pass`, `--force`) |
 | `vxd projects` | List all tracked projects |

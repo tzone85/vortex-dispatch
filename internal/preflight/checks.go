@@ -17,6 +17,7 @@ import (
 	"github.com/tzone85/vortex-dispatch/internal/devdb/docker"
 	"github.com/tzone85/vortex-dispatch/internal/devdb/ghost"
 	"github.com/tzone85/vortex-dispatch/internal/engine"
+	"github.com/tzone85/vortex-dispatch/internal/security"
 )
 
 // --- CRITICAL checks ---
@@ -326,6 +327,39 @@ func CheckBinaryPath(executablePath string) Result {
 		)}
 }
 
+// CheckSecurityScanners warns when security scanner binaries the per-story
+// security gate relies on are missing from PATH. The gate degrades gracefully
+// (a missing tool is skipped, never fatal), so this check is the only surface
+// that tells the operator scan coverage is reduced. lookPath is injected so
+// the check can be unit-tested; pass exec.LookPath for the real host.
+func CheckSecurityScanners(lookPath func(string) (string, error)) Result {
+	var installed, missing []string
+	var hints []string
+	seen := map[string]bool{}
+	for _, s := range security.KnownScanners() {
+		if seen[s.Bin] {
+			continue
+		}
+		seen[s.Bin] = true
+		if _, err := lookPath(s.Bin); err == nil {
+			installed = append(installed, s.Bin)
+			continue
+		}
+		missing = append(missing, s.Bin)
+		if hint := security.InstallHint(s.Bin); hint != "" {
+			hints = append(hints, hint)
+		}
+	}
+	if len(missing) == 0 {
+		return Result{Name: "security_scanners", Severity: SeverityWarning, Passed: true,
+			Message: fmt.Sprintf("Security scanners installed: %s", strings.Join(installed, ", "))}
+	}
+	return Result{Name: "security_scanners", Severity: SeverityWarning, Passed: false,
+		Message: fmt.Sprintf(
+			"Security scanners missing: %s — the security gate will skip them (reduced coverage). install: %s",
+			strings.Join(missing, ", "), strings.Join(hints, " && "))}
+}
+
 // --- Check sets ---
 
 // DispatchChecks returns the 9 checks run before every dispatch operation.
@@ -338,12 +372,13 @@ func DispatchChecks() []Check {
 	}
 }
 
-// AllChecks returns all 14 checks including informational ones shown by
+// AllChecks returns all 16 checks including informational ones shown by
 // `vxd preflight`.
 func AllChecks() []Check {
 	binaryCheck := func() Result { return CheckBinaryPath("") }
+	scannerCheck := func() Result { return CheckSecurityScanners(exec.LookPath) }
 	return append(DispatchChecks(),
-		binaryCheck,
+		binaryCheck, scannerCheck,
 		CheckConfig, CheckProject, CheckStateDir, CheckBillingConfig, CheckOllama,
 	)
 }

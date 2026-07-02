@@ -27,7 +27,7 @@ type Ref struct {
 
 // figmaURLRe matches figma.com design/file/proto/board URLs. The file key is
 // the path segment after the kind.
-var figmaURLRe = regexp.MustCompile(`https://(?:www\.)?figma\.com/(?:design|file|proto|board)/([A-Za-z0-9]+)[^\s)>\]]*`)
+var figmaURLRe = regexp.MustCompile(`https://(?:www\.)?figma\.com/(?:design|file|proto|board)/([A-Za-z0-9_-]+)[^\s)>\]]*`)
 
 // ParseURLs extracts every Figma design reference from free text, deduplicated
 // (same file key + node), preserving first-seen order.

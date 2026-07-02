@@ -130,3 +130,54 @@ func TestBuildDesignContext_NoRefsIsNil(t *testing.T) {
 		t.Errorf("no refs must be a nil context, got %+v err=%v", dc, err)
 	}
 }
+
+func TestBuildDesignContext_AllRefsFailedIsAnError(t *testing.T) {
+	srv := newFixtureServer(t)
+	c := NewClient("good-token")
+	c.BaseURL = srv.URL
+	// UNKNOWN key: the fixture 404s, so the only ref fails.
+	_, err := BuildDesignContext(t.Context(), c, []Ref{{FileKey: "UNKNOWN", NodeID: "1:1", RawURL: "https://figma.com/design/UNKNOWN"}}, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "failed to fetch") {
+		t.Errorf("all-refs-failed must be a loud error, got %v", err)
+	}
+}
+
+func TestDownload_RejectsNonFigmaHosts(t *testing.T) {
+	c := NewClient("tok") // production BaseURL — only Figma CDN hosts allowed
+	cases := []string{
+		"http://169.254.169.254/latest/meta-data", // SSRF classic
+		"https://evil.example.com/render.png",     // non-Figma host
+		"http://www.figma.com/render.png",         // right host, wrong scheme
+		"https://notfigma.com/render.png",         // suffix trick
+		"https://evilfigma.com/render.png",        // no dot boundary
+	}
+	for _, u := range cases {
+		if _, err := c.Download(t.Context(), u); err == nil {
+			t.Errorf("Download must refuse %q", u)
+		}
+	}
+}
+
+func TestParseURLs_HyphenatedFileKey(t *testing.T) {
+	refs := ParseURLs("https://www.figma.com/design/Ab-Cd_9/My-App")
+	if len(refs) != 1 || refs[0].FileKey != "Ab-Cd_9" {
+		t.Errorf("hyphen/underscore keys must parse whole, got %+v", refs)
+	}
+}
+
+func TestResolveToken_UnreadableFileIsDistinguished(t *testing.T) {
+	t.Setenv(TokenEnvVar, "")
+	dir := t.TempDir()
+	path, err := SaveToken(dir, "tok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+	_, _, rerr := ResolveToken(dir)
+	if rerr == nil || !strings.Contains(rerr.Error(), "unreadable") {
+		t.Errorf("permission failure must be named, got %v", rerr)
+	}
+}

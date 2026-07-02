@@ -119,9 +119,14 @@ func (c *Client) ImageURLs(ctx context.Context, fileKey string, ids []string) (m
 	return resp.Images, nil
 }
 
-// Download fetches a rendered image URL (already signed by Figma; no auth
-// header needed, but harmless) into memory, bounded by maxImageBytes.
+// Download fetches a rendered image URL (already signed by Figma) into
+// memory, bounded by maxImageBytes. The destination is validated against
+// Figma's CDN hosts (or the configured BaseURL host, for tests) so a
+// tampered API response cannot point the download at an internal address.
 func (c *Client) Download(ctx context.Context, imageURL string) ([]byte, error) {
+	if err := c.validateDownloadURL(imageURL); err != nil {
+		return nil, err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imageURL, nil)
 	if err != nil {
 		return nil, err
@@ -159,6 +164,26 @@ func (c *Client) getJSON(ctx context.Context, path string, q url.Values, out any
 		return fmt.Errorf("figma API %s: HTTP %d: %s", path, resp.StatusCode, string(body))
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+// validateDownloadURL accepts Figma CDN hosts over https, plus the BaseURL
+// host verbatim (httptest fixtures).
+func (c *Client) validateDownloadURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("render URL: %w", err)
+	}
+	if base, baseErr := url.Parse(c.BaseURL); baseErr == nil && base.Host != "" && u.Host == base.Host {
+		return nil
+	}
+	if u.Scheme != "https" {
+		return fmt.Errorf("render URL must be https, got %q", u.Scheme)
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "figma.com" || strings.HasSuffix(host, ".figma.com") || strings.HasSuffix(host, ".figmausercontent.com") {
+		return nil
+	}
+	return fmt.Errorf("render URL host %q is not a Figma CDN — refusing download", host)
 }
 
 func joinIDs(ids []string) string {

@@ -33,6 +33,12 @@ func ResolveToken(stateDir string) (token, source string, err error) {
 			return t, path, nil
 		}
 	}
+	if readErr != nil && !os.IsNotExist(readErr) {
+		// The file exists but cannot be read — a permissions problem, not a
+		// missing credential. Name it so the operator fixes THAT instead of
+		// blindly re-running auth.
+		return "", "", fmt.Errorf("figma token file %s exists but is unreadable: %w — fix its permissions (chmod 600) or re-run `vxd figma auth`", path, readErr)
+	}
 	return "", "", fmt.Errorf(
 		"no Figma credential found: the requirement references a Figma design, which needs a one-time INTERACTIVE auth session (unlike vxd's usual fire-and-forget runs).\n"+
 			"Run `vxd figma auth` once (you'll create a personal access token in the browser and paste it here), or export %s.\n"+

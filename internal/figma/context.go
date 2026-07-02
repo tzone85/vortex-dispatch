@@ -42,6 +42,7 @@ func BuildDesignContext(ctx context.Context, c *Client, refs []Ref, outDir strin
 	md.WriteString("The requirement references specific Figma designs. Build the UI to MATCH these designs — they override generic design choices. Rendered PNGs of the referenced frames are in " + DirName + "/ — OPEN and study them before writing any UI code.\n")
 
 	dc := &DesignContext{}
+	fetched := 0
 	for _, ref := range refs {
 		ids := []string{ref.NodeID}
 		if ref.NodeID == "" {
@@ -55,6 +56,7 @@ func BuildDesignContext(ctx context.Context, c *Client, refs []Ref, outDir strin
 			continue
 		}
 
+		fetched++
 		fmt.Fprintf(&md, "\n### File: %s (%s)\n", fileName, ref.RawURL)
 		for _, n := range nodes {
 			describeNode(&md, n, 0)
@@ -83,6 +85,10 @@ func BuildDesignContext(ctx context.Context, c *Client, refs []Ref, outDir strin
 			dc.Images = append(dc.Images, name)
 			fmt.Fprintf(&md, "- Rendered reference: %s/%s\n", DirName, name)
 		}
+	}
+
+	if fetched == 0 {
+		return nil, fmt.Errorf("all %d Figma design reference(s) failed to fetch — verify the links and that the token has access to the file(s)", len(refs))
 	}
 
 	dc.Markdown = md.String()

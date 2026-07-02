@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/tzone85/vortex-dispatch/internal/figma"
 	"github.com/tzone85/vortex-dispatch/internal/sanitize"
@@ -31,6 +32,11 @@ func loadDesignContext(repoDir string) string {
 		log.Printf("[figma] design context at %s/%s contains a prompt-injection pattern (%q) — DROPPING it; inspect the Figma file's layer names", figma.DirName, figma.ContextFileName, pattern)
 		return ""
 	}
+	// Neutralise angle brackets so a Figma layer literally named
+	// "</design-reference>" cannot close the data framing the planner wraps
+	// this content in. Escaping at this single choke point protects every
+	// prompt that embeds the context.
+	content = strings.ReplaceAll(content, "<", "&lt;")
 	return content
 }
 

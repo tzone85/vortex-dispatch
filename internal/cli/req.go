@@ -113,6 +113,15 @@ func runReq(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Generate requirement ID
+	reqID := ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader).String()
+
+	// Determine repo path (current directory)
+	repoPath, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("determine working directory: %w", err)
+	}
+
 	// Figma design references make this run interactive-ONCE: pulling the
 	// design needs an operator credential. Fail fast here — before any LLM
 	// spend — with the exact interactive step when it is missing. With a
@@ -125,9 +134,8 @@ func runReq(cmd *cobra.Command, args []string) error {
 			if tokErr != nil {
 				return tokErr
 			}
-			cwd, _ := os.Getwd()
 			fmt.Fprintf(cmd.OutOrStdout(), "Figma: %d design reference(s) detected — pulling design context (auth: %s)\n", len(refs), source)
-			dc, pullErr := figma.BuildDesignContext(cmd.Context(), figma.NewClient(token), refs, filepath.Join(cwd, figma.DirName))
+			dc, pullErr := figma.BuildDesignContext(cmd.Context(), newFigmaClient(token), refs, filepath.Join(repoPath, figma.DirName))
 			if pullErr != nil {
 				return fmt.Errorf("figma pull: %w", pullErr)
 			}
@@ -135,15 +143,6 @@ func runReq(cmd *cobra.Command, args []string) error {
 				fmt.Fprintf(cmd.OutOrStdout(), "Figma: design context + %d render(s) written to %s/ — the planner and frontend agents will build against them\n", len(dc.Images), figma.DirName)
 			}
 		}
-	}
-
-	// Generate requirement ID
-	reqID := ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader).String()
-
-	// Determine repo path (current directory)
-	repoPath, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("determine working directory: %w", err)
 	}
 
 	planner := engine.NewPlanner(client, s.Config, s.Events, s.Proj)

@@ -40,7 +40,7 @@ delegates to internal/git.MergePR(repoDir, prNumber) (see parsePRNumberFromURL
 + real impl). This makes the auto gate produce correct outcomes on the shipped
 path (auditable squash-merge after PR creation). Production default remains
 "winning" for fast-forward. The original placeholder behavior for the auto-gate MergePR path ("not implemented") was replaced by real implementation; shipped DefaultGateOps path is exercised by
-TestDefaultGateOps_MergePR_RealImpl (and gate router tests).
+TestDefaultGateOps_MergePR_RealImpl (and gate router tests). See also the doc hygiene gate TestAudit_DocsNoStaleAutoresearchStubRefs that protects training/ and this file from re-introducing stale stub language.
 
 ## v2 levers (open questions in spec)
 

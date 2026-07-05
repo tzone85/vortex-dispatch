@@ -102,7 +102,7 @@ Structural audit tests live in `test/audit_structural_test.go`.
 | HIGH | T-01 | `make verify` requires `golangci-lint` — not installed on typical dev machines | `Makefile:35`; fails before `go test ./...` |
 | MED | T-02 | AGENTS.md says exclude `internal/improve/` from routine tests; CI runs full `./...` with `-race` | `AGENTS.md:11-12` vs `.github/workflows/ci.yml:46` |
 | MED | T-03 | E2E tests use mock GitHub ops — live tmux/LLM paths not CI-gated | `test/e2e_test.go:33` mock `MergePR` |
-| MED | T-04 | (FIXED) Wiring tests no longer intentionally document stubs for autoresearch (evolve/MergePR); replaced with real wired behavior tests + doc gate | TestWiring_AutoresearchEvolveCmd_Wired + TestAudit_DocsNoStaleAutoresearchStubRefs |
+| MED | T-04 | (FIXED) Wiring tests no longer intentionally document stubs for autoresearch (evolve/MergePR); replaced with real wired behavior tests + doc gate (training/ + knowledge/ now covered by mechanical test) | TestWiring_AutoresearchEvolveCmd_Wired + TestAudit_DocsNoStaleAutoresearchStubRefs |
 | LOW | T-05 | 2 structural audit tests fail encoding open doc-drift findings | `test/audit_structural_test.go` — `TestAudit_AGENTSmdPreflightCountDrift`, `TestAudit_HealthEndpointShipped` |
 
 ---

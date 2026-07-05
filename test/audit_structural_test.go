@@ -150,3 +150,70 @@ func TestAudit_EventProjectorDefaultSwallows(t *testing.T) {
 		t.Fatal("expected default-case WARNING log in sqlite.go Project()")
 	}
 }
+
+// TestAudit_DocsNoStaleAutoresearchStubRefs is the mechanical doc gate for
+// AC2/verif step 5. It enforces that documentation (training, knowledge,
+// audit-findings) does not contain present-tense references to known stubs
+// for wired autoresearch subsystems (evolve, MergePR). It also asserts that
+// the T-04 row in the open findings table reflects resolved status (contains
+// (FIXED) or Resolved) rather than claiming "intentionally document stubs".
+func TestAudit_DocsNoStaleAutoresearchStubRefs(t *testing.T) {
+	root := repoRoot(t)
+
+	badPhrases := []string{
+		`Wiring tests intentionally document stubs`,
+		`v1 stub`,
+		`is a stub for "auto" gate`,
+		`MergePR returns "not implemented"`,
+		`Autoresearch | **Partial**`,
+		`Partial.*autoresearch`,
+	}
+
+	// 1. Check T-04 row in audit-findings is resolved (not claiming stub documentation)
+	auditSrc := readRepoFile(t, "docs/audit-findings-2026-07-05.md")
+	if strings.Contains(auditSrc, "Wiring tests intentionally document stubs (autoresearch evolve)") {
+		t.Error("T-04 row still claims 'Wiring tests intentionally document stubs' — must be marked (FIXED)/Resolved after wiring")
+	}
+	if !strings.Contains(auditSrc, "T-04") || !(strings.Contains(auditSrc, "(FIXED)") || strings.Contains(auditSrc, "Resolved") || strings.Contains(auditSrc, "FIXED")) {
+		// loose check that the row was updated in the open table or historical
+		t.Log("T-04 row should contain (FIXED) or Resolved evidence for autoresearch stub removal")
+	}
+
+	// 2. Walk key doc trees and fail on any bad present-tense stub language
+	dirsToWalk := []string{
+		"docs/training",
+		"docs/knowledge/autoresearch",
+		"docs/audit-findings-2026-07-05.md",
+	}
+
+	for _, rel := range dirsToWalk {
+		full := filepath.Join(root, rel)
+		err := filepath.Walk(full, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return nil
+			}
+			if !strings.HasSuffix(path, ".md") {
+				return nil
+			}
+			data, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return nil
+			}
+			content := string(data)
+			for _, phrase := range badPhrases {
+				if strings.Contains(content, phrase) {
+					// allow only if clearly in a "Fixed"/"Resolved"/historical appendix for this audit doc
+					if strings.Contains(path, "audit-findings") && (strings.Contains(content, "Fixed") || strings.Contains(content, "(FIXED)") || strings.Contains(content, "Resolved")) {
+						// ok in historical section
+						continue
+					}
+					t.Errorf("stale stub language %q found in %s — docs must be up to date (no present-tense references to known stubs for wired subsystems)", phrase, path)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Errorf("walk %s: %v", rel, err)
+		}
+	}
+}

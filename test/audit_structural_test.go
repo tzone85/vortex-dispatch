@@ -129,12 +129,17 @@ func TestAudit_AutoresearchBaseline(t *testing.T) {
 	}
 }
 
-// TestAudit_AutoresearchMergePR documents the MergePR impl for auto-gate
-// (uses fast-forward path; URL form returns not-implemented as noted).
+// TestAudit_AutoresearchMergePR verifies that the shipped auto-gate MergePR
+// path is implemented (no stub) and can be driven with correct behavior on
+// real DefaultGateOps (per AC3). It asserts the error string for "not
+// implemented" is gone and real delegation code is present.
 func TestAudit_AutoresearchMergePR(t *testing.T) {
 	src := readRepoFile(t, "internal/autoresearch/gate.go")
-	if !strings.Contains(src, "not implemented") && !strings.Contains(src, "MergePR") {
-		t.Error("expected MergePR handling in gate.go")
+	if strings.Contains(src, "not implemented for URL form") {
+		t.Error("MergePR still contains stub 'not implemented' — auto gate must use real git.MergePR for correct outcomes")
+	}
+	if !strings.Contains(src, "parsePRNumberFromURL") || !strings.Contains(src, "git.MergePR(repoDir, num)") {
+		t.Error("MergePR must delegate to real git.MergePR after parsing URL")
 	}
 }
 

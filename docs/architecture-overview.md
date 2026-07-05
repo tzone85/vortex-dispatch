@@ -1377,12 +1377,12 @@ Recovery:
 
 #### Failure Modes Not Yet Covered
 
-| Failure | Impact | Mitigation Needed |
+| Failure | Impact | Mitigation |
 |---------|:---|:---|
-| Event log append fails (disk full) | Pipeline halts, events lost | Pre-flight disk space check + alert at 90% |
-| SQLite schema mismatch after upgrade | Projection queries fail | Schema version table + migration runner |
-| Concurrent `vxd resume` on same project | Data corruption | Lock file exists but needs network-aware locking for Phase 2 |
-| Tmux server crash (all sessions) | All agents die simultaneously | Checkpoint covers this; add tmux server health check to preflight |
+| Event log append fails (disk full) | Pipeline halts, events lost | **Mitigated (2026-07-05):** `disk_space` preflight check warns below 1 GiB free on the state-dir filesystem before dispatch |
+| SQLite schema mismatch after upgrade | Projection queries fail | Still needed: schema version table + migration runner. Interim: SQLite is a projection — delete the DB and replay events.jsonl |
+| Concurrent `vxd resume` on same project | Data corruption | Lock file (local PID liveness) covers single-host use; network-aware locking for shared state dirs remains Phase 2 — do NOT put `state_dir` on NFS/SMB |
+| Tmux server crash (all sessions) | All agents die simultaneously | Checkpoint covers recovery; **mitigated (2026-07-05):** `tmux_server` preflight check probes real session creation before dispatch |
 
 ### 14.3 Event Schema Versioning
 

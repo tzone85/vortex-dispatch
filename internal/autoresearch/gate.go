@@ -3,6 +3,8 @@ package autoresearch
 import (
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/tzone85/vortex-dispatch/internal/git"
@@ -50,16 +52,35 @@ func (DefaultGateOps) CreatePR(repoDir, title, body, baseBranch, headBranch stri
 	return pr.URL, nil
 }
 
-// MergePR squashes a PR by URL. The internal/git package operates by PR
-// number; the URL is converted in DefaultGateOps. Tests can ignore.
+// MergePR squashes a PR by URL. Parses the PR number from the GitHub URL
+// (as returned by CreatePR) and delegates to the real git.MergePR (which
+// takes int). This makes the 'auto' gate produce correct outcomes on the
+// shipped DefaultGateOps path.
 func (DefaultGateOps) MergePR(repoDir, prURL string) error {
-	// Real implementation parses URL → number → MergePR. Left thin so this
-	// file remains testable; the integration is exercised in coordinator-
-	// level tests where a PR URL is meaningfully shaped.
-	if prURL == "" {
-		return errors.New("MergePR: empty PR URL")
+	num, err := parsePRNumberFromURL(prURL)
+	if err != nil {
+		return err
 	}
-	return errors.New("MergePR: not implemented for URL form; auto-gate uses fast-forward path")
+	return git.MergePR(repoDir, num)
+}
+
+// parsePRNumberFromURL extracts the trailing PR number from a GitHub PR URL.
+// Handles common forms: .../pull/123 , .../pull/123/ , with or without .git etc.
+func parsePRNumberFromURL(u string) (int, error) {
+	if u == "" {
+		return 0, errors.New("MergePR: empty PR URL")
+	}
+	// strip trailing slash and query/fragment
+	u = strings.Split(u, "?")[0]
+	u = strings.Split(u, "#")[0]
+	u = strings.TrimSuffix(u, "/")
+	parts := strings.Split(u, "/")
+	for i := len(parts) - 1; i >= 0; i-- {
+		if n, err := strconv.Atoi(parts[i]); err == nil && n > 0 {
+			return n, nil
+		}
+	}
+	return 0, fmt.Errorf("MergePR: could not parse PR number from URL %q", u)
 }
 
 // RebaseOnto rebases the current worktree branch onto upstream.

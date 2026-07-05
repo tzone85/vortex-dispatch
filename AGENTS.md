@@ -69,7 +69,7 @@ Tier 4: Pause (human intervention required)
 | `internal/git/` | Worktree management, PR creation, branch operations |
 | `internal/tmux/` | Tmux session lifecycle |
 | `internal/llm/` | LLM clients (Anthropic, Google AI, OpenAI, CLI, fallback) |
-| `internal/improve/` | Self-improvement engine (research, analysis, implementation) |
+| `internal/improve/` | Self-improvement engine — EXPERIMENTAL: 0 actionable findings to date, retained as research scaffolding (see CLAUDE.md + README honesty note) |
 | `internal/web/` | Web dashboard (WebSocket, embedded static files) |
 | `internal/dashboard/` | TUI dashboard (Bubbletea) |
 | `internal/preflight/` | Pre-flight validation checks |

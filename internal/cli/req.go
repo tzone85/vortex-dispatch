@@ -34,7 +34,12 @@ review_mode to "manual" or "plan_only" to stop after planning.
 The requirement text can be provided as:
   - A positional argument:  vxd req "Add a health check endpoint"
   - A file (--file/-f):     vxd req --file requirements.md
-  - Stdin:                  cat spec.md | vxd req --file -`,
+  - Stdin:                  cat spec.md | vxd req --file -
+
+Product & marketing made easy:
+  vxd req "Launch marketing site: hero + 4 features + pricing table + footer for Vortex"
+  vxd req --file marketing-brief.md   # turn brief into site, emails, or analytics dashboard`,
+
 		Args: cobra.MaximumNArgs(1),
 		RunE: runReq,
 	}

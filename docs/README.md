@@ -16,6 +16,13 @@ Welcome to the VXD (Vortex Dispatch) training guides. Whether you're a first-tim
 | [Monitoring and Intervention](monitoring.md) | Watchdog, supervisor, dashboard, escalations |
 | [Figma Design Integration](figma-integration.md) | Build UIs that match referenced Figma frames — one-time interactive auth, then fire-and-forget |
 
+## Training Library (Recommended)
+| Guide | Description |
+|-------|-------------|
+| [Training Overview](training/README.md) | Tracks for developers and for product/marketing makers |
+| [Autonomous Software Development](training/autonomous-software-development.md) | Deep mastery of the full pipeline, subsystems, and escalation |
+| [Product & Marketing Made Easy](training/product-marketing-made-easy.md) | Use VXD to ship landing pages, campaign sites, ad tools, docs portals as easily as core features |
+
 ## Self-Improvement & Memory
 
 | Guide | Description |
@@ -49,6 +56,8 @@ vhs docs/demo.tape
 
 **New users:** Getting Started -> Tutorial -> Workflows -> Configuration
 
-**Power users:** Agents and Roles -> Monitoring -> Configuration (tuning sections)
+**Training track:** docs/training/README.md (start here for product/marketing or deep dev)
+
+**Power users:** Agents and Roles -> Monitoring -> training/autonomous... -> Configuration (tuning)
 
 **Contributors:** Architecture -> Contributing -> source code

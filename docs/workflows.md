@@ -56,13 +56,13 @@ Before the pipeline starts, VXD validates the execution environment.
 
 **Trigger:** Implicit before `vxd req` and `vxd resume`, or explicitly via `vxd preflight`
 
-Pre-flight runs 15 checks across 3 severity tiers:
+Pre-flight runs 18 checks across 3 severity tiers:
 
 | Tier | Behavior | Checks |
 |------|----------|--------|
 | CRITICAL | Blocks execution | tmux installed, claude CLI available, git repo detected, LLM provider reachable |
-| WARNING | Proceeds with notice | gh auth, network connectivity, stale tmux sessions, Google API key |
-| INFO | Diagnostic only | config loaded, project detected, state directory exists, billing configured |
+| WARNING | Proceeds with notice | tmux server can create sessions, ANTHROPIC_API_KEY conflict, free disk space for the state dir, gh auth, network connectivity, stale tmux sessions, Google API key, binary path shadowing, security scanners installed |
+| INFO | Diagnostic only | config loaded, project detected, state directory exists, billing configured, Ollama (optional) |
 
 Use `--skip-preflight` on `vxd req` or `vxd resume` to bypass these checks.
 

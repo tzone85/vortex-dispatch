@@ -9,7 +9,8 @@ git clone https://github.com/tzone85/vortex-dispatch.git
 cd vortex-dispatch
 make build    # Build the vxd binary
 make test     # Run tests with race detection + coverage
-make lint     # Run golangci-lint
+make lint     # Run golangci-lint (install: `brew install golangci-lint`)
+make verify   # Full green gate: build + vet + tests + doc-coverage + lint
 ```
 
 ### Running Tests

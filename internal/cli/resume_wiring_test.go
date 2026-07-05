@@ -54,7 +54,7 @@ func TestResume_WiresSecurityGate(t *testing.T) {
 	}
 	code := string(src)
 
-	for _, want := range []string{"NewSecurityGate(", "SetSecurityGate("} {
+	for _, want := range []string{"NewSecurityGate(", "SetSecurityGate(", "SetRequireScanners("} {
 		if !strings.Contains(code, want) {
 			t.Errorf("resume.go must wire the security gate: missing %q", want)
 		}

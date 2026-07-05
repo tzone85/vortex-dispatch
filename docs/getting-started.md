@@ -2,6 +2,8 @@
 
 This guide walks you through installing VXD and running your first initialization.
 
+> For deeper training including how to use VXD to ship marketing sites, campaign tools and full product experiences as easily as core software features, see [docs/training/README.md](training/README.md) and the dedicated product-marketing-made-easy guide.
+
 ## Visual Overview
 
 For a quick architectural picture, see the rendered diagrams under [`docs/diagrams/`](diagrams/):

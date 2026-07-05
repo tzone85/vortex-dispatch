@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/tzone85/vortex-dispatch/internal/notify"
 	"github.com/tzone85/vortex-dispatch/internal/state"
@@ -276,7 +277,12 @@ func IsStoryComplete(status string) bool {
 
 // emitRequirementOutcome appends and projects a terminal requirement event
 // (REQ_COMPLETED or REQ_BLOCKED), logging any store error with context. label
-// is the human-readable event name used in log lines.
+// is the human-readable event name used in log lines. When a notifier is
+// wired, the outcome is also sent as a webhook notification (gated by the
+// operator's notify_on_complete flag via the FilteredNotifier allowlist).
+// The call is synchronous with a bounded timeout — this is the terminal event
+// of the run, so a fire-and-forget goroutine could be killed by process exit
+// before the webhook fires.
 func (m *Monitor) emitRequirementOutcome(reqID string, evtType state.EventType, label string) {
 	evt := state.NewEvent(evtType, "monitor", "", map[string]any{"id": reqID})
 	if appErr := m.eventStore.Append(evt); appErr != nil {
@@ -284,6 +290,25 @@ func (m *Monitor) emitRequirementOutcome(reqID string, evtType state.EventType, 
 	}
 	if projErr := m.projStore.Project(evt); projErr != nil {
 		log.Printf("[pipeline] project %s for %s: %v", label, reqID, projErr)
+	}
+
+	if m.notifier != nil {
+		severity := "info"
+		body := fmt.Sprintf("Requirement %s completed — all stories merged and the composed mainline verified green.", reqID)
+		if evtType == state.EventReqBlocked {
+			severity = "error"
+			body = fmt.Sprintf("Requirement %s is blocked — the composed mainline stayed red after the auto-fix budget.\nSee .vxd-fix-gaps.md, then run: vxd resume %s --godmode", reqID, reqID)
+		}
+		nctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := m.notifier.Notify(nctx, notify.Message{
+			Title:     fmt.Sprintf("VXD %s: %s", label, reqID),
+			Body:      body,
+			Severity:  severity,
+			EventType: string(evtType),
+		}); err != nil {
+			log.Printf("[pipeline] notify %s for %s: %v", label, reqID, err)
+		}
 	}
 }
 

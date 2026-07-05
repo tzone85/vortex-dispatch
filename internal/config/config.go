@@ -228,6 +228,12 @@ type SecurityConfig struct {
 	// GateSeverity is the block threshold: a finding at or above this severity
 	// pauses the story. One of critical|high|medium|low. Empty ⇒ "high".
 	GateSeverity string `yaml:"gate_severity,omitempty"`
+	// RequireScanners makes the per-story gate STRICT about coverage: when any
+	// applicable scanner is skipped (binary missing) or fails, the story is
+	// blocked (pause for a human) instead of passing with reduced coverage.
+	// Default false = graceful degradation (coverage loss is logged and shown
+	// by the security_scanners preflight check, but never blocks a merge).
+	RequireScanners bool `yaml:"require_scanners,omitempty"`
 	// AutoLearn grows the knowledge base from confirmed high+ findings so future
 	// builds inherit vulnerability classes seen in past ones. Default true.
 	AutoLearn bool `yaml:"auto_learn"`

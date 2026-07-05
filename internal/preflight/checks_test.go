@@ -187,17 +187,20 @@ func TestCheckOllama_PassesWhenNotInstalled(t *testing.T) {
 	}
 }
 
-func TestDispatchChecks_Returns9(t *testing.T) {
+// The check-set counts are documented in README.md, CLAUDE.md, and AGENTS.md —
+// when either count changes, update all three docs plus
+// test/audit_structural_test.go::TestAudit_PreflightCheckCounts.
+func TestDispatchChecks_Count(t *testing.T) {
 	checks := preflight.DispatchChecks()
-	if len(checks) != 9 {
-		t.Fatalf("expected 9 dispatch checks, got %d", len(checks))
+	if len(checks) != 11 {
+		t.Fatalf("expected 11 dispatch checks, got %d", len(checks))
 	}
 }
 
-func TestAllChecks_Returns16(t *testing.T) {
+func TestAllChecks_Count(t *testing.T) {
 	checks := preflight.AllChecks()
-	if len(checks) != 16 {
-		t.Fatalf("expected 16 total checks, got %d", len(checks))
+	if len(checks) != 18 {
+		t.Fatalf("expected 18 total checks, got %d", len(checks))
 	}
 }
 

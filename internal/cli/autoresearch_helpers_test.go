@@ -153,14 +153,14 @@ func TestDefaultStateDir_RespectsEnv(t *testing.T) {
 	}
 }
 
-func TestBaselineFromConfig_AlwaysZero(t *testing.T) {
+func TestBaselineFromConfig_Neutral(t *testing.T) {
 	src := baselineFromConfig(emptyConfig())
 	if src == nil {
 		t.Fatal("baselineFromConfig should return non-nil source")
 	}
 	for i := 0; i < 3; i++ {
-		if got := src(); got != 0 {
-			t.Errorf("baseline call %d returned %.4f, want 0", i, got)
+		if got := src(); got != 0.5 {
+			t.Errorf("baseline call %d returned %.4f, want 0.5", i, got)
 		}
 	}
 }

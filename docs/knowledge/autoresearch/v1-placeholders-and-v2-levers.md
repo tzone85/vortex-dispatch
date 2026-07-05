@@ -2,12 +2,22 @@
 
 Tracked here so the next agent doesn't accidentally reinvent or skip.
 
+> 2026-07-05 status: `vxd autoresearch evolve` is no longer a CLI stub — it now
+> drives ProgramMDEvolver end-to-end (config → LLM client → event store →
+> HypothesisBank → Evolve → PR URL, still always human-gated). See
+> `TestWiring_AutoresearchEvolveCmd_Wired` and
+> `TestNewAutoresearchEvolveCmd_RequiresConfig`. The baseline placeholder below
+> was also adjusted (0 → neutral 0.5) per audit finding E-02.
+
 ## v1 placeholders (intentional simplifications)
 
 ### Fixed baseline (HIGH PRIORITY — scheduled)
 File: internal/cli/autoresearch.go
 Function: baselineFromConfig
-Status: Returns 0; runner uses signedDelta(score, baseline=0)
+Status: Returns a fixed NEUTRAL 0.5 (2026-07-05, audit finding E-02; was 0,
+which skewed early-run signedDelta toward all-positive). Runner and bank
+adjust deltas from kept experiments; the real fix remains re-measurement.
+Pinned by test/audit_structural_test.go::TestAudit_AutoresearchBaseline.
 Why: Re-measuring on origin/main HEAD between experiments needs a clean
 worktree, TTL cache, and fail-soft semantics. Deferred to v2 to keep PR scope
 manageable.

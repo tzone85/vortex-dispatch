@@ -605,10 +605,18 @@ func TestWiring_WaveContext_NotInjectedWhenEmpty(t *testing.T) {
 }
 
 func TestWiring_MetricsCommand_Registered(t *testing.T) {
-	// Verify that the metrics command is registered in root.
-	// We can't test the full CLI here, but we can verify the command exists
-	// by checking that `vxd metrics --help` would work.
-	t.Log("Metrics command registered in root.go — verified by `vxd metrics --help` producing output")
+	// Verify the metrics command is actually registered on the root command.
+	// engine tests cannot import internal/cli's unexported rootCmd, so this
+	// scans the registration site — the same source-scan pattern as the
+	// resume-wiring guards. (Previously this test only t.Log'd — test theater
+	// flagged by audit finding W-07.)
+	src, err := os.ReadFile("../cli/root.go")
+	if err != nil {
+		t.Fatalf("read root.go: %v", err)
+	}
+	if !strings.Contains(string(src), "rootCmd.AddCommand(newMetricsCmd())") {
+		t.Error("WIRING FAILURE: newMetricsCmd() is not registered on rootCmd in internal/cli/root.go")
+	}
 }
 
 func TestWiring_WaveContextFile_ReadByExecutor(t *testing.T) {
@@ -667,9 +675,9 @@ func TestWiring_LockFile_PreventsConcurrentRuns(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func TestWiring_SecurityValidation_RejectsShellInjection(t *testing.T) {
-	// Verify that validation functions reject shell injection in model names.
-	// The actual BuildCommand integration is tested in runtime/registry_test.go.
-	// This wiring test verifies the validation functions exist and work.
+	// Verify the REAL validation function rejects shell injection in model
+	// names. (Previously this test asserted only that its own fixtures
+	// contained metacharacters — test theater flagged by audit finding W-07.)
 	malicious := []string{
 		"model; rm -rf /",
 		"model$(evil)",
@@ -677,16 +685,13 @@ func TestWiring_SecurityValidation_RejectsShellInjection(t *testing.T) {
 		"model|pipe",
 	}
 	for _, model := range malicious {
-		// Simulate what BuildCommand does: call the exported validation
-		if !strings.Contains(model, ";") && !strings.Contains(model, "$") &&
-			!strings.Contains(model, "`") && !strings.Contains(model, "|") {
-			t.Errorf("WIRING FAILURE: test case %q should contain metacharacters", model)
+		if err := runtime.ValidateModelName(model); err == nil {
+			t.Errorf("WIRING FAILURE: runtime.ValidateModelName(%q) accepted a shell-metacharacter model name", model)
 		}
 	}
-	// The actual validation is in runtime.ValidateModelName, tested in
-	// runtime/sanitize_test.go and runtime/registry_test.go (TestBuildCommand_RejectsUnsafeModel).
-	// This test confirms the metacharacter detection logic is sound.
-	t.Log("Security validation wired in runtime/registry.go:BuildCommand — verified by runtime tests")
+	if err := runtime.ValidateModelName("claude-opus-4-8"); err != nil {
+		t.Errorf("ValidateModelName rejected a legitimate model name: %v", err)
+	}
 }
 
 // --------------------------------------------------------------------------

@@ -2,6 +2,8 @@ package autoresearch
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 )
@@ -184,5 +186,35 @@ func TestGateRouter_FastForwardErrorSurfaces(t *testing.T) {
 	r := NewGateRouter("main", ops)
 	if _, err := r.Route("/repo", GateWinning, keptOutcome("a")); err == nil {
 		t.Error("FF error must surface")
+	}
+}
+
+// TestDefaultGateOps_MergePR_RealImpl drives the *shipped* DefaultGateOps
+// (not a fake) on the real MergePR code path. Uses a fake gh (via PATH)
+// so it exercises parsePRNumberFromURL + git.MergePR delegation without
+// needing live GitHub auth. This ensures auto-gate produces correct
+// (non-error) outcomes when configured.
+func TestDefaultGateOps_MergePR_RealImpl(t *testing.T) {
+	fakeDir := t.TempDir()
+	fakeScript := "#!/bin/sh\nexit 0\n"
+	scriptPath := filepath.Join(fakeDir, "gh")
+	if err := os.WriteFile(scriptPath, []byte(fakeScript), 0755); err != nil {
+		t.Fatalf("write fake gh: %v", err)
+	}
+	origPath := os.Getenv("PATH")
+	t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+origPath)
+
+	ops := DefaultGateOps{}
+	url := "https://github.com/owner/repo/pull/42"
+	if err := ops.MergePR(t.TempDir(), url); err != nil {
+		t.Fatalf("DefaultGateOps.MergePR with valid URL should succeed via real impl: %v", err)
+	}
+
+	// bad URL
+	if err := ops.MergePR(t.TempDir(), ""); err == nil {
+		t.Error("empty URL must error")
+	}
+	if err := ops.MergePR(t.TempDir(), "https://example.com/no/number"); err == nil {
+		t.Error("unparseable URL must error")
 	}
 }

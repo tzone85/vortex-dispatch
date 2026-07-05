@@ -60,7 +60,7 @@ internal/
   llm/                LLM clients (Anthropic, OpenAI, Google AI, Claude CLI, Replay, Fallback)
   memory/             Memory dashboard, findings explorer, opportunity tracker, MemPalace integration
   notify/             Outbound webhook notifications for SLA breaches, completions, and pipeline failures (Slack/Discord/generic)
-  preflight/          Pre-flight validation (15 checks, 3 severity tiers)
+  preflight/          Pre-flight validation (18 checks, 3 severity tiers)
   repolearn/          3-pass repo learning (static scan, git history, LLM deep analysis)
   runtime/            Adapter/Runner pattern with pluggable execution targets
     adapter.go        Adapter interface (pure function command building)

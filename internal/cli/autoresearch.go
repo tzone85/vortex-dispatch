@@ -283,14 +283,11 @@ func buildAutoresearchLLMClient(cfg config.Config) (llm.Client, error) {
 	return nil, fmt.Errorf("no LLM client available — set ANTHROPIC_API_KEY or install the claude CLI")
 }
 
-// baselineFromConfig returns a baseline source. For v1 we use a fixed
-// value of 0 (callers seed via BASELINE_MEASURED events as those land);
-// the runner reads baseline from the latest kept-experiment delta.
-//
-// A more sophisticated baseline would re-measure on `main` HEAD between
-// experiments; left as a v2 lever per the spec's "open questions".
+// baselineFromConfig returns a baseline source. v1 uses a neutral 0.5
+// (real main-head re-measure is v2). Callers and bank adjust deltas from
+// kept experiments; the fixed neutral avoids all-zero skew in early runs.
 func baselineFromConfig(_ config.Config) func() float64 {
-	return func() float64 { return 0 }
+	return func() float64 { return 0.5 }
 }
 
 func parseBudget(s string) time.Duration {
@@ -450,12 +447,67 @@ func newAutoresearchHypothesesCmd() *cobra.Command {
 
 func newAutoresearchEvolveCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "evolve <repo>",
+		Use:   "evolve <repo-dir>",
 		Short: "Manually trigger a program.md evolution PR (always human-gated)",
+		Long:  "Reads accumulated wins/losses for the repo, uses LLM to rewrite program.md, creates a branch, commits the evolution, pushes, and opens a PR. The PR is never auto-merged.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintf(cmd.OutOrStdout(), "autoresearch evolve: %s — opens PR, never auto-merges\n", args[0])
-			fmt.Fprintln(cmd.OutOrStdout(), "v1: orchestration logic in internal/autoresearch/evolver.go; LLM wire-up arrives with start integration.")
+			repoDir := args[0]
+			out := cmd.OutOrStdout()
+
+			cfg, err := loadConfigForAutoresearch(cmd)
+			if err != nil {
+				return err
+			}
+
+			llmClient, err := buildAutoresearchLLMClient(cfg)
+			if err != nil {
+				return fmt.Errorf("no LLM for evolution: %w", err)
+			}
+
+			store, cleanup, err := openEventStore(cmd)
+			if err != nil {
+				return err
+			}
+			defer cleanup()
+
+			bank := autoresearch.NewHypothesisBank(store)
+
+			mdPath := "program.md"
+			currentMD := ""
+			if b, readErr := os.ReadFile(filepath.Join(repoDir, mdPath)); readErr == nil {
+				currentMD = string(b)
+			}
+
+			model := cfg.Models.Senior.Model
+			if model == "" {
+				model = "claude-sonnet-4-6"
+			}
+			baseBranch := cfg.Merge.BaseBranch
+			if baseBranch == "" {
+				baseBranch = "main"
+			}
+
+			evolver := &autoresearch.ProgramMDEvolver{
+				Client:        llmClient,
+				Model:         model,
+				Bank:          bank,
+				GateOps:       autoresearch.DefaultGateOps{},
+				Workspace:     autoresearch.DefaultWorkspaceWriter{},
+				ProgramMDPath: mdPath,
+				BaseBranch:    baseBranch,
+				Events:        store,
+			}
+
+			prURL, err := evolver.Evolve(context.Background(), repoDir, filepath.Base(repoDir), currentMD)
+			if err != nil {
+				return fmt.Errorf("evolve failed: %w", err)
+			}
+			if prURL == "" {
+				fmt.Fprintln(out, "No evolution performed (no significant change or insufficient win/loss data).")
+				return nil
+			}
+			fmt.Fprintf(out, "autoresearch evolve: opened PR %s (human review required; never auto-merges)\n", prURL)
 			return nil
 		},
 	}

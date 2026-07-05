@@ -1,5 +1,11 @@
 # VXD (Vortex Dispatch) — AI Agent Orchestration System
 
+> **Doc precedence:** `CLAUDE.md` is the canonical, test-enforced project doc
+> (`TestDocCoverage_*` verifies CLI commands + config fields against CLAUDE.md
+> and README.md). AGENTS.md is the condensed mirror read by non-Claude agent
+> CLIs (Codex, Gemini). When the two disagree, CLAUDE.md + code win — update
+> this file to match, never the other way round.
+
 ## What This Is
 VXD orchestrates AI coding agents (Claude Code, Codex, Gemini CLI) to autonomously implement software requirements. It decomposes requirements into stories, dispatches agents in parallel via tmux sessions, monitors progress, runs QA, and merges PRs — with a 5-tier escalation chain for failures.
 
@@ -8,8 +14,8 @@ VXD orchestrates AI coding agents (Claude Code, Codex, Gemini CLI) to autonomous
 # CRITICAL: Always build to ~/.local/bin/ (NOT ~/go/bin/)
 go build -o ~/.local/bin/vxd ./cmd/vxd
 
-# Run tests (exclude improve/ which has flaky prompt injection test)
-go test $(go list ./... | grep -v improve) -count=1
+# Run tests (CI runs the full module with -race; improve/ is included)
+go test ./... -count=1
 
 # NXD (public Ollama version) — at ~/Sites/misc/nexus-dispatch
 cd ~/Sites/misc/nexus-dispatch && go build -o ~/.local/bin/nxd ./cmd/nxd/
@@ -44,6 +50,7 @@ Tier 4: Pause (human intervention required)
 - `STORY_REWRITTEN` — manager rewrote story description/acceptance criteria
 - `STORY_SPLIT` — tech lead decomposed into child stories
 - `STORY_SLA_BREACHED` — story exceeded per-complexity duration limit (configurable via `sla.max_minutes_per_complexity`)
+- `REQ_BLOCKED`, `STORY_SECURITY_PASSED/FAILED`, `SECURITY_SCAN_COMPLETED`, `SECURITY_RULE_LEARNED` — see CLAUDE.md "Critical Events" for the full, current list
 
 ### Event Sourcing
 - **Source of truth**: `events.jsonl` (append-only, fsync'd)
@@ -76,8 +83,8 @@ workspace:
   backend: sqlite
 models:
   tech_lead: {provider: anthropic, model: claude-opus-4-8}
-  senior: {provider: anthropic, model: claude-sonnet-4-6}
-  junior: {provider: google, model: gemma-4-27b-it}
+  senior: {provider: anthropic, model: claude-opus-4-7}
+  junior: {provider: anthropic, model: claude-haiku-4-5}  # was google/gemma-4-27b-it — a 404 model that killed the junior tier
 routing:
   junior_max_complexity: 3
   max_retries_before_escalation: 2
@@ -111,7 +118,7 @@ billing:
 | `vxd metrics` | Success rates, timing, escalations, SLA breaches per requirement |
 | `vxd estimate "req"` | Cost estimation with `--quick`, `--json`, `--rate` |
 | `vxd report <req-id>` | Client delivery report (`--html`, `--internal`) |
-| `vxd preflight` | Run 12 pre-flight checks before dispatch |
+| `vxd preflight` | Run 18 pre-flight checks before dispatch |
 | `vxd approve/reject` | Human review gates for PRs |
 | `vxd approve-plan` | Approve story plan before dispatch |
 | `vxd reject-plan` | Reject story plan |
@@ -131,15 +138,25 @@ billing:
 | `vxd improve log` | Browse improvement changelog (`--disposition`, `--category`, `--since`, `--errors`) |
 | `vxd improve runs` | Show daily run summaries (findings, PRs, email status) |
 | `vxd improve detail <id>` | Full details of a specific finding (reasoning, errors, PR) |
+| `vxd watch [req-id]` | Tail live events for one requirement (defaults to newest in this repo) |
+| `vxd retry <story-id>` | Reset a story's escalation tier and re-queue to draft (`--reason`) |
+| `vxd logs <req-id>` | Print daemon log captured when `vxd req --background` self-daemonized |
+| `vxd security scan\|kb` | Run the security agent on a repo / show the knowledge base |
+| `vxd figma auth\|status` | One-time Figma token session / show Figma access status |
+| `vxd autoresearch start\|stop\|status\|hypotheses\|evolve` | Karpathy-style experiment loop per repo (evolve opens a human-gated program.md PR) |
+| `vxd db list\|connect\|sql\|schema\|delete\|gc\|ping\|template` | Manage ephemeral story databases (devdb) |
+| `vxd template create\|list` | Create/list devdb template databases |
+
+See CLAUDE.md's CLI Commands table for the authoritative, flag-level detail.
 
 ## Documentation Requirements (MANDATORY)
 
 **Every behavioral change MUST update documentation.** This is enforced by `TestDocCoverage_*` wiring tests in `engine/doc_coverage_test.go`.
 
 ### What Counts as Behavioral
-- New CLI command → add to AGENTS.md CLI Commands table + README.md
-- New config field → add to AGENTS.md Config section + README.md Configuration table
-- New event type → add to AGENTS.md Architecture section if user-facing
+- New CLI command → add to CLAUDE.md CLI Commands table + README.md (mirror here)
+- New config field → add to CLAUDE.md Config section + README.md Configuration table
+- New event type → add to CLAUDE.md Architecture section if user-facing
 - Changed default values → update all docs referencing the old default
 - New API endpoint → add to README.md + architecture overview
 
@@ -150,7 +167,7 @@ billing:
 - Bug fixes that restore documented behavior
 
 ### Enforcement
-1. `TestDocCoverage_CLICommands` — verifies every `newXxxCmd()` in `internal/cli/root.go` appears in AGENTS.md
+1. `TestDocCoverage_CLICommands` — verifies every `newXxxCmd()` in `internal/cli/root.go` appears in CLAUDE.md (AGENTS.md is a mirror, not the enforcement target)
 2. `TestDocCoverage_ConfigSections` — verifies every top-level Config struct field appears in README.md Configuration table
 3. Pre-commit awareness: if you add a new command or config field, update docs BEFORE committing
 
@@ -189,16 +206,9 @@ Spec-kit is installed (`.specify/`). For new features:
 | Binary | `~/.local/bin/vxd` | `~/.local/bin/nxd` |
 | Rule | NEVER reference VXD in NXD code | Keep in sync on core fixes |
 
-## Pending Work (as of 2026-04-12)
-1. ~~Repo Learning System~~ — DONE
-2. ~~Wire trace parser into `vxd metrics`~~ — DONE
-3. ~~Wire Adapter/Runner into executor~~ — DONE (with fallback to legacy)
-4. ~~Docker/SSH runners~~ — DONE (29 tests)
-5. ~~Port to NXD~~ — DONE
-6. ~~Documentation overhaul~~ — DONE
-7. ~~Retroactive SDD spec for agentflow features~~ — DONE
-8. ~~Add SpecKit to tracked projects~~ — DONE
-9. Wire ScanDeep (Pass 3) into `vxd req` — DONE
-10. ~~Port repolearn to NXD~~ — DONE (28 tests passing)
-11. Port Docker/SSH runners to NXD (remaining sync)
-12. Fix GitHub Actions billing to unblock CI
+## Pending Work (as of 2026-07-05)
+Tracked authoritatively in CLAUDE.md "Pending Work" — highlights:
+1. Fix GitHub Actions billing — account payment issue, CI slimmed to ubuntu-only — OPEN
+2. Coverage roadmap: raise `internal/cli` (72.9%) over 80% — OPEN (needs fakes for docker/gh/claude CLI)
+3. Self-improve source-quality gap — research scrapers fetch news, not code-actionable signals — FEATURE REQUEST
+(Everything from the 2026-04-12 list — repolearn, adapter/runner, Docker/SSH runners + NXD ports, SDD specs — is DONE.)

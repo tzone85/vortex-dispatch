@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tzone85/vortex-dispatch/internal/llm"
@@ -192,5 +193,63 @@ func TestParseLLMFindings(t *testing.T) {
 	}
 	if got[0].Source != "llm" {
 		t.Errorf("LLM findings must be tagged source=llm, got %q", got[0].Source)
+	}
+}
+
+// TestSecurityGate_ReviewStory_RequireScannersBlocksOnCoverageLoss pins the
+// opt-in strict mode (audit W-05/S-01): with require_scanners on, a story whose
+// applicable scanners were skipped (binary missing) or failed must NOT pass the
+// gate — incomplete coverage is treated as a failed gate, pausing for a human,
+// instead of a silent pass with reduced coverage.
+func TestSecurityGate_ReviewStory_RequireScannersBlocksOnCoverageLoss(t *testing.T) {
+	kbPath := filepath.Join(t.TempDir(), "kb.json")
+	// Seam: no findings, but semgrep skipped (missing binary).
+	scan := func(context.Context, string) ([]security.Finding, []security.ScannerKind, []security.ScannerKind, []security.ScannerKind) {
+		return nil,
+			[]security.ScannerKind{security.ScannerGosec},
+			[]security.ScannerKind{security.ScannerSemgrep},
+			nil
+	}
+	g := newTestSecurityGate(t, nil, kbPath, security.SeverityHigh, false, scan)
+	g.SetRequireScanners(true)
+
+	passed, summary, err := g.ReviewStory(context.Background(), "s-001", "story", "diff", t.TempDir())
+	if err != nil {
+		t.Fatalf("ReviewStory: %v", err)
+	}
+	if passed {
+		t.Fatal("expected gate to block when scanners were skipped under require_scanners")
+	}
+	if summary == "" || !strings.Contains(summary, "coverage") {
+		t.Errorf("summary should explain the coverage loss, got %q", summary)
+	}
+	if countEvents(t, g.eventStore, state.EventStorySecurityFailed) != 1 {
+		t.Error("expected STORY_SECURITY_FAILED event")
+	}
+}
+
+// TestSecurityGate_ReviewStory_DefaultDegradesGracefully pins the default
+// (require_scanners off): skipped/failed scanners never block the merge — the
+// documented graceful-degradation policy — only findings at/above the gate
+// severity do.
+func TestSecurityGate_ReviewStory_DefaultDegradesGracefully(t *testing.T) {
+	kbPath := filepath.Join(t.TempDir(), "kb.json")
+	scan := func(context.Context, string) ([]security.Finding, []security.ScannerKind, []security.ScannerKind, []security.ScannerKind) {
+		return nil,
+			[]security.ScannerKind{security.ScannerGosec},
+			[]security.ScannerKind{security.ScannerSemgrep},
+			[]security.ScannerKind{security.ScannerGitleaks}
+	}
+	g := newTestSecurityGate(t, nil, kbPath, security.SeverityHigh, false, scan)
+
+	passed, _, err := g.ReviewStory(context.Background(), "s-002", "story", "diff", t.TempDir())
+	if err != nil {
+		t.Fatalf("ReviewStory: %v", err)
+	}
+	if !passed {
+		t.Fatal("default mode must not block on scanner coverage loss (graceful degradation)")
+	}
+	if countEvents(t, g.eventStore, state.EventStorySecurityPassed) != 1 {
+		t.Error("expected STORY_SECURITY_PASSED event")
 	}
 }

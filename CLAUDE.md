@@ -134,11 +134,17 @@ qa:
 security:
   disable_gate: false      # default false = per-story security gate ON
   gate_severity: critical  # build-pausing threshold (critical|high|medium|low); critical = pause only on secrets/confirmed injection
+  require_scanners: false  # true = block stories when applicable scanners are missing/failed (strict coverage) instead of degrading gracefully
   auto_learn: true         # grow the knowledge base from confirmed high+ findings
   kb_path: ""              # default <state_dir>/security/knowledge.json
 billing:
   default_rate: 150.0
   currency: USD
+notify:
+  slack_webhook_url: ""     # empty disables all outbound notifications
+  notify_on_sla: false      # send STORY_SLA_BREACHED
+  notify_on_complete: false # send REQ_COMPLETED / REQ_BLOCKED
+  # PIPELINE_STALLED is ALWAYS sent when a webhook is configured (human-intervention signal)
 devdb:  # planned — design spec complete, impl in SP1–SP6 PRs
   provider: null  # ghost | docker | null (default: null = disabled)
   template: ""    # source DB to fork from (required when provider != null)
@@ -172,7 +178,7 @@ dashboard:
 | `vxd metrics` | Success rates, timing, escalations, SLA breaches per requirement |
 | `vxd estimate "req"` | Cost estimation with `--quick`, `--json`, `--rate` |
 | `vxd report <req-id>` | Client delivery report (`--html`, `--internal`) |
-| `vxd preflight` | Run 16 pre-flight checks before dispatch |
+| `vxd preflight` | Run 18 pre-flight checks before dispatch |
 | `vxd approve <story-id>` | Approve a story PR for merge (`--all <req-id>` for batch) |
 | `vxd approve-plan` | Approve story plan before dispatch |
 | `vxd reject-plan` | Reject a plan with feedback |

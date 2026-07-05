@@ -36,17 +36,22 @@ func TestNewAutoresearchStopCmd_PrintsDrainMessage(t *testing.T) {
 	}
 }
 
-func TestNewAutoresearchEvolveCmd_PrintsHumanGateMessage(t *testing.T) {
+// TestNewAutoresearchEvolveCmd_RequiresConfig pins the wired evolve command's
+// early-error path (the v1 stub used to print a placeholder; evolve now drives
+// ProgramMDEvolver, so without a readable vxd.yaml it must fail cleanly and
+// name the config rather than proceed to LLM/event-store setup).
+func TestNewAutoresearchEvolveCmd_RequiresConfig(t *testing.T) {
 	cmd := newAutoresearchEvolveCmd()
-	cmd.SetArgs([]string{"my-repo"})
+	cmd.SetArgs([]string{t.TempDir()})
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("execute: %v", err)
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error when vxd.yaml is not readable")
 	}
-	if !strings.Contains(out.String(), "never auto-merges") {
-		t.Errorf("expected human-gate copy in stdout; got: %s", out.String())
+	if !strings.Contains(err.Error(), "config") {
+		t.Errorf("error should name the config problem; got: %v", err)
 	}
 }
 

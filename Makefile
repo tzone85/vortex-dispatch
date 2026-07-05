@@ -12,7 +12,14 @@ test:
 	go test ./... -race -coverprofile=coverage.out
 	@go tool cover -func=coverage.out | tail -1
 
+# lint requires golangci-lint (the same blocking gate CI runs). The guard
+# fails with an install hint instead of a bare "command not found".
 lint:
+	@command -v golangci-lint >/dev/null 2>&1 || { \
+		echo "golangci-lint not installed. Install one of:"; \
+		echo "  brew install golangci-lint"; \
+		echo "  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"; \
+		exit 1; }
 	golangci-lint run ./...
 
 # doc-coverage runs only the documentation-enforcement wiring tests
@@ -27,14 +34,16 @@ vuln:
 	govulncheck ./...
 
 # verify is the single source of truth for the green gate (conditions C + D).
-# The pre-push hook and the audit loop both call it. Ordered cheapest-first so
-# a fast failure (vet) stops before the slow race-tested suite runs.
+# The pre-push hook and the audit loop both call it. Ordered cheapest-first
+# (build, vet) then the test suite; lint runs LAST so a dev machine without
+# golangci-lint still gets full build+test signal before the gate fails with
+# an install hint (audit finding E-01). Lint remains required — CI blocks on it.
 verify:
 	go build $(LDFLAGS) -o $(BINARY) ./cmd/vxd/
 	go vet ./...
-	golangci-lint run ./...
 	go test ./... -count=1
 	$(MAKE) doc-coverage
+	$(MAKE) lint
 
 clean:
 	rm -f $(BINARY) coverage.out

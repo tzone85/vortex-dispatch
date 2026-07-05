@@ -81,7 +81,14 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	fmt.Fprintf(out, "Initialized VXD workspace at %s\n", vxdDir)
 	fmt.Fprintf(out, "  Event store:      %s\n", eventsPath)
 	fmt.Fprintf(out, "  Projection store: %s\n", dbPath)
-	fmt.Fprintf(out, "\nRun 'vxd req \"<requirement>\"' to submit your first requirement.\n")
+	fmt.Fprintf(out, "\nNext steps:\n")
+	fmt.Fprintf(out, "  vxd preflight                     # validate environment & tools\n")
+	fmt.Fprintf(out, "  vxd estimate \"your idea\"          # cost/effort preview\n")
+	fmt.Fprintf(out, "  vxd req \"Build a REST API for...\" # start autonomous build\n")
+	fmt.Fprintf(out, "\nFor product & marketing use cases (build landing pages, campaign sites, docs portals as easily):\n")
+	fmt.Fprintf(out, "  vxd req \"Create a marketing site for ProductX with hero, features, pricing, and contact form\"\n")
+	fmt.Fprintf(out, "  # or: Figma-driven: vxd figma auth; vxd req \"Implement the marketing landing from Figma URL\"\n")
+	fmt.Fprintf(out, "\nSee docs/tutorial.md and docs/training/ for full workflows.\n")
 
 	return nil
 }

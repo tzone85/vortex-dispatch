@@ -1242,7 +1242,16 @@ The report builder (`engine/report.go`) generates evidence of quality:
 | Timeline | Event timestamps | Full execution history |
 | Attempts[].Outcome | Attempt tracker | Detailed retry narrative |
 
-### 13.4 SLA Framework (Phase 2+)
+### 13.4 SLA Framework
+
+> **Status update (2026-07-05):** the core SLA framework is SHIPPED, not
+> Phase 2+. `internal/engine/monitor_sla.go` enforces per-complexity story
+> duration limits (`sla.max_minutes_per_complexity`), emits
+> `STORY_SLA_BREACHED`, optionally auto-escalates (`sla.auto_escalate`), and
+> sends Slack notifications behind `notify.notify_on_sla`. The table below is
+> the original design; the unshipped parts are the aspirational business
+> metrics (first-pass success targets, estimate-accuracy recalibration,
+> client-facing SLA dashboard).
 
 **SLA Definitions:**
 
@@ -1257,11 +1266,11 @@ The report builder (`engine/report.go`) generates evidence of quality:
 **SLA implementation roadmap:**
 
 ```
-Phase 1 (now):     Track metrics manually via `vxd metrics`
-Phase 2 (M6-12):   Add configurable deadlines to stories
-                    Implement auto-escalation on SLA breach
-                    Add structured logging (slog) for observability
-Phase 3 (M18+):    External alerting (Slack, PagerDuty webhooks)
+DONE:              Configurable per-complexity deadlines (sla config)
+                    Auto-escalation on SLA breach (sla.auto_escalate)
+                    Slack alerting for breaches/stalls/completions (notify config)
+Phase 2 (M6-12):   Structured logging (slog) for observability
+Phase 3 (M18+):    PagerDuty / additional webhook integrations
                     Prometheus metric export
                     Client-facing SLA dashboard
 ```
@@ -1279,18 +1288,18 @@ Phase 3 (M18+):    External alerting (Slack, PagerDuty webhooks)
 | CLI metrics command | Exists | No export format (Prometheus, StatsD) |
 | WebSocket dashboard | Exists | No historical view (live only) |
 | Structured logging | Missing | Using basic `log` package, not `slog` |
-| Health endpoint | Missing | No `/health` or system status API |
+| Health endpoint | Exists | Minimal `/health` JSON status (see internal/web/server.go) |
 | Alert rules engine | Missing | No configurable thresholds or notifications |
-| External notifications | Missing | No Slack, PagerDuty, webhook integrations |
+| External notifications | Exists | Slack via notify/FilteredNotifier (gated by notify_on_*); PIPELINE_STALLED always when webhook set |
 | Cost variance alerting | Missing | Estimates exist but no overrun detection |
 | Escalation trend analysis | Missing | Count exists but no trend detection |
 
 **Priority implementation order:**
 1. Structured logging (`log/slog`) — foundation for everything else
-2. Health endpoint — required for Phase 2 systemd/Docker monitoring
-3. Story deadline + auto-escalation — core SLA enforcement
-4. Slack/webhook notifications — external alerting
-5. Prometheus export — metric aggregation for dashboards
+2. Story deadline + auto-escalation — core SLA enforcement (basic SLA already present)
+3. Alert rules / richer notifications — build on existing Slack wiring
+4. Prometheus export — metric aggregation for dashboards
+5. Historical dashboard views
 
 ---
 

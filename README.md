@@ -24,6 +24,8 @@ Most agent frameworks crash, lose state, or quietly give up. VXD doesn't:
 - **Always-on status** — `vxd req` auto-opens a browser dashboard scoped to the run. No polling, no `vxd status <id>`.
 - **Ephemeral Postgres per story** — destructive SQL has a blast radius of exactly one story.
 
+**Training & Marketing Products:** Comprehensive docs + training guides (see docs/training/) cover autonomous dev workflows *and* using VXD to make product and marketing launches as easy as ABC — same engine, same PRs, same reliability. `vxd init` and `vxd req` now surface examples.
+
 ## Overview
 
 VXD is a Go CLI that drives the AI coding tools you already use — Claude Code, Codex, Gemini CLI, or any CLI describable in YAML — through the full lifecycle of a software change. You submit a requirement in natural language; an LLM tech-lead breaks it into a dependency DAG of stories; the dispatcher assigns each story to an agent in its own git worktree; the pipeline runs LLM code review and declarative QA against the agent's output; passing stories get a squash-merge. Stories that touch a database can be given their own ephemeral Postgres — local Docker by default, ghost.build cloud as an option — so destructive SQL has a blast radius of exactly one story. When things go wrong, a five-tier escalation chain takes over before giving up: same-role retry with categorized error analysis, then a senior agent, then a manager diagnosing the failure pattern, then a tech-lead re-planning the story, finally a hard pause that asks for human intervention. State is event-sourced into an append-only log with SQLite projections, so the pipeline can crash, resume, replay, and emit a client delivery report from the same event history.
@@ -234,7 +236,7 @@ vhs docs/demo.tape
 | `vxd dashboard status` | Show whether the always-on dashboard daemon is running (PID, port, URL). |
 | `vxd dashboard stop` | SIGTERM the always-on dashboard daemon and remove its pidfile (idempotent). |
 | `vxd watch [req-id]` | Terminal-friendly always-on status: tails events for one requirement (defaults to the newest in the current repo) until terminal status or Ctrl+C. |
-| `vxd preflight` | Run pre-flight environment checks (16 checks, 3 severity tiers) |
+| `vxd preflight` | Run pre-flight environment checks (18 checks, 3 severity tiers) |
 | `vxd estimate <requirement>` | Estimate cost (`--quick`, `--json`, `--rate`, `--save`) |
 | `vxd report <req-id>` | Generate client delivery report (`--html`, `--internal`, `--output`) |
 | `vxd figma auth` | One-time interactive session: store a Figma personal access token (validated, 0600) |
@@ -395,10 +397,10 @@ Run `vxd init` to generate `vxd.yaml` with sensible defaults, then customize:
 | `runtimes` | Map of named CLI runtime definitions — command, args, supported models, and idle/permission detection patterns | Includes built-in entries for `claude-code`, `codex`, `gemini`, `swe-agent`; each supports optional `runner: docker\|ssh` |
 | `billing` | Hourly consulting rate, currency, Fibonacci-to-hours range mapping, and LLM cost accounting mode | `default_rate: 150.0`, `currency: USD`, `llm_costs.mode: subscription` |
 | `qa` | Declarative success criteria evaluated after each story (output_contains, file_exists, file_contains, exit_code_zero, etc.); `disable_pre_merge_verify` (turn off the per-story pre-merge build/test gate); and the requirement-completion gate — `disable_completion_gate` (turn off) + `completion_fix_cycles` (auto-fix attempts against a red composed mainline before blocking; `0`→default 2, negative→hard gate). The completion gate verifies the merged mainline and emits `REQ_BLOCKED` instead of `REQ_COMPLETED` when it cannot make the build/tests green. | No criteria by default; standard lint/build/test always run; `disable_pre_merge_verify: false`, `disable_completion_gate: false`, `completion_fix_cycles: 2` |
-| `security` | Security agent: per-story pre-merge security gate (scanners + LLM threat-model review against a growable OWASP/CWE knowledge base). `disable_gate` (turn the gate off), `gate_severity` (build-pausing block threshold — default `critical` so only leaked secrets/confirmed injection pause a build; tighten to `high` for stricter gating), `auto_learn` (grow the KB from confirmed findings), `kb_path` (KB location). Standalone audits via `vxd security scan` report high/medium too. | `disable_gate: false`, `gate_severity: critical`, `auto_learn: true`, `kb_path: <state_dir>/security/knowledge.json` |
+| `security` | Security agent: per-story pre-merge security gate (scanners + LLM threat-model review against a growable OWASP/CWE knowledge base). `disable_gate` (turn the gate off), `gate_severity` (build-pausing block threshold — default `critical` so only leaked secrets/confirmed injection pause a build; tighten to `high` for stricter gating), `require_scanners` (strict coverage: block a story when applicable scanners are missing/failed instead of degrading gracefully), `auto_learn` (grow the KB from confirmed findings), `kb_path` (KB location). Standalone audits via `vxd security scan` report high/medium too. | `disable_gate: false`, `gate_severity: critical`, `require_scanners: false`, `auto_learn: true`, `kb_path: <state_dir>/security/knowledge.json` |
 | `sla` | Per-Fibonacci-point maximum story duration in minutes; `auto_escalate` promotes breached stories to the next tier | `1pt→60m`, `2pt→120m`, `3pt→240m`, `5pt→480m`, `8pt→960m`, `13pt→1920m`; `auto_escalate: false` |
 | `secrets` | Secrets provider: `env` (default, reads from environment) or `vault` (HashiCorp Vault KV v2) | `provider: env`; Vault settings: `vault_mount: secret`, `vault_path: vxd` |
-| `notify` | Outbound Slack webhook URL and per-event triggers (`notify_on_sla`, `notify_on_complete`) | Disabled by default (empty `slack_webhook_url`) |
+| `notify` | Outbound Slack webhook URL and per-event triggers. A configured webhook always sends `PIPELINE_STALLED` (human-intervention signal); `notify_on_sla` additionally sends `STORY_SLA_BREACHED`; `notify_on_complete` additionally sends terminal requirement outcomes (`REQ_COMPLETED` / `REQ_BLOCKED`) | Disabled by default (empty `slack_webhook_url`); both flags `false` |
 | `autoresearch` | Per-repo Karpathy-style experiment loop: metric command, editable_paths allowlist, gate (`auto`/`winning`/`pr`), experiment budget, and Bayesian sampler | Disabled by default (`enabled: false`); requires `metric.command` and `editable_paths` when enabled |
 | `devdb` | Per-story ephemeral Postgres: backend (`ghost`/`docker`/`null`), template DB to fork from, on-failure retention policy, and provider-specific settings | Disabled by default (`provider: null`); requires `template` when enabled. See "Ephemeral Databases" section below. |
 | `dashboard` | Always-on status surface: `auto_start` (fork the web dashboard daemon on `vxd req`), `auto_open` (try to open a browser), and `port` (web server port). Auto-open is suppressed automatically on SSH sessions, headless Linux hosts, or when stdout is not a TTY. | `auto_start: true`, `auto_open: false`, `port: 8787`. Override per run with `--no-dashboard`. |
@@ -518,7 +520,7 @@ internal/
   improve/            Self-improvement engine (research, analysis, repo learning, revenue)
   llm/                LLM clients (Anthropic, OpenAI, Google AI, Claude CLI, Fallback)
   memory/             Memory dashboard + MemPalace integration
-  preflight/          Pre-flight validation (15 checks, 3 severity tiers)
+  preflight/          Pre-flight validation (18 checks, 3 severity tiers)
   repolearn/          3-pass repo learning (static, git history, LLM deep)
   runtime/            Adapter/Runner pattern (tmux, Docker, SSH)
   scratchboard/       Shared memory across parallel agents

@@ -34,6 +34,9 @@ type SecurityGate struct {
 	kbPath       string // knowledge-base persistence path (self-upskilling store)
 	gateSeverity security.Severity
 	autoLearn    bool
+	// requireScanners blocks a story when scan coverage is incomplete
+	// (applicable scanners skipped or failed) instead of degrading gracefully.
+	requireScanners bool
 	eventStore   state.EventStore
 	projStore    state.ProjectionStore
 
@@ -69,6 +72,11 @@ func NewSecurityGate(
 		now:          time.Now,
 	}
 }
+
+// SetRequireScanners toggles strict coverage mode for ReviewStory (config
+// security.require_scanners): incomplete scan coverage blocks the story
+// instead of passing with a logged warning.
+func (g *SecurityGate) SetRequireScanners(v bool) { g.requireScanners = v }
 
 // ScanRepo runs the full security agent against repoDir: deterministic scanners
 // ∪ LLM threat-model review, deduplicated into a Report. It emits
@@ -123,12 +131,25 @@ func (g *SecurityGate) ReviewStory(ctx context.Context, storyID, title, diff, re
 		return false, "", fmt.Errorf("load knowledge base: %w", kbErr)
 	}
 
-	findings, _, _, failed := g.scan(ctx, repoDir)
-	if len(failed) > 0 {
-		// Coverage was lost for this story's gate. Per policy a scanner failure
-		// never blocks the merge, but it must be visible — silently passing the
-		// story would report it as secure when part of the scan never ran.
-		log.Printf("[security-gate] story %s: scan coverage lost, %d scanner(s) failed: %v", storyID, len(failed), failed)
+	findings, _, skipped, failed := g.scan(ctx, repoDir)
+	if len(failed) > 0 || len(skipped) > 0 {
+		// Coverage was lost for this story's gate. By default a scanner
+		// failure never blocks the merge, but it must be visible — silently
+		// passing the story would report it as secure when part of the scan
+		// never ran. With require_scanners on, coverage loss IS a gate failure.
+		log.Printf("[security-gate] story %s: scan coverage incomplete, %d scanner(s) skipped, %d failed: %v %v",
+			storyID, len(skipped), len(failed), skipped, failed)
+		if g.requireScanners {
+			summary = fmt.Sprintf(
+				"security scan coverage incomplete under security.require_scanners: skipped=%v failed=%v — install the missing tools (`vxd preflight` shows hints) or disable require_scanners",
+				skipped, failed)
+			g.emit(state.EventStorySecurityFailed, "security-gate", storyID, map[string]any{
+				"reason":  summary,
+				"skipped": len(skipped),
+				"failed":  len(failed),
+			})
+			return false, summary, nil
+		}
 	}
 	if g.client != nil {
 		findings = append(findings, g.llmReviewDiff(ctx, title, diff, langs, kb)...)

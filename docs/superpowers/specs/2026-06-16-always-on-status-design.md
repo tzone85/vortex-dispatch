@@ -41,7 +41,7 @@ vxd watch [req-id]                  ← new
   └─ EventStore.Tail → one-line-per-event renderer to stdout
 
 vxd dashboard status|stop           ← new subcommands of existing `vxd dashboard`
-  └─ pidfile + healthz; SIGTERM
+  └─ pidfile + /health probe; SIGTERM
 ```
 
 The daemon is just `vxd dashboard --web` with two new flags (`--pidfile`, `--bootstrap-file`) that let other CLI processes find and reuse it. No new long-running service binary.
@@ -53,9 +53,9 @@ The daemon is just `vxd dashboard --web` with two new flags (`--pidfile`, `--boo
 Small package of pure functions so spawn/probe/headless logic can be unit-tested without forking real processes or reading real env vars in test code.
 
 - `Spawn(self, cfg) *exec.Cmd` — builds detached `exec.Cmd` for `vxd dashboard --web --port=… --pidfile=… --bootstrap-file=…`. Reuses platform-specific `applyDaemonDetach` already present in `internal/cli/req_unix.go` / `req_windows.go` — extracted to this package.
-- `IsAlive(pidfile string, httpClient HTTPDoer) (port int, alive bool, err error)` — reads pidfile, checks `kill -0` (Unix) / `OpenProcess` (Windows), GETs `/healthz`. `HTTPDoer` is an interface so tests use a stub.
+- `IsAlive(pidfile string, httpClient HTTPDoer) (port int, alive bool, err error)` — reads pidfile, checks `kill -0` (Unix) / `OpenProcess` (Windows), GETs `/health` (the endpoint internal/web/server.go actually serves). `HTTPDoer` is an interface so tests use a stub.
 - `IsHeadless(env Environ, isTTY func() bool, cfgAutoOpen bool) (bool, string)` — pure check returning whether to skip browser-open plus reason for logging. `Environ` is an interface (`Getenv(string) string`) so tests don't poke real env.
-- `Ensure(ctx, cfg) (DashboardHandle, error)` — orchestrator. Probe → reuse | spawn + healthz-wait. Times out at 3 s, polls 100 ms. Returns `DashboardHandle{Port, BootstrapNonce, URL}`. Never blocks `vxd req` longer than the timeout; on failure returns an error the caller logs but proceeds past.
+- `Ensure(ctx, cfg) (DashboardHandle, error)` — orchestrator. Probe → reuse | spawn + /health-wait. Times out at 3 s, polls 100 ms. Returns `DashboardHandle{Port, BootstrapNonce, URL}`. Never blocks `vxd req` longer than the timeout; on failure returns an error the caller logs but proceeds past.
 
 ### Edits to `internal/web/server.go`
 
@@ -80,7 +80,7 @@ For `--background`, do the same before the fork — banner survives because pare
 Promote `dashboard` from a leaf command to a parent with three subcommands:
 
 - `vxd dashboard` (no sub) — keeps existing behaviour (`--web`, `--all`, `--port`, `--no-open`) for back-compat. The default action is still "launch TUI or web in the foreground". The new pidfile/bootstrap flags are added but optional.
-- `vxd dashboard status` — read pidfile + healthz; print `pid 12345 | port 8787 | up 2h13m | http://...` or `not running`.
+- `vxd dashboard status` — read pidfile + /health probe; print `pid 12345 | port 8787 | up 2h13m | http://...` or `not running`.
 - `vxd dashboard stop` — SIGTERM the PID, wait up to 5 s, remove pidfile. Idempotent: "not running" if no pidfile.
 
 ### New `internal/cli/watch.go`
@@ -118,7 +118,7 @@ vxd req "X"
        → IsAlive?
             yes → GET /internal/bootstrap → fresh nonce → return (port, nonce)
             no  → Spawn(detached): vxd dashboard --web --pidfile=… --bootstrap-file=…
-                  → poll GET /healthz until 200 (timeout 3 s, poll 100 ms)
+                  → poll GET /health until 200 (timeout 3 s, poll 100 ms)
                   → read bootstrap-file → nonce
   → print banner with URL
   → if not headless: openBrowser(url)
@@ -147,16 +147,16 @@ The web dashboard already requires bearer-token auth via `internal/web/auth.go` 
 - Writes the bootstrap nonce to `~/.vxd/dashboard.bootstrap` with mode `0o600`. Only the owner can read.
 - Pidfile written with mode `0o600`.
 - The `POST /internal/bootstrap` endpoint accepts only loopback (`127.0.0.1` / `::1`) connections — verified by `RemoteAddr` check inside the handler. Even on a shared host this prevents another user from harvesting nonces over the network.
-- The existing `WriteHeader(401)` for missing tokens still applies to the dashboard surface itself; only `/internal/bootstrap` and `/healthz` are exempt, and both are bound to loopback.
+- The existing `WriteHeader(401)` for missing tokens still applies to the dashboard surface itself; only `/internal/bootstrap` and `/health` are exempt, and both are bound to loopback.
 
 ## Tests
 
 | Test | Asserts |
 |---|---|
 | `dashstart/spawn_test.go` | `Spawn` returns detached `exec.Cmd` with the expected flag set and clean env (`ANTHROPIC_API_KEY`, `CLAUDECODE` filtered). |
-| `dashstart/probe_test.go` | `IsAlive` table: missing pidfile, garbage pidfile, dead pid, alive pid but no healthz, alive + healthz 200. |
+| `dashstart/probe_test.go` | `IsAlive` table: missing pidfile, garbage pidfile, dead pid, alive pid but no /health, alive + /health 200. |
 | `dashstart/headless_test.go` | Table: `SSH_TTY` set, `DISPLAY` empty on linux, `BROWSER=none`, non-tty stdout, `cfgAutoOpen=false`. Each returns expected `(bool, reason)`. |
-| `dashstart/ensure_test.go` | Stub `Spawn`+`IsAlive`: reuse-when-alive, spawn-when-dead, abort on spawn error, abort on healthz timeout. Uses fake clock. |
+| `dashstart/ensure_test.go` | Stub `Spawn`+`IsAlive`: reuse-when-alive, spawn-when-dead, abort on spawn error, abort on /health timeout. Uses fake clock. |
 | `web/server_pidfile_test.go` | `WritePidfile` writes PID on listen, removes on shutdown, atomic rename, refuses cross-UID overwrite (skipped on Windows). |
 | `web/internal_bootstrap_test.go` | `POST /internal/bootstrap` from `127.0.0.1` returns a fresh nonce; from non-loopback returns 403. |
 | `cli/req_test.go` (extend) | When `Ensure` returns ok, banner appears in stdout; when `IsHeadless=true`, no `openBrowser` call. |

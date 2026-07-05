@@ -38,6 +38,11 @@ type Story struct {
 	PRUrl              string    `json:"pr_url"`
 	PRNumber           int       `json:"pr_number"`
 	OwnedFiles         []string  `json:"owned_files"`
+	// OwnedFilesCorrupt is set by the projection readers when the stored
+	// owned_files JSON fails to decode. It is transient (never persisted):
+	// consumers must treat the story's ownership as UNKNOWN and dispatch it
+	// conservatively (alone) instead of in parallel with no overlap data.
+	OwnedFilesCorrupt  bool      `json:"-"`
 	WaveHint           string    `json:"wave_hint"`
 	Wave               int       `json:"wave"`
 	EscalationTier     int       `json:"escalation_tier"`

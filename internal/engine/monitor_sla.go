@@ -108,9 +108,10 @@ func (m *Monitor) checkSLA(ag ActiveAgent) {
 			nctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			notifyErr := m.notifier.Notify(nctx, notify.Message{
-				Title:    fmt.Sprintf("SLA breach: %s", storyID),
-				Body:     fmt.Sprintf("Story exceeded its %v SLA", maxDur),
-				Severity: "warn",
+				Title:     fmt.Sprintf("SLA breach: %s", storyID),
+				Body:      fmt.Sprintf("Story exceeded its %v SLA", maxDur),
+				Severity:  "warn",
+				EventType: string(state.EventStorySLABreached),
 				Fields: map[string]string{
 					"story_id":   storyID,
 					"complexity": fmt.Sprintf("%d", story.Complexity),

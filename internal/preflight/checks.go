@@ -362,18 +362,21 @@ func CheckSecurityScanners(lookPath func(string) (string, error)) Result {
 
 // --- Check sets ---
 
-// DispatchChecks returns the 9 checks run before every dispatch operation.
+// DispatchChecks returns the checks run before every dispatch operation.
 // These cover the minimum requirements for agents to function correctly.
+// The exact count is pinned by TestDispatchChecks_Count and the docs
+// (README, CLAUDE.md, AGENTS.md) — update all of them together.
 func DispatchChecks() []Check {
+	tmuxServerCheck := func() Result { return CheckTmuxServer(exec.LookPath, RunTmux) }
 	return []Check{
-		CheckTmux, CheckClaudeCLI, CheckGitRepo, CheckLLMAvailable,
-		CheckAnthropicKeyConflict,
+		CheckTmux, tmuxServerCheck, CheckClaudeCLI, CheckGitRepo, CheckLLMAvailable,
+		CheckAnthropicKeyConflict, CheckDiskSpace,
 		CheckGHCLI, CheckNetwork, CheckStaleSessions, CheckGoogleAPIKey,
 	}
 }
 
-// AllChecks returns all 16 checks including informational ones shown by
-// `vxd preflight`.
+// AllChecks returns the full check set including informational ones shown by
+// `vxd preflight`. Count pinned by TestAllChecks_Count and the docs.
 func AllChecks() []Check {
 	binaryCheck := func() Result { return CheckBinaryPath("") }
 	scannerCheck := func() Result { return CheckSecurityScanners(exec.LookPath) }

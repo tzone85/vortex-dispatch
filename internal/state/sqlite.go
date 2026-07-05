@@ -371,8 +371,10 @@ func (s *SQLiteStore) GetStory(id string) (Story, error) {
 	if ownedFilesJSON != "" {
 		if uerr := json.Unmarshal([]byte(ownedFilesJSON), &story.OwnedFiles); uerr != nil {
 			// Corrupt owned_files leaves the dispatcher blind to file
-			// ownership → potential races between parallel stories. Surface
-			// the row + JSON so operators can rebuild from events.jsonl.
+			// ownership → potential races between parallel stories. Flag the
+			// story so consumers dispatch it conservatively (audit E-05), and
+			// surface the row + JSON so operators can rebuild from events.jsonl.
+			story.OwnedFilesCorrupt = true
 			log.Printf("[projector] unmarshal owned_files for story %s: %v (raw=%q)", id, uerr, ownedFilesJSON)
 		}
 	}
@@ -426,6 +428,8 @@ func (s *SQLiteStore) ListStories(filter StoryFilter) ([]Story, error) {
 		}
 		if ownedFilesJSON != "" {
 			if uerr := json.Unmarshal([]byte(ownedFilesJSON), &story.OwnedFiles); uerr != nil {
+				// Same conservative flagging as GetStory (audit E-05).
+				story.OwnedFilesCorrupt = true
 				log.Printf("[projector] unmarshal owned_files for story %s: %v (raw=%q)", story.ID, uerr, ownedFilesJSON)
 			}
 		}

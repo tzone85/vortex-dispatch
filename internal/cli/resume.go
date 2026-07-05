@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -407,10 +408,14 @@ func runResume(cmd *cobra.Command, args []string) error {
 		monitor.SetDevDBLifecycle(lifecycle)
 	}
 
-	// Wire webhook notifier (Phase 2). Slack disabled if URL not configured.
-	if s.Config.Notify.SlackWebhookURL != "" && s.Config.Notify.NotifyOnSLA {
-		monitor.SetNotifier(notify.NewSlackNotifier(s.Config.Notify.SlackWebhookURL))
-		log.Printf("[resume] slack notifications enabled for SLA breaches")
+	// Wire webhook notifier. A configured webhook enables the notifier; the
+	// FilteredNotifier allowlist gates which event types actually send:
+	// PIPELINE_STALLED always (human-intervention signal), STORY_SLA_BREACHED
+	// behind notify_on_sla, REQ_COMPLETED/REQ_BLOCKED behind notify_on_complete.
+	if allowed := notificationAllowlist(s.Config.Notify); len(allowed) > 0 {
+		monitor.SetNotifier(notify.NewFilteredNotifier(
+			notify.NewSlackNotifier(s.Config.Notify.SlackWebhookURL), allowed))
+		log.Printf("[resume] slack notifications enabled for: %s", strings.Join(allowed, ", "))
 	} else {
 		monitor.SetNotifier(notify.NewNoopNotifier())
 	}
@@ -523,11 +528,14 @@ func runResume(cmd *cobra.Command, args []string) error {
 	if !dryRun && !s.Config.Security.DisableGate {
 		gateSev := security.ParseSeverity(s.Config.Security.GateSeverity)
 		senior := s.Config.Models.Senior
-		monitor.SetSecurityGate(engine.NewSecurityGate(
+		secGate := engine.NewSecurityGate(
 			llmClient, senior.Model, senior.MaxTokens, securityKBPath(s.Config),
 			gateSev, s.Config.Security.AutoLearn, s.Events, s.Proj,
-		))
-		log.Printf("[resume] security gate enabled (block at %s+, auto-learn=%v)", gateSev, s.Config.Security.AutoLearn)
+		)
+		secGate.SetRequireScanners(s.Config.Security.RequireScanners)
+		monitor.SetSecurityGate(secGate)
+		log.Printf("[resume] security gate enabled (block at %s+, auto-learn=%v, require-scanners=%v)",
+			gateSev, s.Config.Security.AutoLearn, s.Config.Security.RequireScanners)
 	}
 
 	rc := &engine.RunContext{
@@ -760,12 +768,23 @@ func rebuildDAG(proj *state.SQLiteStore, reqID string, stories []state.Story) (*
 	planned := make([]engine.PlannedStory, 0, len(stories))
 	for _, story := range stories {
 		dag.AddNode(story.ID)
+		// Carry OwnedFiles + WaveHint through the rebuild: dropping them here
+		// silently disabled the dispatcher's overlap filtering and
+		// sequential-file serialization on every resumed requirement.
+		waveHint := story.WaveHint
+		if story.OwnedFilesCorrupt {
+			// Ownership is UNKNOWN (corrupt owned_files JSON) — the overlap
+			// filter cannot protect this story, so it must run alone.
+			waveHint = "sequential"
+		}
 		planned = append(planned, engine.PlannedStory{
 			ID:                 story.ID,
 			Title:              story.Title,
 			Description:        story.Description,
 			AcceptanceCriteria: engine.FlexibleString(story.AcceptanceCriteria),
 			Complexity:         story.Complexity,
+			OwnedFiles:         story.OwnedFiles,
+			WaveHint:           waveHint,
 		})
 	}
 
@@ -890,6 +909,26 @@ func recoverOrphanedStories(stories []state.Story, proj *state.SQLiteStore, cfg 
 	}
 
 	return orphans
+}
+
+// notificationAllowlist derives the webhook event-type allowlist from the
+// notify config. Nil (no notifier) when no webhook is configured. With a
+// webhook, PIPELINE_STALLED is always included — it means "human intervention
+// required" and must never be held hostage by an unrelated flag — while
+// notify_on_sla gates SLA breaches and notify_on_complete gates the terminal
+// requirement outcomes (REQ_COMPLETED and REQ_BLOCKED).
+func notificationAllowlist(n config.NotifyConfig) []string {
+	if n.SlackWebhookURL == "" {
+		return nil
+	}
+	allowed := []string{string(state.EventPipelineStalled)}
+	if n.NotifyOnSLA {
+		allowed = append(allowed, string(state.EventStorySLABreached))
+	}
+	if n.NotifyOnComplete {
+		allowed = append(allowed, string(state.EventReqCompleted), string(state.EventReqBlocked))
+	}
+	return allowed
 }
 
 // pickRuntime selects the best runtime from the config map.

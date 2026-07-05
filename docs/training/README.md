@@ -40,3 +40,4 @@ See also top-level tutorial.md and workflows.md.
 ## Doc Hygiene
 
 Training and knowledge docs are kept current by a mechanical test (`TestAudit_DocsNoStaleAutoresearchStubRefs`). It walks training/, knowledge/autoresearch/, and audit-findings and fails on present-tense references to known stubs for wired subsystems (e.g. evolve/MergePR). T-04 in the audit snapshot is marked resolved. Run `go test ./test -run TestAudit_DocsNoStaleAutoresearchStubRefs` as part of release hygiene. (Last hygiene: 2026-07-06)
+tiny doc hygiene note

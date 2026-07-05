@@ -179,6 +179,46 @@ func TestAudit_DocsNoStaleAutoresearchStubRefs(t *testing.T) {
 		t.Log("T-04 row should contain (FIXED) or Resolved evidence for autoresearch stub removal")
 	}
 
+	// AC2 positive assertions (existence + markers) for training docs.
+	// These are the only doc claims allowed in this round: asserted via the
+	// in-scope test file only. Markers prove autonomous dev + product/marketing
+	// pathways (e.g. "ABC", "vxd req" recipes for marketing sites).
+	trainingMarkers := map[string][]string{
+		"docs/training/README.md": {
+			"ABC",
+			"vxd req",
+			"Product & Marketing",
+		},
+		"docs/training/product-marketing-made-easy.md": {
+			"as Easy as ABC",
+			"vxd req",
+			"marketing products",
+		},
+		"docs/training/autonomous-software-development.md": {
+			"vxd req",
+			"breeze",
+			"Autonomous",
+		},
+	}
+	for rel, markers := range trainingMarkers {
+		full := filepath.Join(root, rel)
+		if _, err := os.Stat(full); err != nil {
+			t.Errorf("AC2 training doc must exist: %s", rel)
+			continue
+		}
+		data, readErr := os.ReadFile(full)
+		if readErr != nil {
+			t.Errorf("AC2 could not read %s: %v", rel, readErr)
+			continue
+		}
+		content := string(data)
+		for _, m := range markers {
+			if !strings.Contains(content, m) {
+				t.Errorf("AC2 training doc %s must contain marker %q (autonomous dev or product/marketing pathway)", rel, m)
+			}
+		}
+	}
+
 	// 2. Walk key doc trees and fail on any bad present-tense stub language
 	dirsToWalk := []string{
 		"docs/training",

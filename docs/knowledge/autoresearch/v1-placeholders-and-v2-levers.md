@@ -33,12 +33,15 @@ Detail: All auto-commits use "autoresearch: agent edits". Future improvement:
 include the agent's last message or a one-line summary derived from the diff.
 Not load-bearing — hash-dedup is on diff content, not message.
 
-### MergePR is a stub for "auto" gate
+### MergePR for "auto" gate (implemented)
 File: internal/autoresearch/gate.go
-DefaultGateOps.MergePR returns "not implemented" — auto gate currently goes
-through routePR and only stops at the merge step. Production users default to
-"winning" gate which doesn't hit this path. If "auto" is needed, parse PR URL
-to number and call internal/git.MergePR(repoDir, prNumber).
+DefaultGateOps.MergePR now parses the GitHub PR URL returned by CreatePR and
+delegates to internal/git.MergePR(repoDir, prNumber) (see parsePRNumberFromURL
++ real impl). This makes the auto gate produce correct outcomes on the shipped
+path (auditable squash-merge after PR creation). Production default remains
+"winning" for fast-forward. The original v1 stub ("not implemented") was
+removed; real DefaultGateOps path is exercised by
+TestDefaultGateOps_MergePR_RealImpl (and gate router tests).
 
 ## v2 levers (open questions in spec)
 

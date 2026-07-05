@@ -138,7 +138,7 @@ Structural audit tests live in `test/audit_structural_test.go`.
 | Sev | ID | Item | Status | Evidence |
 |-----|-----|------|--------|----------|
 | HIGH | P-01 | Autoresearch fixed baseline (re-measure on main HEAD) | v2 deferred | `docs/knowledge/autoresearch/v1-placeholders-and-v2-levers.md` |
-| HIGH | P-02 | Autoresearch evolve CLI integration | v1 stub | `internal/cli/autoresearch.go:457-458` |
+| HIGH | P-02 | (FIXED) Autoresearch evolve CLI integration | Wired (calls ProgramMDEvolver with LLM + bank + gate + workspace writer; PR-gated) | internal/cli/autoresearch.go (newAutoresearchEvolveCmd + Evolve) + wiring tests |
 | MED | P-03 | (FIXED) Autoresearch MergePR for auto gate | Implemented + tested via DefaultGateOps; winning remains common default | (post fix) |
 | MED | P-04 | Self-improvement engine | Experimental | `README.md:214` — no actionable improvements to date |
 | MED | P-05 | NXD sync: Docker/SSH runners | Pending | `AGENTS.md:203` |

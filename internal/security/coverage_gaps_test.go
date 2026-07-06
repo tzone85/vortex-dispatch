@@ -168,6 +168,53 @@ func TestParsers_InvalidJSONIsAnError(t *testing.T) {
 	}
 }
 
+// TestParseNpmAudit_ErrorEnvelopeIsAFailure pins that npm's `{"error":{...}}`
+// output (ENOLOCK when a JS worktree has no lockfile, or a registry failure) is
+// classified as a scanner failure, NOT a clean scan. Otherwise a story would
+// pass the security gate reporting a clean dependency scan when npm audit never
+// audited anything — defeating RunScanners' "a failed scan must never
+// masquerade as a clean one" invariant.
+func TestParseNpmAudit_ErrorEnvelopeIsAFailure(t *testing.T) {
+	out := []byte(`{"error":{"code":"ENOLOCK","summary":"This command requires an existing lockfile.","detail":"Try creating one first with: npm i --package-lock-only"}}`)
+	if _, err := parseNpmAudit(out); err == nil {
+		t.Fatal("npm audit error envelope must surface as a scanner failure, not a clean scan")
+	}
+	// A genuine clean audit (no error key, empty vulnerabilities) must still pass.
+	clean := []byte(`{"vulnerabilities":{},"metadata":{"vulnerabilities":{"total":0}}}`)
+	fs, err := parseNpmAudit(clean)
+	if err != nil {
+		t.Fatalf("clean npm audit must not error: %v", err)
+	}
+	if len(fs) != 0 {
+		t.Fatalf("clean npm audit must report no findings, got %d", len(fs))
+	}
+}
+
+// TestParseSemgrep_ErrorsNoResultsIsAFailure pins that a semgrep run with no
+// results but reported errors (e.g. it could not fetch the --config auto rule
+// set) is a scanner failure, not a clean scan. A run WITH results plus a benign
+// per-file parse warning keeps its findings.
+func TestParseSemgrep_ErrorsNoResultsIsAFailure(t *testing.T) {
+	failed := []byte(`{"results":[],"errors":[{"message":"Invalid rule schema / could not fetch config","level":"error"}]}`)
+	if _, err := parseSemgrep(failed, "/repo"); err == nil {
+		t.Fatal("semgrep with errors and no results must surface as a scanner failure")
+	}
+	// Clean run: no results, no errors → not a failure.
+	clean := []byte(`{"results":[],"errors":[]}`)
+	if fs, err := parseSemgrep(clean, "/repo"); err != nil || len(fs) != 0 {
+		t.Fatalf("clean semgrep run must pass with no findings, got %v %v", fs, err)
+	}
+	// Partial run: real results plus a non-fatal parse warning → findings stand.
+	partial := []byte(`{"results":[{"check_id":"r","path":"/repo/a.go","start":{"line":1},"extra":{"message":"m","severity":"ERROR","metadata":{}}}],"errors":[{"message":"could not parse vendored/x.js","level":"warn"}]}`)
+	fs, err := parseSemgrep(partial, "/repo")
+	if err != nil {
+		t.Fatalf("semgrep with results must not be treated as failed: %v", err)
+	}
+	if len(fs) != 1 {
+		t.Fatalf("expected the real finding to survive a benign parse warning, got %d", len(fs))
+	}
+}
+
 func TestParseGosec_LineRangeAndMissingCWE(t *testing.T) {
 	out := []byte(`{"Issues":[{"severity":"MEDIUM","rule_id":"G304","details":"x","file":"a.go","line":"12-14","cwe":{"id":""}}]}`)
 	fs, err := parseGosec(out, "/repo")

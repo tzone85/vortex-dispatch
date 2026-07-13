@@ -47,10 +47,13 @@ const fakeGitleaksOut = `[{"Description":"AWS access key","File":"config.env","S
 
 const fakeSemgrepOut = `{"results":[{"check_id":"go.lang.security.audit.sqli","path":"db.go","start":{"line":42},"extra":{"message":"SQL built from input","severity":"ERROR","metadata":{"cwe":["CWE-89"],"owasp":["A03:2021 - Injection"]}}}]}`
 
-const fakeGovulncheckOut = `Scanning your code and 42 packages across 7 dependent modules for known vulnerabilities...
-
-Vulnerability #1: GO-2024-1234
-    A bad thing in some module.`
+// govulncheck -json emits a stream of JSON objects and (unlike text mode) exits
+// 0 when it runs successfully — even with findings. The config handshake proves
+// the run completed; the symbol-level finding is the "called" vuln.
+const fakeGovulncheckOut = `{"config":{"protocol_version":"v1.0.0","scanner_name":"govulncheck"}}
+{"progress":{"message":"Scanning your code..."}}
+{"osv":{"id":"GO-2024-1234"}}
+{"finding":{"osv":"GO-2024-1234","trace":[{"module":"example.com/dep","package":"example.com/dep","function":"Boom"}]}}`
 
 const fakeNpmAuditOut = `{"vulnerabilities":{"lodash":{"name":"lodash","severity":"high","range":"<4.17.21","via":[]}}}`
 
@@ -62,7 +65,7 @@ func installAllFakeScanners(t *testing.T) string {
 	fakeTool(t, bin, "gosec", fakeGosecOut, 1)
 	fakeTool(t, bin, "gitleaks", fakeGitleaksOut, 1)
 	fakeTool(t, bin, "semgrep", fakeSemgrepOut, 0)
-	fakeTool(t, bin, "govulncheck", fakeGovulncheckOut, 1)
+	fakeTool(t, bin, "govulncheck", fakeGovulncheckOut, 0) // -json exits 0 even with findings
 	fakeTool(t, bin, "npm", fakeNpmAuditOut, 1)
 	// Keep /bin:/usr/bin so the fake scripts can find cat; no real security
 	// scanner is ever installed there, so LookPath still resolves only fakes.
@@ -139,6 +142,39 @@ func TestRunScanners_FailedToolIsReportedNotSwallowed(t *testing.T) {
 	}
 	if !found["gitleaks"] || !found["govulncheck"] {
 		t.Errorf("other tools must keep scanning after one fails, got %v", found)
+	}
+}
+
+func TestRunScanners_GovulncheckFailureNotReportedClean(t *testing.T) {
+	// Regression: govulncheck's text mode reported a failed run (e.g. a blocked
+	// vuln.go.dev fetch) as a clean scan because its output carried no
+	// "Vulnerability #" line. In -json mode a failed run exits non-zero and/or
+	// emits a garbled stream, so it must now land in `failed`, never `ran`.
+	bin := installAllFakeScanners(t)
+	const netFail = `{"config":{"scanner_name":"govulncheck"}}
+{"progress":{"message":"Fetching vulnerabilities from the database..."}}
+govulncheck: fetching vulnerabilities: Get "https://vuln.go.dev/index/modules.json.gz": Forbidden`
+	fakeTool(t, bin, "govulncheck", netFail, 1)
+	repo := seedRepo(t, map[string]string{"go.mod": "module example.com/x\n"})
+
+	findings, ran, _, failed := RunScanners(context.Background(), repo)
+
+	failedSet := map[ScannerKind]bool{}
+	for _, k := range failed {
+		failedSet[k] = true
+	}
+	if !failedSet[ScannerGovulncheck] {
+		t.Fatalf("a failed govulncheck must be reported in failed, got failed=%v", failed)
+	}
+	for _, k := range ran {
+		if k == ScannerGovulncheck {
+			t.Error("a failed govulncheck must NOT be counted as a clean run")
+		}
+	}
+	for _, f := range findings {
+		if f.Tool == "govulncheck" {
+			t.Errorf("a failed govulncheck must contribute no findings, got %+v", f)
+		}
 	}
 }
 

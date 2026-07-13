@@ -176,32 +176,52 @@ func TestParseNpmAudit(t *testing.T) {
 	}
 }
 
-func TestParseGovulncheck(t *testing.T) {
-	// govulncheck text output (the human format): we extract called vulns.
-	out := []byte(`=== Symbol Results ===
-
-Vulnerability #1: GO-2024-1234
-    A flaw in net/http allows request smuggling.
-  More info: https://pkg.go.dev/vuln/GO-2024-1234
-    Module: golang.org/x/net
-      Found in: golang.org/x/net@v0.10.0
-      Fixed in: golang.org/x/net@v0.17.0
-
-Vulnerability #2: GO-2023-5678
-    Another issue.
-  More info: https://pkg.go.dev/vuln/GO-2023-5678
+func TestParseGovulncheckJSON(t *testing.T) {
+	// govulncheck -json stream: config handshake + two called (symbol-level) vulns.
+	out := []byte(`{"config":{"protocol_version":"v1.0.0","scanner_name":"govulncheck"}}
+{"progress":{"message":"Scanning..."}}
+{"osv":{"id":"GO-2024-1234"}}
+{"finding":{"osv":"GO-2024-1234","trace":[{"module":"golang.org/x/net","package":"golang.org/x/net/http2","function":"Server.ServeConn"}]}}
+{"finding":{"osv":"GO-2023-5678","trace":[{"module":"example.com/dep","package":"example.com/dep","function":"Do"}]}}
 `)
-	got, err := parseGovulncheck(out)
+	got, sawConfig, err := parseGovulncheckJSON(out)
 	if err != nil {
-		t.Fatalf("parseGovulncheck: %v", err)
+		t.Fatalf("parseGovulncheckJSON: %v", err)
+	}
+	if !sawConfig {
+		t.Fatal("config handshake must be detected on a real run")
 	}
 	if len(got) != 2 {
-		t.Fatalf("expected 2 vuln findings, got %d", len(got))
+		t.Fatalf("expected 2 called-vuln findings, got %d (%+v)", len(got), got)
 	}
-	if got[0].RuleID != "GO-2024-1234" {
-		t.Errorf("expected GO-2024-1234, got %q", got[0].RuleID)
+	// Findings are emitted in sorted RuleID order.
+	if got[0].RuleID != "GO-2023-5678" || got[1].RuleID != "GO-2024-1234" {
+		t.Errorf("unexpected finding ids/order: %+v", got)
 	}
 	if got[0].Severity != SeverityHigh {
 		t.Errorf("dependency CVE should be high, got %v", got[0].Severity)
+	}
+}
+
+// TestParseGovulncheckJSON_FailedRunIsNotClean pins the fail-open regression:
+// govulncheck's text mode reported a network/build/timeout error (output with no
+// "Vulnerability #" line) as a clean scan. The -json parser must instead surface
+// a decode error (garbage/truncated stream) or a missing config handshake so the
+// scan is routed to `failed`, never masqueraded as scanned-clean.
+func TestParseGovulncheckJSON_FailedRunIsNotClean(t *testing.T) {
+	// (a) A real failure: config + progress emitted, then a plain-text fatal error
+	// (the exact shape of a blocked vuln.go.dev fetch). Must error, not return clean.
+	partial := []byte(`{"config":{"scanner_name":"govulncheck"}}
+{"progress":{"message":"Fetching vulnerabilities from the database..."}}
+govulncheck: fetching vulnerabilities: Get "https://vuln.go.dev/index/modules.json.gz": Forbidden
+`)
+	if _, _, err := parseGovulncheckJSON(partial); err == nil {
+		t.Error("a truncated stream with a trailing fatal error must return an error, not a clean scan")
+	}
+
+	// (b) Empty output (tool crashed before any handshake) yields no config, so the
+	// caller (runGovulncheck) rejects it as "scan did not run".
+	if _, sawConfig, err := parseGovulncheckJSON(nil); err != nil || sawConfig {
+		t.Errorf("empty output: want (sawConfig=false, err=nil), got sawConfig=%v err=%v", sawConfig, err)
 	}
 }

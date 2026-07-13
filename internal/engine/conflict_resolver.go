@@ -151,8 +151,11 @@ func (cr *ConflictResolver) RebaseWithResolution(ctx context.Context, storyID, w
 				continue
 			}
 
-			// Generated lock-file check: resolve deterministically (story branch
-			// version via --ours, then staged by the bulk StageFiles below).
+			// Generated lock-file check: resolve deterministically by keeping the
+			// base side (--ours, which during a rebase is the upstream/base), then
+			// staged by the bulk StageFiles below. Which side wins is immaterial
+			// here — a lock conflict means both sides diverged from the merged
+			// manifest, so the post-merge build regenerates the lock regardless.
 			// Lock files like package-lock.json are huge and machine-generated —
 			// sending them to the LLM blows the pipeline timeout for no benefit;
 			// the post-merge build/QA validates dependencies. This was the root
@@ -463,7 +466,8 @@ func deepMergeJSON(ours, theirs any) any {
 // handleBinaryConflict applies a deterministic policy for binary-file conflicts
 // without invoking the LLM:
 //   - Oversized (>500 KB) or compiled binary names (server, main, *.exe) → git rm
-//   - All others → git checkout --ours (story branch version wins)
+//   - All others → git checkout --theirs (story branch version wins; during a
+//     rebase --theirs is the replayed story commit, --ours is the base)
 // generatedLockFiles are package-manager lock files that are machine-generated
 // and must never be LLM-resolved — they are large and deterministic, so a
 // conflict is resolved by taking one side and letting the build regenerate.
@@ -503,15 +507,21 @@ func (cr *ConflictResolver) handleBinaryConflict(storyID, worktreePath, absPath,
 		return nil
 	}
 
-	// Take the story branch version (--ours during rebase = the branch being rebased).
-	log.Printf("[conflict-resolver] taking --ours for binary %s in %s", file, storyID)
-	cmd := exec.Command("git", "checkout", "--ours", "--", file)
+	// Keep the story branch version. During `git rebase <upstream>` the story
+	// commit is replayed ONTO the base, so the conflict sides are inverted
+	// relative to a merge: --ours = base/upstream, --theirs = the story commit
+	// being replayed (pinned by git.TestConflictSides_OursIsBaseTheirsIsStory,
+	// and matching the text/JSON deterministic paths, which all keep theirs).
+	// Using --ours here silently discarded the story's binary asset change
+	// whenever the base also touched the file — real data loss.
+	log.Printf("[conflict-resolver] taking --theirs (story branch version) for binary %s in %s", file, storyID)
+	cmd := exec.Command("git", "checkout", "--theirs", "--", file)
 	cmd.Dir = worktreePath
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git checkout --ours %s: %w (%s)", file, err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("git checkout --theirs %s: %w (%s)", file, err, strings.TrimSpace(string(out)))
 	}
 	cr.emitBinaryEvent(storyID, file, state.EventStoryConflictBinary,
-		"binary conflict: took --ours (story branch version)")
+		"binary conflict: took --theirs (story branch version)")
 	return nil
 }
 

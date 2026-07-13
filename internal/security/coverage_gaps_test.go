@@ -193,14 +193,23 @@ func TestParseNpmAudit_FallsBackToMapKeyForName(t *testing.T) {
 	}
 }
 
-func TestParseGovulncheck_MalformedLinesSkipped(t *testing.T) {
-	out := []byte("Vulnerability #1 without colon\nVulnerability #2:   \nVulnerability #3: GO-2025-999\n")
-	fs, err := parseGovulncheck(out)
+func TestParseGovulncheckJSON_ImportOnlyFindingsNotCalled(t *testing.T) {
+	// Module- and package-level findings (no function in the top trace frame) are
+	// import-only and must NOT be reported; only the symbol-level (called) finding
+	// counts. A clean handshake (config) with no called vuln is a clean scan.
+	out := []byte(`{"config":{"scanner_name":"govulncheck"}}
+{"finding":{"osv":"GO-2025-111","trace":[{"module":"example.com/dep","package":"example.com/dep"}]}}
+{"finding":{"osv":"GO-2025-111","trace":[{"module":"example.com/dep","package":"example.com/dep","function":"Vulnerable"}]}}
+{"finding":{"osv":"GO-2025-222","trace":[{"module":"example.com/other","package":"example.com/other"}]}}`)
+	fs, sawConfig, err := parseGovulncheckJSON(out)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(fs) != 1 || fs[0].RuleID != "GO-2025-999" {
-		t.Errorf("malformed lines must be skipped, valid ones kept: %+v", fs)
+	if !sawConfig {
+		t.Error("config handshake must be detected")
+	}
+	if len(fs) != 1 || fs[0].RuleID != "GO-2025-111" {
+		t.Errorf("only the called (symbol-level) vuln must be reported: %+v", fs)
 	}
 }
 

@@ -600,3 +600,11 @@ func TestConfigValidate_QAModelInertWarning(t *testing.T) {
 		t.Errorf("empty models.qa must not warn, got %v", w)
 	}
 }
+
+// TestImproveDefaultDisabled pins the experimental self-improvement pipeline
+// gate: OFF unless an operator explicitly opts in (WEAKNESSES.md P0-01).
+func TestImproveDefaultDisabled(t *testing.T) {
+	if config.DefaultConfig().Improve.Enabled {
+		t.Fatal("DefaultConfig().Improve.Enabled must be false — the pipeline is experimental and opt-in")
+	}
+}

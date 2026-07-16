@@ -162,6 +162,8 @@ dashboard:
   auto_start: true   # `vxd req` forks a detached `vxd dashboard --web` daemon (or reuses one running)
   auto_open: false   # off by default; URL still printed. true = also open the user's default browser; auto-detect headless (SSH, no DISPLAY, non-TTY)
   port: 8787         # web server port; daemon pidfile at ~/.vxd/dashboard.pid, bootstrap nonce at ~/.vxd/dashboard.bootstrap (0o600)
+improve:
+  enabled: false     # EXPERIMENTAL self-improve pipeline gate — vxd-improve is a no-op (exit 0) unless true or VXD_IMPROVE_ENABLED=1
 ```
 
 ## CLI Commands
@@ -347,6 +349,8 @@ Every failure is a chance to make the system stronger:
 ### Self-Improvement Pipeline (vxd-improve)
 
 > **Experimental — 0 actionable findings to date (May 22, 2026).** The pipeline scrapes 14 industry sources daily and triages 70+ findings, but every finding so far has been ecosystem news (Claude/OpenAI releases, library updates) rather than VXD-actionable code improvements. Implementation phase has never fired. Email delivery has never succeeded (Resend 403 on domain validation). Code is retained because the scaffolding is interesting for future research, not because it currently produces working improvements. See `internal/improve/` to understand the current state.
+>
+> **Gated OFF by default (2026-07-16, P0-01):** the `vxd-improve` binary now exits 0 with "improvement pipeline disabled; set improve.enabled=true in vxd.yaml to opt in" unless `improve.enabled: true` (vxd.yaml) or `VXD_IMPROVE_ENABLED=1` is set. Gate resolved by `improve.PipelineEnabled` (env overrides config, both directions) before any key loading — a disabled cron run needs no API keys. Pinned by `TestImproveDefaultDisabled` + `TestImproveCronNoOpWhenDisabled`.
 
 - `implementer.go` uses `--max-turns 25` for Claude CLI (was 1 — root cause of ALL aborted findings)
 - `filterEnv()` strips `ANTHROPIC_API_KEY` and `CLAUDECODE` from agent env

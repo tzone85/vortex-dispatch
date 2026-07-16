@@ -29,6 +29,16 @@ type Config struct {
 	Autoresearch AutoresearchConfig       `yaml:"autoresearch,omitempty"`
 	DevDB        DevDBConfig              `yaml:"devdb,omitempty"`
 	Dashboard    DashboardConfig          `yaml:"dashboard,omitempty"`
+	Improve      ImproveConfig            `yaml:"improve,omitempty"`
+}
+
+// ImproveConfig gates the experimental self-improvement pipeline (the
+// vxd-improve daily run). The pipeline has produced 0 code-actionable
+// findings to date and its email delivery has never succeeded — it is
+// research scaffolding, not a shipping capability, so it is OFF unless an
+// operator explicitly opts in (here or via VXD_IMPROVE_ENABLED=1).
+type ImproveConfig struct {
+	Enabled bool `yaml:"enabled"` // default false — experimental, opt-in only
 }
 
 // DashboardConfig controls the always-on status surface. When AutoStart is

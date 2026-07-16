@@ -118,7 +118,7 @@ billing:
 | `vxd metrics` | Success rates, timing, escalations, SLA breaches per requirement |
 | `vxd estimate "req"` | Cost estimation with `--quick`, `--json`, `--rate` |
 | `vxd report <req-id>` | Client delivery report (`--html`, `--internal`) |
-| `vxd preflight` | Run 18 pre-flight checks before dispatch |
+| `vxd preflight` | Run 19 pre-flight checks before dispatch |
 | `vxd approve/reject` | Human review gates for PRs |
 | `vxd approve-plan` | Approve story plan before dispatch |
 | `vxd reject-plan` | Reject story plan |

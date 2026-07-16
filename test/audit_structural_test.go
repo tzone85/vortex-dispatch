@@ -34,11 +34,12 @@ func readRepoFile(t *testing.T, rel string) string {
 // TestAudit_PreflightCheckCounts pins the preflight check inventory so doc
 // drift (the audit found AGENTS.md "12", README "15" vs code 16) is caught by
 // CI. Counts moved 16→18 / 9→11 when the disk_space and tmux_server checks
-// landed (audit findings O-01/O-06) — README, CLAUDE.md, and AGENTS.md must
-// state these numbers.
+// landed (audit findings O-01/O-06), then 18→19 with the qa_model inert-binding
+// check (WEAKNESSES.md P0-02) — README, CLAUDE.md, and AGENTS.md must state
+// these numbers.
 func TestAudit_PreflightCheckCounts(t *testing.T) {
-	if got := len(preflight.AllChecks()); got != 18 {
-		t.Errorf("AllChecks() = %d, want 18 (README CLI table)", got)
+	if got := len(preflight.AllChecks()); got != 19 {
+		t.Errorf("AllChecks() = %d, want 19 (README CLI table)", got)
 	}
 	if got := len(preflight.DispatchChecks()); got != 11 {
 		t.Errorf("DispatchChecks() = %d, want 11", got)

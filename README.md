@@ -432,9 +432,10 @@ devdb:
   provider: ghost           # or docker, or null
   template: my-prod-snapshot
   ghost: { api_key_env: GHOST_API_KEY }
+  function_denylist_extra: []  # extra function names `vxd db sql` rejects without --write
 ```
 
-Agents read `DATABASE_URL` from `.vxd-db/connect.env` (auto-injected into the worktree). Humans use `vxd db list/connect/logs/delete` plus the dashboard's per-story DB column.
+Agents read `DATABASE_URL` from `.vxd-db/connect.env` (auto-injected into the worktree). Humans use `vxd db list/connect/logs/delete` plus the dashboard's per-story DB column. `vxd db sql` without `--write` statically rejects known side-effecting functions (`pg_terminate_backend`, `pg_cancel_backend`, `lo_import`, `lo_export`, `pg_read_file`, `pg_ls_dir`, `pg_reload_conf`, `pg_stat_file`) that a `READ ONLY` transaction cannot block; extend the list per project with `devdb.function_denylist_extra`.
 
 For runtime usage run `vxd db --help`.
 

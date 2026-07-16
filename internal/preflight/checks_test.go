@@ -199,8 +199,8 @@ func TestDispatchChecks_Count(t *testing.T) {
 
 func TestAllChecks_Count(t *testing.T) {
 	checks := preflight.AllChecks()
-	if len(checks) != 18 {
-		t.Fatalf("expected 18 total checks, got %d", len(checks))
+	if len(checks) != 19 {
+		t.Fatalf("expected 19 total checks, got %d", len(checks))
 	}
 }
 
@@ -322,5 +322,32 @@ func TestAllChecksWithConfig_AddsTwoDevDBChecks(t *testing.T) {
 	full := len(preflight.AllChecksWithConfig(cfg))
 	if full != base+2 {
 		t.Errorf("AllChecksWithConfig should add 2 checks, got %d vs base %d", full, base)
+	}
+}
+
+// TestPreflight_QAModelInertCheck pins the qa_model preflight check: a
+// non-default models.qa binding fails at WARNING tier with the inert-binding
+// message, the default binding passes.
+func TestPreflight_QAModelInertCheck(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Models.QA = config.ModelConfig{Provider: "codex", Model: "gpt-5.5"}
+
+	r := preflight.CheckQAModelInertWith(cfg)
+	if r.Name != "qa_model" {
+		t.Fatalf("name = %q, want qa_model", r.Name)
+	}
+	if r.Severity != preflight.SeverityWarning {
+		t.Errorf("severity = %v, want warning", r.Severity)
+	}
+	if r.Passed {
+		t.Error("non-default models.qa binding must fail the check")
+	}
+	if !strings.Contains(r.Message, "inert") || !strings.Contains(r.Message, "models.reviewer") {
+		t.Errorf("message should explain inertness and point to models.reviewer: %q", r.Message)
+	}
+
+	ok := preflight.CheckQAModelInertWith(config.DefaultConfig())
+	if !ok.Passed {
+		t.Errorf("default config must pass, got: %s", ok.Message)
 	}
 }

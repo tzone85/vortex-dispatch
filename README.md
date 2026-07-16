@@ -236,7 +236,7 @@ vhs docs/demo.tape
 | `vxd dashboard status` | Show whether the always-on dashboard daemon is running (PID, port, URL). |
 | `vxd dashboard stop` | SIGTERM the always-on dashboard daemon and remove its pidfile (idempotent). |
 | `vxd watch [req-id]` | Terminal-friendly always-on status: tails events for one requirement (defaults to the newest in the current repo) until terminal status or Ctrl+C. |
-| `vxd preflight` | Run pre-flight environment checks (18 checks, 3 severity tiers) |
+| `vxd preflight` | Run pre-flight environment checks (19 checks, 3 severity tiers) |
 | `vxd estimate <requirement>` | Estimate cost (`--quick`, `--json`, `--rate`, `--save`) |
 | `vxd report <req-id>` | Generate client delivery report (`--html`, `--internal`, `--output`) |
 | `vxd figma auth` | One-time interactive session: store a Figma personal access token (validated, 0600) |
@@ -521,7 +521,7 @@ internal/
   improve/            Self-improvement engine (research, analysis, repo learning, revenue)
   llm/                LLM clients (Anthropic, OpenAI, Google AI, Claude CLI, Fallback)
   memory/             Memory dashboard + MemPalace integration
-  preflight/          Pre-flight validation (18 checks, 3 severity tiers)
+  preflight/          Pre-flight validation (19 checks, 3 severity tiers)
   repolearn/          3-pass repo learning (static, git history, LLM deep)
   runtime/            Adapter/Runner pattern (tmux, Docker, SSH)
   scratchboard/       Shared memory across parallel agents

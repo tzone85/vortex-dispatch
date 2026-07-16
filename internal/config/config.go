@@ -448,6 +448,27 @@ type DevDBDockerConfig struct {
 	Host           string `yaml:"host"`            // default "localhost"; override for Colima/VM setups (e.g. "192.168.64.3")
 }
 
+// Warnings returns non-fatal configuration advisories: settings that are
+// accepted but do not do what an operator plausibly expects. Surfaced by
+// `vxd config validate` and the qa_model preflight check.
+func (c Config) Warnings() []string {
+	var warnings []string
+
+	// models.qa is inert: the QA stage runs lint/build/test commands
+	// (engine/qa.go), not an LLM. An operator who explicitly binds the qa
+	// role (any binding different from the shipped default) expects a
+	// review pass that never happens — and cost estimates look wrong.
+	def := DefaultConfig().Models.QA
+	qa := c.Models.QA
+	if qa.Provider != "" && (qa.Provider != def.Provider || qa.Model != def.Model) {
+		warnings = append(warnings, fmt.Sprintf(
+			"models.qa is bound to %s/%s, but the QA stage is command-based (lint/build/test) and never calls an LLM — this binding is inert. For an LLM review pass, bind models.reviewer instead (see README: Configuration).",
+			qa.Provider, qa.Model))
+	}
+
+	return warnings
+}
+
 // Validate checks that all configuration values are within allowed ranges.
 // It returns an error describing the first invalid value found.
 func (c Config) Validate() error {

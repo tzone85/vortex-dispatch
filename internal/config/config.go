@@ -50,6 +50,13 @@ type DashboardConfig struct {
 	AutoStart bool `yaml:"auto_start"` // default true
 	AutoOpen  bool `yaml:"auto_open"`  // default true
 	Port      int  `yaml:"port"`       // default 8787
+	// TokenTTLHours rotates the persistent dashboard bearer token at web-
+	// dashboard startup when the token file is older than this many hours.
+	// A leaked token therefore expires instead of granting access until
+	// someone manually deletes ~/.vxd/dashboard.token. 0 uses the default
+	// (168 = 7 days); negative disables rotation. Manual rotation:
+	// `vxd dashboard rotate-token`.
+	TokenTTLHours int `yaml:"token_ttl_hours,omitempty"`
 }
 
 // SecretsConfig configures the secrets provider.

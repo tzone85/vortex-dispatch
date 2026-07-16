@@ -135,9 +135,10 @@ func DefaultConfig() Config {
 			},
 		},
 		Dashboard: DashboardConfig{
-			AutoStart: true,
-			AutoOpen:  false,
-			Port:      8787,
+			AutoStart:     true,
+			AutoOpen:      false,
+			Port:          8787,
+			TokenTTLHours: 168, // 7 days — a leaked token expires instead of living forever
 		},
 	}
 }

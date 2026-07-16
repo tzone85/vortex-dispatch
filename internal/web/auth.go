@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // TokenCookieName is the cookie set on the first authenticated request so
@@ -35,33 +36,81 @@ var authBypassedPaths = map[string]struct{}{
 //  2. Existing token file (mode 0o600).
 //  3. Newly generated 32-byte hex token, written to the file with 0o600.
 //
-// An empty path skips the file fallback (used by tests).
+// An empty path skips the file fallback (used by tests). No TTL rotation —
+// see LoadOrGenerateTokenWithTTL.
 func LoadOrGenerateToken(path string) (string, error) {
+	tok, _, err := LoadOrGenerateTokenWithTTL(path, 0)
+	return tok, err
+}
+
+// LoadOrGenerateTokenWithTTL is LoadOrGenerateToken plus age-based rotation
+// (WEAKNESSES.md P0-04): when ttl > 0 and the token file is older than ttl,
+// a fresh token is minted and written, invalidating the stale one. rotated
+// reports whether that happened so callers can log / emit
+// DASHBOARD_TOKEN_ROTATED. The VXD_DASHBOARD_TOKEN env override is
+// operator-managed and never rotated. ttl <= 0 disables rotation.
+func LoadOrGenerateTokenWithTTL(path string, ttl time.Duration) (token string, rotated bool, err error) {
 	if t := strings.TrimSpace(os.Getenv("VXD_DASHBOARD_TOKEN")); t != "" {
-		return t, nil
+		return t, false, nil
 	}
 	if path != "" {
 		if data, err := os.ReadFile(path); err == nil {
 			tok := strings.TrimSpace(string(data))
 			if tok != "" {
-				return tok, nil
+				if ttl > 0 {
+					if fi, err := os.Stat(path); err == nil && time.Since(fi.ModTime()) > ttl {
+						newTok, werr := RotateTokenFile(path)
+						if werr != nil {
+							return "", false, werr
+						}
+						return newTok, true, nil
+					}
+				}
+				return tok, false, nil
 			}
 		}
 	}
 	tok, err := generateToken()
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if path != "" {
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			return "", fmt.Errorf("create token dir: %w", err)
+		if werr := writeTokenFile(path, tok); werr != nil {
+			return "", false, werr
 		}
-		if err := os.WriteFile(path, []byte(tok+"\n"), 0o600); err != nil {
-			return "", fmt.Errorf("write token file: %w", err)
-		}
+	}
+	return tok, false, nil
+}
+
+// RotateTokenFile unconditionally mints a fresh token and replaces the file
+// (mode 0o600). Used by TTL expiry and the `vxd dashboard rotate-token`
+// command. A running daemon keeps its in-memory token until restarted —
+// callers should tell the operator to restart it.
+func RotateTokenFile(path string) (string, error) {
+	tok, err := generateToken()
+	if err != nil {
+		return "", err
+	}
+	if err := writeTokenFile(path, tok); err != nil {
+		return "", err
 	}
 	return tok, nil
 }
+
+func writeTokenFile(path, tok string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create token dir: %w", err)
+	}
+	if err := os.WriteFile(path, []byte(tok+"\n"), 0o600); err != nil {
+		return fmt.Errorf("write token file: %w", err)
+	}
+	return nil
+}
+
+// DefaultTokenPath exposes the canonical dashboard token location
+// (~/.vxd/dashboard.token) for CLI commands like `vxd dashboard
+// rotate-token`.
+func DefaultTokenPath() string { return defaultDashboardTokenPath() }
 
 func generateToken() (string, error) {
 	var b [32]byte

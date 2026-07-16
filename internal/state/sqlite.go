@@ -243,6 +243,10 @@ func (s *SQLiteStore) Project(evt Event) error {
 		// Informational: standalone scan results + knowledge-base growth are
 		// recorded in the event log; no projection state to mutate.
 		return nil
+	case EventDashboardTokenRotated:
+		// Informational: token rotations are recorded in the event log for the
+		// audit trail; no projection state to mutate.
+		return nil
 	case EventStoryPRCreated:
 		return s.projectStoryPRCreated(evt.StoryID, payload)
 	case EventStoryMerged:

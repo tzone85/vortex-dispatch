@@ -96,6 +96,9 @@ const (
 	// Pipeline-health events.
 	EventPipelineStalled EventType = "PIPELINE_STALLED" // unfinished stories exist but none are dispatchable (all tiers exhausted)
 
+	// Operational security events.
+	EventDashboardTokenRotated EventType = "DASHBOARD_TOKEN_ROTATED" // dashboard bearer token rotated (TTL expiry or `vxd dashboard rotate-token`)
+
 	// Autoresearch harness events. See docs/superpowers/specs/2026-05-02-autoresearch-harness-design.md.
 	EventBaselineMeasured    EventType = "BASELINE_MEASURED"
 	EventExperimentProposed  EventType = "EXPERIMENT_PROPOSED"

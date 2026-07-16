@@ -235,6 +235,7 @@ vhs docs/demo.tape
 | `vxd dashboard --web [--port 8787]` | Launch the web dashboard (browser-based, default port 8787). Supports `--pidfile` and `--bootstrap-file` for the always-on daemon path. |
 | `vxd dashboard status` | Show whether the always-on dashboard daemon is running (PID, port, URL). |
 | `vxd dashboard stop` | SIGTERM the always-on dashboard daemon and remove its pidfile (idempotent). |
+| `vxd dashboard rotate-token` | Mint a fresh dashboard bearer token (replaces `~/.vxd/dashboard.token`); restart a running daemon to complete rotation. Tokens also auto-rotate at startup when older than `dashboard.token_ttl_hours`. |
 | `vxd watch [req-id]` | Terminal-friendly always-on status: tails events for one requirement (defaults to the newest in the current repo) until terminal status or Ctrl+C. |
 | `vxd preflight` | Run pre-flight environment checks (19 checks, 3 severity tiers) |
 | `vxd estimate <requirement>` | Estimate cost (`--quick`, `--json`, `--rate`, `--save`) |
@@ -403,7 +404,7 @@ Run `vxd init` to generate `vxd.yaml` with sensible defaults, then customize:
 | `notify` | Outbound Slack webhook URL and per-event triggers. A configured webhook always sends `PIPELINE_STALLED` (human-intervention signal); `notify_on_sla` additionally sends `STORY_SLA_BREACHED`; `notify_on_complete` additionally sends terminal requirement outcomes (`REQ_COMPLETED` / `REQ_BLOCKED`) | Disabled by default (empty `slack_webhook_url`); both flags `false` |
 | `autoresearch` | Per-repo Karpathy-style experiment loop: metric command, editable_paths allowlist, gate (`auto`/`winning`/`pr`), experiment budget, and Bayesian sampler | Disabled by default (`enabled: false`); requires `metric.command` and `editable_paths` when enabled |
 | `devdb` | Per-story ephemeral Postgres: backend (`ghost`/`docker`/`null`), template DB to fork from, on-failure retention policy, and provider-specific settings | Disabled by default (`provider: null`); requires `template` when enabled. See "Ephemeral Databases" section below. |
-| `dashboard` | Always-on status surface: `auto_start` (fork the web dashboard daemon on `vxd req`), `auto_open` (try to open a browser), and `port` (web server port). Auto-open is suppressed automatically on SSH sessions, headless Linux hosts, or when stdout is not a TTY. | `auto_start: true`, `auto_open: false`, `port: 8787`. Override per run with `--no-dashboard`. |
+| `dashboard` | Always-on status surface: `auto_start` (fork the web dashboard daemon on `vxd req`), `auto_open` (try to open a browser), `port` (web server port), and `token_ttl_hours` (auto-rotate the bearer token at startup when the token file is older than this; negative disables; manual rotation via `vxd dashboard rotate-token`). Auto-open is suppressed automatically on SSH sessions, headless Linux hosts, or when stdout is not a TTY. | `auto_start: true`, `auto_open: false`, `port: 8787`, `token_ttl_hours: 168`. Override per run with `--no-dashboard`. |
 | `improve` | **Experimental** self-improvement pipeline gate. The daily `vxd-improve` run is a no-op unless `enabled: true` (or `VXD_IMPROVE_ENABLED=1`) — the pipeline has produced 0 code-actionable findings to date and is retained as research scaffolding, not a shipping capability. | `enabled: false` |
 
 ## Ephemeral Databases

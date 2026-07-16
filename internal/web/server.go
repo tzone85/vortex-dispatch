@@ -48,6 +48,10 @@ type Server struct {
 	// single-use bootstrap nonce there with mode 0o600 so other CLI
 	// processes can build a one-shot dashboard URL without scraping logs.
 	BootstrapFile string
+	// TokenTTL, when > 0, rotates the persistent dashboard token at startup
+	// if the token file is older than this duration (dashboard.token_ttl_hours,
+	// default 168h). Zero/negative disables rotation.
+	TokenTTL time.Duration
 
 	// rotator is captured during Start so the loopback /internal/bootstrap
 	// endpoint can mint fresh per-tab nonces against the live auth state.
@@ -112,9 +116,13 @@ func (s *Server) Start(ctx context.Context) error {
 	if tokenPath == "" {
 		tokenPath = defaultDashboardTokenPath()
 	}
-	token, err := LoadOrGenerateToken(tokenPath)
+	token, rotated, err := LoadOrGenerateTokenWithTTL(tokenPath, s.TokenTTL)
 	if err != nil {
 		return fmt.Errorf("dashboard token: %w", err)
+	}
+	if rotated {
+		log.Printf("Dashboard token was older than %s — rotated (previous token is now invalid)", s.TokenTTL)
+		s.emitTokenRotated("ttl_expired", tokenPath)
 	}
 	nonce, err := generateToken()
 	if err != nil {
@@ -301,6 +309,27 @@ func redactTokenForLog(token string) string {
 		return token[:8]
 	}
 	return token
+}
+
+// emitTokenRotated records a DASHBOARD_TOKEN_ROTATED event (best-effort —
+// a store failure logs and never blocks dashboard startup).
+func (s *Server) emitTokenRotated(reason, tokenPath string) {
+	if s.eventStore == nil {
+		return
+	}
+	evt := state.NewEvent(state.EventDashboardTokenRotated, "dashboard", "", map[string]any{
+		"reason":     reason,
+		"token_path": tokenPath,
+	})
+	if err := s.eventStore.Append(evt); err != nil {
+		log.Printf("dashboard token rotation event append: %v", err)
+		return
+	}
+	if s.projStore != nil {
+		if err := s.projStore.Project(evt); err != nil {
+			log.Printf("dashboard token rotation event project: %v", err)
+		}
+	}
 }
 
 // defaultDashboardTokenPath returns the on-disk location of the bearer

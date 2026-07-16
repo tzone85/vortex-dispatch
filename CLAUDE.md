@@ -163,6 +163,7 @@ dashboard:
   auto_start: true   # `vxd req` forks a detached `vxd dashboard --web` daemon (or reuses one running)
   auto_open: false   # off by default; URL still printed. true = also open the user's default browser; auto-detect headless (SSH, no DISPLAY, non-TTY)
   port: 8787         # web server port; daemon pidfile at ~/.vxd/dashboard.pid, bootstrap nonce at ~/.vxd/dashboard.bootstrap (0o600)
+  token_ttl_hours: 168  # rotate ~/.vxd/dashboard.token at startup when older than this (0 = default 168 = 7 days; negative = never); manual: vxd dashboard rotate-token
 improve:
   enabled: false     # EXPERIMENTAL self-improve pipeline gate — vxd-improve is a no-op (exit 0) unless true or VXD_IMPROVE_ENABLED=1
 ```
@@ -179,6 +180,7 @@ improve:
 | `vxd dashboard` | TUI dashboard (`--web` for browser version). Web mode supports `--pidfile` and `--bootstrap-file` for the daemon path. |
 | `vxd dashboard status` | Show whether the always-on dashboard daemon is running (PID, port, URL). |
 | `vxd dashboard stop` | Stop the always-on dashboard daemon (SIGTERM, removes pidfile, idempotent). |
+| `vxd dashboard rotate-token` | Mint a fresh dashboard bearer token (replaces `~/.vxd/dashboard.token`, emits `DASHBOARD_TOKEN_ROTATED`); restart a running daemon to complete the rotation. Tokens also auto-rotate at web-dashboard startup when older than `dashboard.token_ttl_hours` (default 168 = 7 days). |
 | `vxd metrics` | Success rates, timing, escalations, SLA breaches per requirement |
 | `vxd estimate "req"` | Cost estimation with `--quick`, `--json`, `--rate` |
 | `vxd report <req-id>` | Client delivery report (`--html`, `--internal`) |

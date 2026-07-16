@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -38,7 +39,75 @@ func newDashboardCmd() *cobra.Command {
 
 	cmd.AddCommand(newDashboardStatusCmd())
 	cmd.AddCommand(newDashboardStopCmd())
+	cmd.AddCommand(newDashboardRotateTokenCmd())
 	return cmd
+}
+
+// newDashboardRotateTokenCmd mints a fresh dashboard bearer token, replacing
+// ~/.vxd/dashboard.token, and records a DASHBOARD_TOKEN_ROTATED event.
+func newDashboardRotateTokenCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "rotate-token",
+		Short: "Rotate the dashboard bearer token",
+		Long: `Generate a fresh dashboard bearer token and replace the token file
+(~/.vxd/dashboard.token, mode 0o600). The previous token stops working for
+new sessions immediately; a RUNNING dashboard daemon keeps its in-memory
+token until restarted — run 'vxd dashboard stop' and let the next 'vxd req'
+respawn it (or start it manually) to complete the rotation.
+
+Tokens also rotate automatically at web-dashboard startup when the file is
+older than dashboard.token_ttl_hours (default 168 = 7 days).`,
+		RunE:         runDashboardRotateToken,
+		SilenceUsage: true,
+	}
+	cmd.Flags().String("token-file", "", "Override the token file path (default ~/.vxd/dashboard.token)")
+	return cmd
+}
+
+func runDashboardRotateToken(cmd *cobra.Command, _ []string) error {
+	path, _ := cmd.Flags().GetString("token-file")
+	if path == "" {
+		path = web.DefaultTokenPath()
+	}
+	tok, err := web.RotateTokenFile(path)
+	if err != nil {
+		return fmt.Errorf("rotate dashboard token: %w", err)
+	}
+
+	// Audit trail — best-effort: rotation succeeded even if the event store
+	// is unavailable (e.g. outside a project dir).
+	if s, err := loadStores(cmd); err == nil {
+		evt := state.NewEvent(state.EventDashboardTokenRotated, "cli", "", map[string]any{
+			"reason":     "manual",
+			"token_path": path,
+		})
+		if aerr := s.Events.Append(evt); aerr != nil {
+			log.Printf("dashboard token rotation event append: %v", aerr)
+		} else if perr := s.Proj.Project(evt); perr != nil {
+			log.Printf("dashboard token rotation event project: %v", perr)
+		}
+		s.Close()
+	}
+
+	out := cmd.OutOrStdout()
+	fmt.Fprintln(out, "Dashboard token rotated.")
+	fmt.Fprintf(out, "New token: %s\n", tok)
+	fmt.Fprintf(out, "Token file: %s\n", path)
+	fmt.Fprintln(out, "If a dashboard daemon is running, restart it to pick up the new token: vxd dashboard stop")
+	return nil
+}
+
+// dashboardTokenTTL maps dashboard.token_ttl_hours to the rotation duration:
+// 0 selects the 168h (7 day) default; negative disables rotation.
+func dashboardTokenTTL(hours int) time.Duration {
+	switch {
+	case hours == 0:
+		return 168 * time.Hour
+	case hours < 0:
+		return 0
+	default:
+		return time.Duration(hours) * time.Hour
+	}
 }
 
 // newDashboardStatusCmd prints a one-line summary of the running dashboard
@@ -106,6 +175,7 @@ func runDashboard(cmd *cobra.Command, _ []string) error {
 		srv.NoOpen = noOpen
 		srv.Pidfile = pidfile
 		srv.BootstrapFile = bootstrapFile
+		srv.TokenTTL = dashboardTokenTTL(projectRuntimeConfig(s).Dashboard.TokenTTLHours)
 		if err := srv.Start(ctx); err != nil && err != http.ErrServerClosed {
 			return fmt.Errorf("web server: %w", err)
 		}

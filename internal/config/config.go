@@ -419,6 +419,11 @@ type DevDBConfig struct {
 	OnFailure DevDBFailurePolicy `yaml:"on_failure"`
 	Ghost     DevDBGhostConfig   `yaml:"ghost"`
 	Docker    DevDBDockerConfig  `yaml:"docker"`
+	// FunctionDenylistExtra appends operator-supplied function names to the
+	// built-in side-effecting-function denylist enforced by `vxd db sql`
+	// without --write (pg_terminate_backend, lo_import, pg_read_file, …).
+	// Use it to block site-specific functions that write despite READ ONLY.
+	FunctionDenylistExtra []string `yaml:"function_denylist_extra,omitempty"`
 }
 
 // DevDBFailurePolicy controls behaviour when a story finishes with an error.

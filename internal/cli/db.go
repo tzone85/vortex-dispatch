@@ -53,6 +53,19 @@ func dbProviderFor(cmd *cobra.Command) (devdb.Provider, error) {
 	return newDevDBProvider(cfg)
 }
 
+// devdbFunctionDenylistExtra returns the operator-supplied additions to the
+// SQL side-effecting-function denylist. Best-effort: a config-load failure
+// returns nil — the built-in denylist still applies, and the provider load
+// that follows will surface the real error.
+func devdbFunctionDenylistExtra(cmd *cobra.Command) []string {
+	s, err := loadStores(cmd)
+	if err != nil {
+		return nil
+	}
+	defer s.Close()
+	return projectRuntimeConfig(s).DevDB.FunctionDenylistExtra
+}
+
 // findDBByNameOrID looks up a DB from the provider list by name or ID.
 func findDBByNameOrID(dbs []devdb.DB, nameOrID string) (*devdb.DB, error) {
 	for i := range dbs {
@@ -208,15 +221,21 @@ Defense layers (in order):
      transaction and ROLLBACKs at the end, so Postgres itself rejects
      any data-modifying statement that slipped past the static check.
 
-Caveat: a READ ONLY transaction does NOT block side-effecting function
-calls (e.g. pg_terminate_backend, lo_unlink, user functions that write).
-Audit the connection's privileges accordingly.`,
+  4. Known side-effecting functions that READ ONLY does not block
+     (pg_terminate_backend, pg_cancel_backend, lo_import, lo_export,
+     pg_read_file, pg_ls_dir, pg_reload_conf, pg_stat_file) are rejected
+     without --write. Extend the list per project via
+     devdb.function_denylist_extra in vxd.yaml.
+
+Caveat: user-defined functions that write are NOT auto-detected — add
+them to devdb.function_denylist_extra and audit the connection's
+privileges accordingly.`,
 		Args:         cobra.ExactArgs(2),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			writeFlag, _ := cmd.Flags().GetBool("write")
 			query := args[1]
-			if err := sqlsafety.ValidateSQLForReadOnly(query, writeFlag); err != nil {
+			if err := sqlsafety.ValidateSQL(query, writeFlag, devdbFunctionDenylistExtra(cmd)); err != nil {
 				return err
 			}
 

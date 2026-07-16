@@ -143,3 +143,98 @@ func TestStripSQLCommentsAndStrings(t *testing.T) {
 		}
 	}
 }
+
+// TestSQLSafety_FunctionDenylist pins the side-effecting-function denylist:
+// every built-in denied function is rejected in read-only mode, matching is
+// case-insensitive and whitespace-invariant, comment ambushes reassemble and
+// are caught, and near-miss identifiers do NOT false-positive.
+func TestSQLSafety_FunctionDenylist(t *testing.T) {
+	denied := []struct {
+		name  string
+		query string
+	}{
+		{"pg_terminate_backend", "SELECT pg_terminate_backend(1234)"},
+		{"pg_cancel_backend", "SELECT pg_cancel_backend(1234)"},
+		{"lo_import", "SELECT lo_import('/etc/passwd')"},
+		{"lo_export", "SELECT lo_export(12345, '/tmp/out')"},
+		{"pg_read_file", "SELECT pg_read_file('postgresql.conf')"},
+		{"pg_ls_dir", "SELECT pg_ls_dir('.')"},
+		{"pg_reload_conf", "SELECT pg_reload_conf()"},
+		{"pg_stat_file", "SELECT pg_stat_file('postgresql.conf')"},
+		{"case-insensitive", "SELECT PG_TERMINATE_BACKEND(1)"},
+		{"mixed-case", "SELECT Pg_Terminate_Backend(1)"},
+		{"whitespace before paren", "SELECT pg_terminate_backend   (1)"},
+		{"newline before paren", "SELECT pg_terminate_backend\n(1)"},
+		{"schema-qualified", "SELECT pg_catalog.pg_terminate_backend(1)"},
+		{"comment ambush reassembles", "SELECT pg_terminate/**/_backend(1)"},
+		{"nested in expression", "SELECT 1 WHERE pg_terminate_backend(pid) IS NOT NULL"},
+	}
+	for _, tt := range denied {
+		t.Run("denied/"+tt.name, func(t *testing.T) {
+			err := ValidateSQL(tt.query, false, nil)
+			if err == nil {
+				t.Fatalf("ValidateSQL(%q, false) = nil, want denylist rejection", tt.query)
+			}
+			if !strings.Contains(err.Error(), "side-effecting function") {
+				t.Errorf("error %v does not mention side-effecting function", err)
+			}
+		})
+	}
+
+	allowed := []struct {
+		name  string
+		query string
+	}{
+		{"prefix identifier is a different function", "SELECT my_pg_terminate_backend(1)"},
+		{"column named like function, no call", "SELECT pg_terminate_backend FROM audit_log"},
+		{"quoted string mention", "SELECT * FROM logs WHERE msg = 'pg_terminate_backend(1)'"},
+		{"comment mention", "SELECT 1 -- pg_terminate_backend(1)"},
+		{"plain select", "SELECT id, name FROM users"},
+	}
+	for _, tt := range allowed {
+		t.Run("allowed/"+tt.name, func(t *testing.T) {
+			if err := ValidateSQL(tt.query, false, nil); err != nil {
+				t.Errorf("ValidateSQL(%q, false) = %v, want nil", tt.query, err)
+			}
+		})
+	}
+
+	// --write skips the denylist — the operator explicitly opted in.
+	if err := ValidateSQL("SELECT pg_terminate_backend(1)", true, nil); err != nil {
+		t.Errorf("ValidateSQL with --write = %v, want nil (denylist skipped)", err)
+	}
+}
+
+// TestSQLSafety_DenylistExtraConfig pins the operator-extended denylist
+// (devdb.function_denylist_extra): extra names are denied with the same
+// call-shape matching, and blank entries are ignored.
+func TestSQLSafety_DenylistExtraConfig(t *testing.T) {
+	extra := []string{"dangerous_write_fn", "  audit_purge  ", ""}
+
+	for _, q := range []string{
+		"SELECT dangerous_write_fn(1)",
+		"SELECT DANGEROUS_WRITE_FN (1)",
+		"SELECT audit_purge()",
+	} {
+		if err := ValidateSQL(q, false, extra); err == nil {
+			t.Errorf("ValidateSQL(%q) = nil, want extra-denylist rejection", q)
+		}
+	}
+
+	// Non-listed functions still pass; extra list doesn't over-match.
+	for _, q := range []string{
+		"SELECT count(*) FROM t",
+		"SELECT not_dangerous_write_fn2(1)",
+		"SELECT dangerous_write_fn_v2(1)",
+	} {
+		if err := ValidateSQL(q, false, extra); err != nil {
+			t.Errorf("ValidateSQL(%q) = %v, want nil", q, err)
+		}
+	}
+
+	// ContainsDeniedFunction reports which function fired.
+	fn, hit := ContainsDeniedFunction("SELECT audit_purge()", extra)
+	if !hit || fn != "audit_purge" {
+		t.Errorf("ContainsDeniedFunction = (%q, %v), want (audit_purge, true)", fn, hit)
+	}
+}

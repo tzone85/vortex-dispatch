@@ -90,7 +90,8 @@ func (s *Server) Start(ctx context.Context) error {
 		BootstrapNonce: nonce,
 	})(s.Handler())
 
-	s.httpServer = &http.Server{Handler: handler}
+	// ReadHeaderTimeout bounds header dribble (Slowloris defence, gosec G112).
+	s.httpServer = &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 
 	url := fmt.Sprintf("http://%s", addr)
 	browserURL := fmt.Sprintf("%s/?%s=%s", url, web.NonceQueryParam, nonce)

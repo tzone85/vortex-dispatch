@@ -2,7 +2,9 @@ package sqlsafety
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
+	"sync"
 )
 
 // QueryKind classifies the leading statement of a SQL query for safety
@@ -29,14 +31,80 @@ const (
 // Even for the keywords below, the read-only path executes inside a
 // `BEGIN READ ONLY ... ROLLBACK` transaction so Postgres enforces the
 // promise at the protocol level. Side-effecting *function calls* (e.g.
-// `SELECT pg_terminate_backend(...)`) are NOT blocked by READ ONLY;
-// the --write flag and SQL parser don't catch those either, and the
+// `SELECT pg_terminate_backend(...)`) are NOT blocked by READ ONLY —
+// the known dangerous ones are rejected statically instead (see
+// defaultFunctionDenylist); anything not on the denylist (user-defined
+// functions that write) remains the operator's responsibility, and the
 // command's Long help calls this out explicitly.
 var readOnlyLeadingKeywords = map[string]struct{}{
 	"SELECT": {},
 	"SHOW":   {},
 	"VALUES": {},
 	"TABLE":  {}, // TABLE foo; is shorthand for SELECT * FROM foo
+}
+
+// defaultFunctionDenylist names Postgres functions with side effects that a
+// READ ONLY transaction does NOT block: session termination, large-object
+// and server-filesystem access, and config reload. Calling any of these from
+// `vxd db sql` without --write is rejected by the static classifier — on a
+// shared devdb host they let one local user disrupt or read another user's
+// session even though the transaction never "writes".
+var defaultFunctionDenylist = []string{
+	"pg_terminate_backend",
+	"pg_cancel_backend",
+	"lo_import",
+	"lo_export",
+	"pg_read_file",
+	"pg_ls_dir",
+	"pg_reload_conf",
+	"pg_stat_file",
+}
+
+// denyPatternCache holds compiled per-function regexes. Patterns are tiny and
+// the set is small; the cache just avoids recompiling on every CLI query.
+var (
+	denyPatternMu    sync.Mutex
+	denyPatternCache = map[string]*regexp.Regexp{}
+)
+
+// denyPattern returns a case-insensitive pattern matching a *call* of fn:
+// the function name as a whole identifier (so `my_pg_terminate_backend(` does
+// not match, while `pg_catalog.pg_terminate_backend (` does) followed by an
+// opening parenthesis with optional whitespace.
+func denyPattern(fn string) *regexp.Regexp {
+	denyPatternMu.Lock()
+	defer denyPatternMu.Unlock()
+	if re, ok := denyPatternCache[fn]; ok {
+		return re
+	}
+	re := regexp.MustCompile(`(?i)(^|[^a-zA-Z0-9_])` + regexp.QuoteMeta(strings.ToLower(fn)) + `[\s]*\(`)
+	denyPatternCache[fn] = re
+	return re
+}
+
+// ContainsDeniedFunction reports the first denied side-effecting function
+// called in the query, checking the built-in denylist plus any extra names
+// supplied by the operator (devdb.function_denylist_extra). Comments and
+// string literals are stripped first, so a `pg_terminate/**/_backend(...)`
+// comment ambush reassembles into the plain call and is caught, while a
+// quoted mention ('pg_terminate_backend') does not false-positive.
+func ContainsDeniedFunction(query string, extra []string) (string, bool) {
+	stripped := stripSQLCommentsAndStrings(query)
+	for _, fn := range defaultFunctionDenylist {
+		if denyPattern(fn).MatchString(stripped) {
+			return fn, true
+		}
+	}
+	for _, fn := range extra {
+		fn = strings.TrimSpace(fn)
+		if fn == "" {
+			continue
+		}
+		if denyPattern(fn).MatchString(stripped) {
+			return fn, true
+		}
+	}
+	return "", false
 }
 
 // IsMultiStatement reports whether the query contains more than one
@@ -77,6 +145,16 @@ func ClassifyQuery(query string) QueryKind {
 // in that case multi-statement is still rejected so a typo can't silently
 // run extra statements, but the leading-keyword check is skipped.
 func ValidateSQLForReadOnly(query string, writeFlag bool) error {
+	return ValidateSQL(query, writeFlag, nil)
+}
+
+// ValidateSQL is ValidateSQLForReadOnly plus the side-effecting-function
+// denylist: in read-only mode (writeFlag=false) a call to any function in
+// defaultFunctionDenylist or extraDeny is rejected, because BEGIN READ ONLY
+// does not stop pg_terminate_backend / lo_import / pg_read_file-class calls.
+// Operators explicitly opting into mutations with --write skip the denylist,
+// same as they skip the leading-keyword check.
+func ValidateSQL(query string, writeFlag bool, extraDeny []string) error {
 	if strings.TrimSpace(query) == "" {
 		return fmt.Errorf("query is empty")
 	}
@@ -85,6 +163,9 @@ func ValidateSQLForReadOnly(query string, writeFlag bool) error {
 	}
 	if writeFlag {
 		return nil
+	}
+	if fn, hit := ContainsDeniedFunction(query, extraDeny); hit {
+		return fmt.Errorf("query calls side-effecting function %s(), which READ ONLY transactions do not block; re-run with --write if this is intentional", fn)
 	}
 	switch ClassifyQuery(query) {
 	case QueryReadOnly:

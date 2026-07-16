@@ -148,6 +148,7 @@ notify:
 devdb:  # planned — design spec complete, impl in SP1–SP6 PRs
   provider: null  # ghost | docker | null (default: null = disabled)
   template: ""    # source DB to fork from (required when provider != null)
+  function_denylist_extra: []  # extra side-effecting function names `vxd db sql` rejects without --write (adds to built-in pg_terminate_backend/lo_import/... list)
   on_failure:
     keep_db: false
     retain_hours: 24
@@ -219,7 +220,7 @@ dashboard:
 | `vxd db` | Manage ephemeral story databases (devdb). Provider set via `devdb.provider` in vxd.yaml. |
 | `vxd db list` | List all DBs known to the devdb provider |
 | `vxd db connect <db-name>` | Print psql connect command + DSN for a DB (alias: `psql`) |
-| `vxd db sql <db-name> "<query>"` | Run a one-shot SQL query against a DB (read-only by default; pass `--write` to allow INSERT/UPDATE/DELETE/DDL; multi-statement queries are always rejected) |
+| `vxd db sql <db-name> "<query>"` | Run a one-shot SQL query against a DB (read-only by default; pass `--write` to allow INSERT/UPDATE/DELETE/DDL; multi-statement queries are always rejected; known side-effecting functions — `pg_terminate_backend`, `pg_cancel_backend`, `lo_import`, `lo_export`, `pg_read_file`, `pg_ls_dir`, `pg_reload_conf`, `pg_stat_file` — are denied without `--write`, extendable via `devdb.function_denylist_extra`) |
 | `vxd db schema <db-name>` | Print agent-friendly schema dump for a DB |
 | `vxd db delete <db-name>` | Delete a DB permanently (requires `--confirm`) |
 | `vxd db gc` | Run orphan recovery — scan for stale DBs and release old ones |

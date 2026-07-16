@@ -147,3 +147,33 @@ func TestConfig_RepoPath(t *testing.T) {
 		t.Errorf("expected RepoPath %q, got %q", cwd, cfg.RepoPath)
 	}
 }
+
+// TestImproveCronNoOpWhenDisabled pins the pipeline gate the vxd-improve
+// binary consults before doing anything: default (no env, config false) is
+// disabled; improve.enabled=true opts in; the VXD_IMPROVE_ENABLED env var
+// overrides the config in both directions.
+func TestImproveCronNoOpWhenDisabled(t *testing.T) {
+	cases := []struct {
+		name       string
+		env        string
+		cfgEnabled bool
+		want       bool
+	}{
+		{"default: disabled", "", false, false},
+		{"config opt-in", "", true, true},
+		{"env enables over config false", "1", false, true},
+		{"env true", "true", false, true},
+		{"env YES with spaces", "  YES ", false, true},
+		{"env disables over config true", "0", true, false},
+		{"env false", "false", true, false},
+		{"garbage env falls back to config", "banana", false, false},
+		{"garbage env falls back to config true", "banana", true, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := improve.PipelineEnabled(tc.env, tc.cfgEnabled); got != tc.want {
+				t.Errorf("PipelineEnabled(%q, %v) = %v, want %v", tc.env, tc.cfgEnabled, got, tc.want)
+			}
+		})
+	}
+}

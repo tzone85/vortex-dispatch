@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 // Config holds all configuration for the self-improvement engine.
@@ -135,4 +136,20 @@ func LoadConfig() (Config, error) {
 		MinHourlyRate:        minHourly,
 		OpportunityKeywords:  defaultKeywords,
 	}, nil
+}
+
+// PipelineEnabled reports whether the self-improvement pipeline may run.
+// The pipeline is experimental and OFF by default. Precedence:
+//
+//  1. VXD_IMPROVE_ENABLED env — explicit "1"/"true"/"yes" enables,
+//     "0"/"false"/"no" disables (overrides config either way).
+//  2. The vxd.yaml improve.enabled flag (cfgEnabled), default false.
+func PipelineEnabled(envVal string, cfgEnabled bool) bool {
+	switch strings.ToLower(strings.TrimSpace(envVal)) {
+	case "1", "true", "yes":
+		return true
+	case "0", "false", "no":
+		return false
+	}
+	return cfgEnabled
 }

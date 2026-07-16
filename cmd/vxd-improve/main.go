@@ -12,13 +12,39 @@ import (
 	"sort"
 	"time"
 
+	"github.com/tzone85/vortex-dispatch/internal/config"
 	"github.com/tzone85/vortex-dispatch/internal/improve"
 	"github.com/tzone85/vortex-dispatch/internal/llm"
 )
 
+// improveEnabledFromVXDConfig resolves the experimental-pipeline gate:
+// VXD_IMPROVE_ENABLED env wins, else improve.enabled from the repo vxd.yaml
+// or global ~/.vxd/config.yaml, else the default (disabled).
+func improveEnabledFromVXDConfig() bool {
+	cfgEnabled := config.DefaultConfig().Improve.Enabled
+	if c, err := config.LoadFromFile("vxd.yaml"); err == nil {
+		cfgEnabled = c.Improve.Enabled
+	} else if home := os.Getenv("HOME"); home != "" {
+		if c, err := config.LoadFromFile(filepath.Join(home, ".vxd", "config.yaml")); err == nil {
+			cfgEnabled = c.Improve.Enabled
+		}
+	}
+	return improve.PipelineEnabled(os.Getenv("VXD_IMPROVE_ENABLED"), cfgEnabled)
+}
+
 func main() {
 	dryRun := flag.Bool("dry-run", false, "research + analyze + email, but don't create branches or PRs")
 	flag.Parse()
+
+	// The self-improvement pipeline is EXPERIMENTAL and opt-in (WEAKNESSES.md
+	// P0-01): it has produced 0 code-actionable findings to date and its email
+	// delivery has never succeeded. Gate BEFORE improve.LoadConfig so a
+	// disabled run exits 0 even on a host without FIRECRAWL/RESEND/GOOGLE_AI
+	// keys configured.
+	if !improveEnabledFromVXDConfig() {
+		fmt.Println("improvement pipeline disabled; set improve.enabled=true in vxd.yaml to opt in")
+		os.Exit(0)
+	}
 
 	cfg, err := improve.LoadConfig()
 	if err != nil {

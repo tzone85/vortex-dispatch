@@ -688,12 +688,18 @@ func buildQAConfig(cfg config.Config, projectDir, repoDir string) engine.QAConfi
 	}
 	for _, sc := range cfg.QA.SuccessCriteria {
 		qaCfg.SuccessCriteria = append(qaCfg.SuccessCriteria, engine.Criterion{
-			Kind:    engine.CriterionKind(sc.Kind),
-			Value:   sc.Value,
-			Path:    sc.Path,
-			Message: sc.Message,
+			Kind:           engine.CriterionKind(sc.Kind),
+			Value:          sc.Value,
+			Path:           sc.Path,
+			Message:        sc.Message,
+			Command:        sc.Command,
+			CommandList:    sc.CommandList,
+			SQL:            sc.SQL,
+			ExpectedRows:   sc.ExpectedRows,
+			SchemaBaseline: sc.SchemaBaseline,
 		})
 	}
+	qaCfg.StrictShellCommands = cfg.Security.StrictShellCommands
 	return qaCfg
 }
 

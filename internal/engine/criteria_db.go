@@ -33,36 +33,54 @@ func readDatabaseURL(workDir string) string {
 	return ""
 }
 
-// evaluateMigrationSucceeds runs the configured command in workDir with
-// DATABASE_URL set from .vxd-db/connect.env. Passes if exit code is zero.
-func evaluateMigrationSucceeds(c Criterion, workDir string) CriterionResult {
-	if c.Command == "" {
-		return CriterionResult{Criterion: c, Passed: false,
-			Detail: "migration_succeeds requires `command` field"}
+// evaluateMigrationSucceeds runs the configured command (or command_list
+// entries, sequentially) in workDir with DATABASE_URL set from
+// .vxd-db/connect.env. Passes if every exit code is zero. strictShell is the
+// operator's security.strict_shell_commands setting — in strict mode any
+// shell chaining/redirection metacharacter is rejected and multi-step work
+// must use command_list.
+func evaluateMigrationSucceeds(c Criterion, workDir string, strictShell bool) CriterionResult {
+	commands := c.CommandList
+	if c.Command != "" {
+		if len(c.CommandList) > 0 {
+			return CriterionResult{Criterion: c, Passed: false,
+				Detail: "migration_succeeds: `command` and `command_list` are mutually exclusive"}
+		}
+		commands = []string{c.Command}
 	}
-	if err := ValidateConfigShellCommand(c.Command); err != nil {
+	if len(commands) == 0 {
 		return CriterionResult{Criterion: c, Passed: false,
-			Detail: fmt.Sprintf("rejected unsafe command pattern: %v", err)}
+			Detail: "migration_succeeds requires `command` or `command_list` field"}
+	}
+	for _, entry := range commands {
+		if err := ValidateConfigShellCommandMode(entry, strictShell); err != nil {
+			return CriterionResult{Criterion: c, Passed: false,
+				Detail: fmt.Sprintf("rejected unsafe command pattern: %v", err)}
+		}
 	}
 	dsn := readDatabaseURL(workDir)
 	if dsn == "" {
 		return CriterionResult{Criterion: c, Passed: false,
 			Detail: "no .vxd-db/connect.env in worktree — devdb not provisioned for this story"}
 	}
-	cmd := shellexec.Command(c.Command)
-	cmd.Dir = workDir
-	// Don't hand the agent's migration command our full environment — it holds
-	// ANTHROPIC_API_KEY, GOOGLE_AI_API_KEY, RESEND/FIRECRAWL keys, VAULT_TOKEN,
-	// etc. Migration tools commonly echo their env on error, and that output
-	// flows into CriterionResult.Detail → the dashboard. Pass a filtered env.
-	cmd.Env = append(sanitizedEnv(), "DATABASE_URL="+dsn)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return CriterionResult{Criterion: c, Passed: false,
-			Detail: fmt.Sprintf("migration command failed: %v: %s", err, strings.TrimSpace(string(out)))}
+	var lastOut string
+	for _, entry := range commands {
+		cmd := shellexec.Command(entry)
+		cmd.Dir = workDir
+		// Don't hand the agent's migration command our full environment — it holds
+		// ANTHROPIC_API_KEY, GOOGLE_AI_API_KEY, RESEND/FIRECRAWL keys, VAULT_TOKEN,
+		// etc. Migration tools commonly echo their env on error, and that output
+		// flows into CriterionResult.Detail → the dashboard. Pass a filtered env.
+		cmd.Env = append(sanitizedEnv(), "DATABASE_URL="+dsn)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return CriterionResult{Criterion: c, Passed: false,
+				Detail: fmt.Sprintf("migration command failed (%q): %v: %s", entry, err, strings.TrimSpace(string(out)))}
+		}
+		lastOut = strings.TrimSpace(string(out))
 	}
 	return CriterionResult{Criterion: c, Passed: true,
-		Detail: fmt.Sprintf("migration command succeeded: %s", strings.TrimSpace(string(out)))}
+		Detail: fmt.Sprintf("migration command succeeded: %s", lastOut)}
 }
 
 // evaluateSchemaChanged dumps the current schema and compares against either

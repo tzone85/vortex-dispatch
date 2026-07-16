@@ -33,6 +33,11 @@ type Criterion struct {
 
 	// SP5 additions — DB-touching criteria.
 	Command        string `yaml:"command,omitempty" json:"command,omitempty"`                     // migration_succeeds: shell command to run
+	// CommandList is the strict-mode-friendly alternative to Command for
+	// migration_succeeds: entries run sequentially (all must succeed), so
+	// multi-step work needs no shell chaining metacharacters. Mutually
+	// exclusive with Command.
+	CommandList    []string `yaml:"command_list,omitempty" json:"command_list,omitempty"`
 	SQL            string `yaml:"sql,omitempty" json:"sql,omitempty"`                             // sql_query_returns: query to execute
 	ExpectedRows   *int   `yaml:"expected_rows,omitempty" json:"expected_rows,omitempty"`          // sql_query_returns: optional exact row count
 	SchemaBaseline string `yaml:"schema_baseline,omitempty" json:"schema_baseline,omitempty"`     // schema_changed: path to baseline file
@@ -47,10 +52,19 @@ type CriterionResult struct {
 
 // EvaluateCriteria checks all criteria against the given context.
 // workDir is the worktree path, output is the combined agent output.
+// Command-bearing criteria are validated in the default (non-strict) mode;
+// use EvaluateCriteriaWithMode to honour security.strict_shell_commands.
 func EvaluateCriteria(criteria []Criterion, workDir, output string) []CriterionResult {
+	return EvaluateCriteriaWithMode(criteria, workDir, output, false)
+}
+
+// EvaluateCriteriaWithMode is EvaluateCriteria with the operator-selected
+// shell-command strictness (security.strict_shell_commands) applied to
+// command-bearing criteria.
+func EvaluateCriteriaWithMode(criteria []Criterion, workDir, output string, strictShell bool) []CriterionResult {
 	results := make([]CriterionResult, 0, len(criteria))
 	for _, c := range criteria {
-		results = append(results, evaluateOne(c, workDir, output))
+		results = append(results, evaluateOne(c, workDir, output, strictShell))
 	}
 	return results
 }
@@ -80,7 +94,7 @@ func CriteriaFailureSummary(results []CriterionResult) string {
 	return strings.Join(parts, "\n")
 }
 
-func evaluateOne(c Criterion, workDir, output string) CriterionResult {
+func evaluateOne(c Criterion, workDir, output string, strictShell bool) CriterionResult {
 	switch c.Kind {
 	case CriterionOutputContains:
 		passed := strings.Contains(output, c.Value)
@@ -161,7 +175,7 @@ func evaluateOne(c Criterion, workDir, output string) CriterionResult {
 		}
 
 	case CriterionMigrationSucceeds:
-		return evaluateMigrationSucceeds(c, workDir)
+		return evaluateMigrationSucceeds(c, workDir, strictShell)
 
 	case CriterionSchemaChanged:
 		return evaluateSchemaChanged(c, workDir)

@@ -21,18 +21,11 @@ import (
 // re-compiled this regex on every call.
 var metricLastFloatRe = regexp.MustCompile(`-?\d+(?:\.\d+)?`)
 
-// validateMetricCommand rejects YAML-supplied metric commands containing
-// command-substitution patterns. Mirrors engine.ValidateConfigShell-
-// Command but avoids the cross-package import (engine depends on this
-// package transitively in some paths). Kept here as a small duplicate
-// rather than introduce an import cycle risk.
-func validateMetricCommand(cmd string) error {
-	for _, seq := range []string{"$(", "`", "$(("} {
-		if strings.Contains(cmd, seq) {
-			return fmt.Errorf("config-supplied command contains %q; rewrite to avoid embedded expressions", seq)
-		}
-	}
-	return nil
+// validateMetricCommand rejects YAML-supplied metric commands via the
+// canonical config.ValidateShellCommand (command substitution always;
+// pipes/chaining/redirection too when security.strict_shell_commands is on).
+func validateMetricCommand(cmd string, strict bool) error {
+	return config.ValidateShellCommand(cmd, strict)
 }
 
 // Tiebreaker is the LLM-based judge invoked when two scores fall within
@@ -47,6 +40,9 @@ type Tiebreaker interface {
 type MetricHarness struct {
 	Metric     config.AutoresearchMetric
 	Tiebreaker Tiebreaker
+	// StrictShellCommands mirrors security.strict_shell_commands for the
+	// metric command validation.
+	StrictShellCommands bool
 }
 
 // Measure runs the metric command in the given worktree, returning a Score.
@@ -56,7 +52,7 @@ func (h *MetricHarness) Measure(ctx context.Context, worktree string, baseline f
 	if h.Metric.Command == "" {
 		return Score{}, errors.New("metric command is empty")
 	}
-	if err := validateMetricCommand(h.Metric.Command); err != nil {
+	if err := validateMetricCommand(h.Metric.Command, h.StrictShellCommands); err != nil {
 		return Score{}, fmt.Errorf("metric command rejected: %w", err)
 	}
 	cmd := shellexec.CommandContext(ctx, h.Metric.Command)

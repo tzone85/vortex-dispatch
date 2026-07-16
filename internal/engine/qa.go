@@ -73,6 +73,10 @@ type QAConfig struct {
 	BuildCommand    string
 	TestCommand     string
 	SuccessCriteria []Criterion
+	// StrictShellCommands mirrors security.strict_shell_commands: command-
+	// bearing success criteria reject shell chaining/redirection
+	// metacharacters and must use command_list for multi-step work.
+	StrictShellCommands bool
 }
 
 // QA runs lint, build, and test commands against a worktree directory and
@@ -121,7 +125,7 @@ func (q *QA) Run(ctx context.Context, storyID, worktreePath string) (QAResult, e
 			agentOutput = string(data)
 		}
 
-		criteriaResults := EvaluateCriteria(q.config.SuccessCriteria, worktreePath, agentOutput)
+		criteriaResults := EvaluateCriteriaWithMode(q.config.SuccessCriteria, worktreePath, agentOutput, q.config.StrictShellCommands)
 		for _, cr := range criteriaResults {
 			result.Checks = append(result.Checks, QACheckResult{
 				Name:   fmt.Sprintf("criterion:%s", cr.Criterion.Kind),

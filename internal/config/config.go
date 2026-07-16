@@ -250,6 +250,14 @@ type SecurityConfig struct {
 	// KBPath overrides where the knowledge base persists. Empty ⇒
 	// <state_dir>/security/knowledge.json.
 	KBPath string `yaml:"kb_path,omitempty"`
+	// StrictShellCommands hardens ValidateShellCommand for config-supplied
+	// command strings (qa.success_criteria commands, autoresearch metric
+	// command): in addition to command substitution, it rejects pipes,
+	// `;`/`&&`/`||` chaining, background `&`, and redirection. Multi-step
+	// work is expressed via `command_list` instead. Default false for
+	// backward compatibility — single-operator installs legitimately pipe
+	// QA output. SaaS-hosted / multi-tenant deploys should set true.
+	StrictShellCommands bool `yaml:"strict_shell_commands,omitempty"`
 }
 
 // SuccessCriterion defines a declarative QA check.
@@ -258,6 +266,21 @@ type SuccessCriterion struct {
 	Value   string `yaml:"value,omitempty"`
 	Path    string `yaml:"path,omitempty"`
 	Message string `yaml:"message,omitempty"`
+
+	// Command is the shell command for migration_succeeds. Subject to
+	// ValidateShellCommand in the mode selected by
+	// security.strict_shell_commands.
+	Command string `yaml:"command,omitempty"`
+	// CommandList is the strict-mode-friendly alternative to Command:
+	// VXD runs the entries sequentially (all must succeed), so multi-step
+	// work needs no shell chaining metacharacters in the YAML. Mutually
+	// exclusive with Command.
+	CommandList []string `yaml:"command_list,omitempty"`
+	// SQL, ExpectedRows, SchemaBaseline configure the DB-touching criteria
+	// (sql_query_returns, schema_changed) shipped in SP5.
+	SQL            string `yaml:"sql,omitempty"`
+	ExpectedRows   *int   `yaml:"expected_rows,omitempty"`
+	SchemaBaseline string `yaml:"schema_baseline,omitempty"`
 }
 
 // AutoresearchConfig configures the per-repo autoresearch experiment harness.
@@ -576,11 +599,29 @@ func (c Config) Validate() error {
 		"output_contains": true, "output_not_contains": true,
 		"file_exists": true, "file_contains": true,
 		"file_not_empty": true, "exit_code_zero": true,
+		"migration_succeeds": true, "schema_changed": true, "sql_query_returns": true,
 	}
 	for i, sc := range c.QA.SuccessCriteria {
 		if !validCriterionKinds[sc.Kind] {
-			return fmt.Errorf("qa.success_criteria[%d].kind must be one of output_contains, output_not_contains, file_exists, file_contains, file_not_empty, exit_code_zero; got %q", i, sc.Kind)
+			return fmt.Errorf("qa.success_criteria[%d].kind must be one of output_contains, output_not_contains, file_exists, file_contains, file_not_empty, exit_code_zero, migration_succeeds, schema_changed, sql_query_returns; got %q", i, sc.Kind)
 		}
+		if sc.Command != "" && len(sc.CommandList) > 0 {
+			return fmt.Errorf("qa.success_criteria[%d]: command and command_list are mutually exclusive", i)
+		}
+		// Fail fast at load time on commands the runtime would reject —
+		// a copy-pasted hostile vxd.yaml should not survive `vxd config
+		// validate`, let alone reach dispatch.
+		if err := ValidateShellCommand(sc.Command, c.Security.StrictShellCommands); err != nil {
+			return fmt.Errorf("qa.success_criteria[%d].command: %w", i, err)
+		}
+		for j, entry := range sc.CommandList {
+			if err := ValidateShellCommand(entry, c.Security.StrictShellCommands); err != nil {
+				return fmt.Errorf("qa.success_criteria[%d].command_list[%d]: %w", i, j, err)
+			}
+		}
+	}
+	if err := ValidateShellCommand(c.Autoresearch.Metric.Command, c.Security.StrictShellCommands); err != nil {
+		return fmt.Errorf("autoresearch.metric.command: %w", err)
 	}
 
 	if err := c.Autoresearch.validate(); err != nil {

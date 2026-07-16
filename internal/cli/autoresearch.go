@@ -176,7 +176,8 @@ func buildLiveCoordinator(repoDir string, cfg config.Config) (*autoresearch.Coor
 	}
 
 	metric := &autoresearch.MetricHarness{
-		Metric: cfg.Autoresearch.Metric,
+		Metric:              cfg.Autoresearch.Metric,
+		StrictShellCommands: cfg.Security.StrictShellCommands,
 		Tiebreaker: &autoresearch.LLMTiebreaker{
 			Client: ll,
 			Model:  model,

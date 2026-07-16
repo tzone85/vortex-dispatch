@@ -1,8 +1,7 @@
 package engine
 
 import (
-	"fmt"
-	"strings"
+	"github.com/tzone85/vortex-dispatch/internal/config"
 )
 
 // ValidateConfigShellCommand rejects YAML-supplied shell-command strings
@@ -27,21 +26,17 @@ import (
 //
 // Anything legitimate inside `$(…)` can be rewritten as an env var
 // expansion or a wrapper script committed to the repo.
+//
+// The canonical pattern list lives in config.ValidateShellCommand (config is
+// imported by both engine and autoresearch, so the single source avoids an
+// import cycle). Strict mode (security.strict_shell_commands) additionally
+// rejects pipes/chaining/redirection — see ValidateConfigShellCommandMode.
 func ValidateConfigShellCommand(cmd string) error {
-	if cmd == "" {
-		return nil
-	}
-	patterns := []struct {
-		seq, name string
-	}{
-		{"$(", "POSIX command substitution `$(...)`"},
-		{"`", "backtick command substitution"},
-		{"$((", "arithmetic expansion"},
-	}
-	for _, p := range patterns {
-		if strings.Contains(cmd, p.seq) {
-			return fmt.Errorf("config-supplied command contains %s; rewrite to avoid embedded expressions", p.name)
-		}
-	}
-	return nil
+	return config.ValidateShellCommand(cmd, false)
+}
+
+// ValidateConfigShellCommandMode is ValidateConfigShellCommand with the
+// operator-selected strictness (security.strict_shell_commands).
+func ValidateConfigShellCommandMode(cmd string, strict bool) error {
+	return config.ValidateShellCommand(cmd, strict)
 }

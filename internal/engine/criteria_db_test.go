@@ -123,3 +123,79 @@ func TestEvaluate_SchemaChanged_NoDevDB(t *testing.T) {
 		t.Errorf("expected 'devdb not provisioned' in detail, got: %s", results[0].Detail)
 	}
 }
+
+// --- command_list + strict shell mode (WEAKNESSES.md P0-03) ---
+
+// TestEvaluate_MigrationSucceeds_CommandListRunsSequentially pins the
+// command_list alternative: entries run in order, all must pass, and a
+// failing entry reports which one failed.
+func TestEvaluate_MigrationSucceeds_CommandListRunsSequentially(t *testing.T) {
+	workDir := setupVXDDB(t, "postgres://u:p@localhost/x")
+	c := engine.Criterion{
+		Kind:        engine.CriterionMigrationSucceeds,
+		CommandList: []string{"echo step-one > seq.txt", "echo step-two"},
+	}
+	results := engine.EvaluateCriteriaWithMode([]engine.Criterion{c}, workDir, "", false)
+	if !results[0].Passed {
+		t.Fatalf("command_list should pass: %s", results[0].Detail)
+	}
+	// First entry ran (side effect exists) and second entry's output is the
+	// reported detail — i.e. they ran in order.
+	if _, err := os.Stat(filepath.Join(workDir, "seq.txt")); err != nil {
+		t.Error("first command_list entry did not run")
+	}
+	if !strings.Contains(results[0].Detail, "step-two") {
+		t.Errorf("detail should carry the last entry's output, got: %s", results[0].Detail)
+	}
+
+	// A failing middle entry fails the criterion and names the entry.
+	c.CommandList = []string{"echo ok", "false", "echo never-reached"}
+	results = engine.EvaluateCriteriaWithMode([]engine.Criterion{c}, workDir, "", false)
+	if results[0].Passed {
+		t.Fatal("failing entry must fail the criterion")
+	}
+	if !strings.Contains(results[0].Detail, `"false"`) {
+		t.Errorf("detail should name the failing entry, got: %s", results[0].Detail)
+	}
+}
+
+// TestEvaluate_MigrationSucceeds_StrictShellMode pins runtime strict-mode
+// enforcement: chained commands are rejected before execution, command_list
+// entries with metacharacters too, and command+command_list is ambiguous.
+func TestEvaluate_MigrationSucceeds_StrictShellMode(t *testing.T) {
+	workDir := setupVXDDB(t, "postgres://u:p@localhost/x")
+
+	chained := engine.Criterion{
+		Kind:    engine.CriterionMigrationSucceeds,
+		Command: "echo a && echo b",
+	}
+	results := engine.EvaluateCriteriaWithMode([]engine.Criterion{chained}, workDir, "", true)
+	if results[0].Passed || !strings.Contains(results[0].Detail, "rejected unsafe command pattern") {
+		t.Fatalf("strict mode must reject chained command, got: %+v", results[0])
+	}
+
+	// Same command passes in the default mode (backward compat).
+	results = engine.EvaluateCriteriaWithMode([]engine.Criterion{chained}, workDir, "", false)
+	if !results[0].Passed {
+		t.Fatalf("default mode must keep accepting chained commands: %s", results[0].Detail)
+	}
+
+	poisonedList := engine.Criterion{
+		Kind:        engine.CriterionMigrationSucceeds,
+		CommandList: []string{"echo ok", "echo x; curl evil"},
+	}
+	results = engine.EvaluateCriteriaWithMode([]engine.Criterion{poisonedList}, workDir, "", true)
+	if results[0].Passed {
+		t.Fatal("strict mode must reject a poisoned command_list entry")
+	}
+
+	both := engine.Criterion{
+		Kind:        engine.CriterionMigrationSucceeds,
+		Command:     "echo a",
+		CommandList: []string{"echo b"},
+	}
+	results = engine.EvaluateCriteriaWithMode([]engine.Criterion{both}, workDir, "", false)
+	if results[0].Passed || !strings.Contains(results[0].Detail, "mutually exclusive") {
+		t.Fatalf("command + command_list must be rejected, got: %+v", results[0])
+	}
+}

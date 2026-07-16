@@ -181,3 +181,53 @@ func TestResolveToken_UnreadableFileIsDistinguished(t *testing.T) {
 		t.Errorf("permission failure must be named, got %v", rerr)
 	}
 }
+
+// TestFigmaBuildContext_FilePermsOwnerOnly pins owner-only permissions on the
+// design-context artifacts: the .vxd-design dir is 0o700 and every file in it
+// (markdown + PNG renders) is 0o600. Design refs map back to internal design
+// files and must not be readable by other users on a shared dispatch host.
+// A pre-existing dir with looser perms is repaired.
+func TestFigmaBuildContext_FilePermsOwnerOnly(t *testing.T) {
+	srv := newFixtureServer(t)
+	c := NewClient("good-token")
+	c.BaseURL = srv.URL
+
+	outDir := filepath.Join(t.TempDir(), DirName)
+	// Pre-create with loose perms — BuildDesignContext must tighten, not trust.
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	dc, err := BuildDesignContext(t.Context(), c, []Ref{{FileKey: "KEY1", NodeID: "12:345", RawURL: "https://figma.com/design/KEY1?node-id=12-345"}}, outDir)
+	if err != nil {
+		t.Fatalf("BuildDesignContext: %v", err)
+	}
+	if dc == nil || len(dc.Images) == 0 {
+		t.Fatal("fixture should produce a design context with a render")
+	}
+
+	info, err := os.Stat(outDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o700 {
+		t.Errorf("design dir perms = %o, want 700", got)
+	}
+
+	entries, err := os.ReadDir(outDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("expected files under design dir")
+	}
+	for _, e := range entries {
+		fi, err := e.Info()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := fi.Mode().Perm(); got != 0o600 {
+			t.Errorf("%s perms = %o, want 600", e.Name(), got)
+		}
+	}
+}

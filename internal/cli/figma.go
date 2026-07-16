@@ -11,7 +11,7 @@ import (
 
 // figmaTokenSettingsURL is where a personal access token is created. Printed,
 // never auto-opened — the operator clicks it themselves.
-const figmaTokenSettingsURL = "https://www.figma.com/settings"
+const figmaTokenSettingsURL = "https://www.figma.com/settings" // #nosec G101 -- public settings URL printed for the operator, not a credential
 
 // figmaAPIBase overrides the Figma API base URL in tests ("" = production).
 var figmaAPIBase = ""

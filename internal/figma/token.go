@@ -9,7 +9,7 @@ import (
 
 // TokenEnvVar is the environment variable checked first for a Figma
 // personal access token.
-const TokenEnvVar = "FIGMA_TOKEN"
+const TokenEnvVar = "FIGMA_TOKEN" // #nosec G101 -- env var NAME, not a credential value
 
 // tokenFileName under the vxd state dir (mode 0o600).
 const tokenFileName = "figma.token"

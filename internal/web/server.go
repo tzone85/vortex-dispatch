@@ -135,7 +135,10 @@ func (s *Server) Start(ctx context.Context) error {
 	handler := authMw(mux)
 	s.rotator = rotator
 
-	s.httpServer = &http.Server{Handler: handler}
+	// ReadHeaderTimeout bounds how long a client may dribble request headers
+	// (Slowloris defence, gosec G112). 10s is generous for a localhost/LAN
+	// dashboard while still shedding stuck connections.
+	s.httpServer = &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 
 	// Pidfile + bootstrap-file: written BEFORE Serve starts so any caller
 	// that probed /health and got 200 is guaranteed to find the artifacts

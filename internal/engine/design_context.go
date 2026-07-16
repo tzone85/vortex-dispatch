@@ -65,7 +65,7 @@ func copyDesignDir(repoDir, worktreePath string) {
 			log.Printf("[figma] copy %s: %v", e.Name(), err)
 			continue
 		}
-		if err := os.WriteFile(filepath.Join(dst, e.Name()), data, 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(dst, e.Name()), data, 0o600); err != nil { // #nosec G703 -- e.Name() is an os.ReadDir base name from our own design dir; it cannot contain path separators
 			log.Printf("[figma] write %s to worktree: %v", e.Name(), err)
 		}
 	}

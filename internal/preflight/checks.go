@@ -360,6 +360,36 @@ func CheckSecurityScanners(lookPath func(string) (string, error)) Result {
 			strings.Join(missing, ", "), strings.Join(hints, " && "))}
 }
 
+// CheckQAModelInert warns when models.qa is bound to a non-default LLM: the
+// QA stage is command-based (lint/build/test, engine/qa.go) and never calls
+// an LLM, so the binding is inert — the operator expects a review pass that
+// won't happen. Delegates to CheckQAModelInertWith after loading the active
+// config the same way CheckBillingConfig does.
+func CheckQAModelInert() Result {
+	cfg := config.DefaultConfig()
+	if c, err := config.LoadFromFile("vxd.yaml"); err == nil {
+		cfg = c
+	} else if home := os.Getenv("HOME"); home != "" {
+		if c, err := config.LoadFromFile(filepath.Join(home, ".vxd", "config.yaml")); err == nil {
+			cfg = c
+		}
+	}
+	return CheckQAModelInertWith(cfg)
+}
+
+// CheckQAModelInertWith is the config-injected core of CheckQAModelInert,
+// split out so it can be unit-tested without touching the filesystem.
+func CheckQAModelInertWith(cfg config.Config) Result {
+	for _, w := range cfg.Warnings() {
+		if strings.Contains(w, "models.qa") {
+			return Result{Name: "qa_model", Severity: SeverityWarning, Passed: false,
+				Message: w + " Docs: README.md Configuration table (models.reviewer)."}
+		}
+	}
+	return Result{Name: "qa_model", Severity: SeverityWarning, Passed: true,
+		Message: "models.qa binding OK (QA stage is command-based; no inert LLM binding)"}
+}
+
 // --- Check sets ---
 
 // DispatchChecks returns the checks run before every dispatch operation.
@@ -383,6 +413,7 @@ func AllChecks() []Check {
 	return append(DispatchChecks(),
 		binaryCheck, scannerCheck,
 		CheckConfig, CheckProject, CheckStateDir, CheckBillingConfig, CheckOllama,
+		CheckQAModelInert,
 	)
 }
 

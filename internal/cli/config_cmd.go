@@ -75,6 +75,10 @@ func runConfigValidate(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	for _, w := range cfg.Warnings() {
+		fmt.Fprintf(out, "WARNING: %s\n", w)
+	}
+
 	fmt.Fprintf(out, "Config validation PASSED.\n")
 	return nil
 }

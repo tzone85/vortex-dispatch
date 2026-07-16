@@ -566,3 +566,37 @@ sla:
 		t.Errorf("bare int key: expected [5]=240, got %d", cfg2.SLA.MaxMinutesPerComplexity[5])
 	}
 }
+
+// TestConfigValidate_QAModelInertWarning pins the models.qa advisory: an
+// operator-set (non-default) QA binding produces a warning that the QA stage
+// is command-based, while the shipped default binding stays silent.
+func TestConfigValidate_QAModelInertWarning(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Models.QA = config.ModelConfig{Provider: "codex", Model: "gpt-5.5"}
+
+	warnings := cfg.Warnings()
+	found := false
+	for _, w := range warnings {
+		if strings.Contains(w, "models.qa") && strings.Contains(w, "inert") {
+			found = true
+			if !strings.Contains(w, "models.reviewer") {
+				t.Errorf("warning should point to models.reviewer as the LLM review path: %q", w)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("non-default models.qa binding must produce an inert-binding warning, got %v", warnings)
+	}
+
+	// Default config: no warnings (the shipped default binding is not an
+	// operator statement of intent — warning every install is noise).
+	if w := config.DefaultConfig().Warnings(); len(w) != 0 {
+		t.Errorf("config.DefaultConfig().Warnings() = %v, want none", w)
+	}
+
+	// Empty provider (role unset entirely) also stays silent.
+	cfg.Models.QA = config.ModelConfig{}
+	if w := cfg.Warnings(); len(w) != 0 {
+		t.Errorf("empty models.qa must not warn, got %v", w)
+	}
+}

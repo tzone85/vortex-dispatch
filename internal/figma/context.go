@@ -33,8 +33,15 @@ func BuildDesignContext(ctx context.Context, c *Client, refs []Ref, outDir strin
 	if len(refs) == 0 {
 		return nil, nil
 	}
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
+	// Owner-only: the design context carries node IDs + token metadata that
+	// map back to internal design files — on a shared dispatch host it must
+	// not be readable by other local users. Chmod repairs a pre-existing dir
+	// left looser by an older VXD.
+	if err := os.MkdirAll(outDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create design dir: %w", err)
+	}
+	if err := os.Chmod(outDir, 0o700); err != nil {
+		return nil, fmt.Errorf("tighten design dir perms: %w", err)
 	}
 
 	var md strings.Builder
@@ -78,7 +85,7 @@ func BuildDesignContext(ctx context.Context, c *Client, refs []Ref, outDir strin
 				continue
 			}
 			name := fmt.Sprintf("%s-%s.png", ref.FileKey, strings.ReplaceAll(nodeID, ":", "-"))
-			if err := os.WriteFile(filepath.Join(outDir, name), data, 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(outDir, name), data, 0o600); err != nil {
 				log.Printf("[figma] write render %s: %v", name, err)
 				continue
 			}
@@ -95,7 +102,7 @@ func BuildDesignContext(ctx context.Context, c *Client, refs []Ref, outDir strin
 
 	// Persist the markdown next to the renders so the executor can copy the
 	// whole directory into worktrees.
-	if err := os.WriteFile(filepath.Join(outDir, ContextFileName), []byte(dc.Markdown), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(outDir, ContextFileName), []byte(dc.Markdown), 0o600); err != nil {
 		return nil, fmt.Errorf("write design context: %w", err)
 	}
 	return dc, nil

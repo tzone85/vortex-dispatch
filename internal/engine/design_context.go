@@ -49,8 +49,10 @@ func copyDesignDir(repoDir, worktreePath string) {
 	if err != nil {
 		return
 	}
+	// Owner-only, matching figma.BuildDesignContext — design context must not
+	// be readable by other local users on a shared dispatch host.
 	dst := filepath.Join(worktreePath, figma.DirName)
-	if err := os.MkdirAll(dst, 0o755); err != nil {
+	if err := os.MkdirAll(dst, 0o700); err != nil {
 		log.Printf("[figma] create %s in worktree: %v", figma.DirName, err)
 		return
 	}
@@ -63,7 +65,7 @@ func copyDesignDir(repoDir, worktreePath string) {
 			log.Printf("[figma] copy %s: %v", e.Name(), err)
 			continue
 		}
-		if err := os.WriteFile(filepath.Join(dst, e.Name()), data, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dst, e.Name()), data, 0o600); err != nil {
 			log.Printf("[figma] write %s to worktree: %v", e.Name(), err)
 		}
 	}

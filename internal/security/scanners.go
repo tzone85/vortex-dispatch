@@ -180,9 +180,20 @@ func parseGosec(out []byte, repoDir string) ([]Finding, error) {
 				ID string `json:"id"`
 			} `json:"cwe"`
 		} `json:"Issues"`
+		// gosec reports compile/package-load failures in "Golang errors"
+		// (filename → errors) while still emitting valid JSON with an empty
+		// Issues list. Decoding only Issues would return a clean empty scan
+		// for a run that could not actually analyse the code — the same
+		// masquerade the other parsers guard against. Fail closed only when
+		// no issues were produced, so a scan that found issues is never
+		// flipped to failed by a per-file parse error alongside real results.
+		GolangErrors map[string]json.RawMessage `json:"Golang errors"`
 	}
 	if err := json.Unmarshal(out, &doc); err != nil {
 		return nil, err
+	}
+	if len(doc.Issues) == 0 && len(doc.GolangErrors) > 0 {
+		return nil, fmt.Errorf("gosec reported %d package-load error(s) and no issues; scan coverage lost", len(doc.GolangErrors))
 	}
 	findings := make([]Finding, 0, len(doc.Issues))
 	for _, i := range doc.Issues {

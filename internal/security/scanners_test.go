@@ -100,6 +100,32 @@ func TestParseGosec(t *testing.T) {
 	}
 }
 
+// TestParseGosec_PackageLoadErrorSurfaced pins that a gosec run that could not
+// analyse the code (compile/package-load failure → valid JSON with empty
+// Issues but a populated "Golang errors" map) is surfaced as a failure rather
+// than swallowed as a clean, zero-issue scan. A scan that produced issues
+// alongside a per-file error is NOT flipped to failed.
+func TestParseGosec_PackageLoadErrorSurfaced(t *testing.T) {
+	failed := []byte(`{"Issues":[],"Golang errors":{"/repo/broken.go":[{"line":1,"column":1,"error":"expected declaration"}]},"Stats":{"files":0,"lines":0}}`)
+	got, err := parseGosec(failed, "/repo")
+	if err == nil {
+		t.Fatalf("parseGosec = nil error, want package-load failure surfaced; findings=%+v", got)
+	}
+	if !strings.Contains(err.Error(), "coverage lost") {
+		t.Errorf("error %q does not signal coverage loss", err.Error())
+	}
+
+	// Issues present alongside a Golang error → still a successful scan.
+	withResults := []byte(`{"Issues":[{"severity":"HIGH","cwe":{"id":"798"},"rule_id":"G101","details":"d","file":"/repo/a.go","line":"1"}],"Golang errors":{"/repo/b.go":[{"line":1,"column":1,"error":"x"}]}}`)
+	fs, err := parseGosec(withResults, "/repo")
+	if err != nil {
+		t.Fatalf("parseGosec with issues + error = %v, want nil", err)
+	}
+	if len(fs) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(fs))
+	}
+}
+
 func TestParseGitleaks(t *testing.T) {
 	out := []byte(`[
 	  {"Description":"AWS Access Key","File":"config/prod.env","StartLine":3,"RuleID":"aws-access-token","Secret":"AKIAXXXXXXXX","Match":"AKIA..."},

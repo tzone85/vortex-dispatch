@@ -360,10 +360,21 @@ func parseNpmAudit(out []byte) ([]Finding, error) {
 
 func parseGovulncheck(out []byte) ([]Finding, error) {
 	var findings []Finding
+	// govulncheck runs in text mode, so — unlike the JSON scanners — a failure
+	// produces no unmarshal error to route it to `failed`. Its fatal errors
+	// print as "govulncheck: <msg>" (e.g. the vulnerability DB is unreachable
+	// on an offline dispatch host). Without detecting that, a scan that never
+	// ran returns zero findings and is counted as a clean `ran` scan, hiding
+	// total coverage loss from the gate and require_scanners strict mode — the
+	// same masquerade the JSON parsers guard against.
+	var scanErr string
 	sc := bufio.NewScanner(bytes.NewReader(out))
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
+		if strings.HasPrefix(line, "govulncheck:") && scanErr == "" {
+			scanErr = strings.TrimSpace(strings.TrimPrefix(line, "govulncheck:"))
+		}
 		// Lines look like: "Vulnerability #1: GO-2024-1234"
 		if !strings.HasPrefix(line, "Vulnerability #") {
 			continue
@@ -387,7 +398,15 @@ func parseGovulncheck(out []byte) ([]Finding, error) {
 			Source:   "scanner",
 		})
 	}
-	return findings, sc.Err()
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	// A fatal error with no vulnerability findings means the scan did not run
+	// — surface it as a failure rather than a clean empty result.
+	if len(findings) == 0 && scanErr != "" {
+		return nil, fmt.Errorf("govulncheck error: %s", scanErr)
+	}
+	return findings, nil
 }
 
 // Run executes the scanner against repoDir and returns parsed findings. A

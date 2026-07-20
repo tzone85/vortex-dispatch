@@ -146,6 +146,11 @@ func TestStripSQLCommentsAndStrings(t *testing.T) {
 		// the boundary is tracked and the trailing call survives stripping.
 		{`SELECT E'\'' || pg_read_file('x')`, "SELECT E || pg_read_file()"},
 		{`SELECT e'\\'`, "SELECT e"},
+		// Dollar-quoted strings are dropped; an embedded apostrophe does not
+		// desync the tracker, so a trailing call survives.
+		{`SELECT $$'$$, pg_read_file('x')`, "SELECT , pg_read_file()"},
+		{`SELECT $t$a'b$t$ FROM x`, "SELECT  FROM x"},
+		{"SELECT n = $1", "SELECT n = $1"},
 	}
 	for _, tt := range cases {
 		if got := stripSQLCommentsAndStrings(tt.in); got != tt.want {
@@ -188,6 +193,10 @@ func TestSQLSafety_FunctionDenylist(t *testing.T) {
 		// must be tracked so a call after the literal is not hidden.
 		{"e-string escaped quote hides call", `SELECT E'\'' || pg_read_file('/etc/passwd')`},
 		{"e-string lowercase", `SELECT e'\'' || pg_terminate_backend(1)`},
+		// Dollar-quoted strings with an odd apostrophe inside must not desync
+		// the single-quote tracker and hide the trailing call.
+		{"dollar-quote odd apostrophe hides call", `SELECT $$'$$, pg_read_file('/etc/passwd')`},
+		{"tagged dollar-quote hides call", `SELECT $tag$'$tag$, pg_terminate_backend(1)`},
 	}
 	for _, tt := range denied {
 		t.Run("denied/"+tt.name, func(t *testing.T) {
@@ -217,6 +226,10 @@ func TestSQLSafety_FunctionDenylist(t *testing.T) {
 		{"quoted column with space", `SELECT "user id", name FROM users`},
 		// A legitimate escape string that is NOT a denied call still passes.
 		{"e-string plain value", `SELECT E'O\'Brien' AS name`},
+		// Dollar-quoted literal with no trailing denied call passes; a
+		// positional parameter ($1) is not a dollar-quote delimiter.
+		{"dollar-quote plain value", `SELECT $$hello world$$ AS greeting`},
+		{"positional parameter not a delimiter", `SELECT id FROM t WHERE n = $1`},
 	}
 	for _, tt := range allowed {
 		t.Run("allowed/"+tt.name, func(t *testing.T) {

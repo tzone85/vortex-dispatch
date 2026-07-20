@@ -278,3 +278,43 @@ func TestSQLSafety_DenylistExtraConfig(t *testing.T) {
 		t.Errorf("ContainsDeniedFunction = (%q, %v), want (audit_purge, true)", fn, hit)
 	}
 }
+
+// TestSQLSafety_UnicodeEscapeIdentifier pins that a Postgres Unicode-escape
+// identifier (U&"…") — whose \XXXX escapes decode to a function name only
+// server-side, so the denylist regex can't see the real name — is rejected in
+// read-only mode. The escapes below decode to pg_read_file. A U&'…' *string*
+// (content never executes) and a plain double-quoted identifier are NOT
+// flagged, and --write bypasses the check.
+func TestSQLSafety_UnicodeEscapeIdentifier(t *testing.T) {
+	rejected := []string{
+		`SELECT U&"\0070\0067_\0072\0065\0061\0064_\0066\0069\006C\0065"('/etc/passwd')`,
+		`SELECT u&"\0070\0067"()`,
+		`SELECT id FROM U&"\0074"`, // decoded table name, still refused read-only
+	}
+	for _, q := range rejected {
+		err := ValidateSQL(q, false, nil)
+		if err == nil {
+			t.Errorf("ValidateSQL(%q, false) = nil, want Unicode-escape rejection", q)
+			continue
+		}
+		if !strings.Contains(err.Error(), "Unicode-escape") {
+			t.Errorf("error %v does not name the Unicode-escape cause", err)
+		}
+	}
+
+	allowed := []string{
+		`SELECT U&'\0041' AS a`,             // U&'…' is a string literal — safe
+		`SELECT "pg_read_file" FROM audit`,  // plain quoted identifier, no U&
+		`SELECT amount FROM u_and_others`,   // identifier merely starting u...
+	}
+	for _, q := range allowed {
+		if err := ValidateSQL(q, false, nil); err != nil {
+			t.Errorf("ValidateSQL(%q, false) = %v, want nil", q, err)
+		}
+	}
+
+	// --write opts out of the safety check.
+	if err := ValidateSQL(`SELECT U&"\0070\0067"()`, true, nil); err != nil {
+		t.Errorf("ValidateSQL with --write = %v, want nil", err)
+	}
+}

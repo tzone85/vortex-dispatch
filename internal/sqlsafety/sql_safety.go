@@ -164,6 +164,9 @@ func ValidateSQL(query string, writeFlag bool, extraDeny []string) error {
 	if writeFlag {
 		return nil
 	}
+	if hasUnicodeEscapeIdentifier(query) {
+		return fmt.Errorf("query uses a Unicode-escape identifier (U&\"…\"), whose decoded name cannot be safety-checked; re-run with --write if this is intentional")
+	}
 	if fn, hit := ContainsDeniedFunction(query, extraDeny); hit {
 		return fmt.Errorf("query calls side-effecting function %s(), which READ ONLY transactions do not block; re-run with --write if this is intentional", fn)
 	}
@@ -233,8 +236,33 @@ func dollarQuoteTag(s string, start int) (string, bool) {
 // call. Inner text is stripped of quotes only; no denied function name
 // contains a literal quote, so dropping the `""` escape body is safe here.
 func stripSQLCommentsAndStrings(s string) string {
+	stripped, _ := lexSQL(s)
+	return stripped
+}
+
+// hasUnicodeEscapeIdentifier reports whether the query contains a
+// Postgres Unicode-escape *identifier* (U&"…") outside of comments and
+// string literals. Such an identifier can name a function to call while its
+// \XXXX escapes decode only server-side, so the denylist regex — which sees
+// the raw escapes — cannot recognise the decoded name (e.g.
+// `SELECT U&"\0070\0067_..."('/etc/passwd')` calls pg_read_file). The
+// read-only gate rejects these rather than attempt to decode arbitrary
+// escapes; an operator who truly needs one re-runs with --write. Only the
+// identifier form is flagged: U&'…' is a string literal (its content never
+// executes) and is already stripped correctly.
+func hasUnicodeEscapeIdentifier(query string) bool {
+	_, u := lexSQL(query)
+	return u
+}
+
+// lexSQL walks the query once, returning it with -- / block comments,
+// string literals (single-quoted incl. E'…' escape strings, and
+// dollar-quoted) removed and double-quoted identifiers unwrapped, plus a
+// flag reporting whether a Unicode-escape identifier (U&"…") was seen.
+func lexSQL(s string) (string, bool) {
 	var b strings.Builder
 	b.Grow(len(s))
+	unicodeEscapeIdent := false
 	i := 0
 	for i < len(s) {
 		// Line comment: -- ... \n
@@ -313,7 +341,14 @@ func stripSQLCommentsAndStrings(s string) string {
 		}
 		// Double-quoted identifier: "..." with "" as escaped quote. Unwrap
 		// to the bare inner text so a quoted denied-function name is caught.
+		// A U&"…" / u&"…" prefix marks a Unicode-escape identifier whose
+		// \XXXX escapes decode only server-side — flag it so the read-only
+		// gate can reject it (the raw escapes can't be matched by the regex).
 		if s[i] == '"' {
+			if i >= 2 && s[i-1] == '&' && (s[i-2] == 'U' || s[i-2] == 'u') &&
+				(i == 2 || !isIdentChar(s[i-3])) {
+				unicodeEscapeIdent = true
+			}
 			i++
 			for i < len(s) {
 				if s[i] == '"' {
@@ -332,5 +367,5 @@ func stripSQLCommentsAndStrings(s string) string {
 		b.WriteByte(s[i])
 		i++
 	}
-	return b.String()
+	return b.String(), unicodeEscapeIdent
 }

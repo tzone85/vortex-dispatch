@@ -249,9 +249,35 @@ func parseSemgrep(out []byte, repoDir string) ([]Finding, error) {
 				} `json:"metadata"`
 			} `json:"extra"`
 		} `json:"results"`
+		// semgrep always emits a top-level "errors" array alongside "results".
+		// On a scan-level failure (e.g. `--config auto` cannot load rules on an
+		// offline dispatch host) it emits valid JSON with results:[] and an
+		// error-level entry, and exits non-zero. Decoding only results would
+		// return ([], nil) — counted as a clean `ran` scan rather than `failed`,
+		// hiding total coverage loss from the gate and require_scanners strict
+		// mode. Inspect errors so that masquerade is surfaced.
+		Errors []struct {
+			Level   string `json:"level"`
+			Message string `json:"message"`
+		} `json:"errors"`
 	}
 	if err := json.Unmarshal(out, &doc); err != nil {
 		return nil, err
+	}
+	// Fail closed only when no results were produced AND a fatal error is
+	// present: a scan that returned findings clearly wasn't a total loss, so
+	// non-fatal per-file warnings that coexist with results never flip a
+	// successful scan to failed.
+	if len(doc.Results) == 0 {
+		for _, e := range doc.Errors {
+			if strings.EqualFold(e.Level, "error") {
+				msg := e.Message
+				if msg == "" {
+					msg = "semgrep reported a scan error with no results"
+				}
+				return nil, fmt.Errorf("semgrep scan error: %s", msg)
+			}
+		}
 	}
 	findings := make([]Finding, 0, len(doc.Results))
 	for _, r := range doc.Results {

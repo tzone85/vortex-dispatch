@@ -142,6 +142,10 @@ func TestStripSQLCommentsAndStrings(t *testing.T) {
 		{`SELECT "a""b"`, "SELECT ab"},
 		// Unterminated identifier — strip to EOF rather than panic.
 		{`SELECT "unterminated`, "SELECT unterminated"},
+		// Escape string: \' is an escaped quote, not the closing quote, so
+		// the boundary is tracked and the trailing call survives stripping.
+		{`SELECT E'\'' || pg_read_file('x')`, "SELECT E || pg_read_file()"},
+		{`SELECT e'\\'`, "SELECT e"},
 	}
 	for _, tt := range cases {
 		if got := stripSQLCommentsAndStrings(tt.in); got != tt.want {
@@ -180,6 +184,10 @@ func TestSQLSafety_FunctionDenylist(t *testing.T) {
 		{"quoted identifier read_file", `SELECT "pg_read_file"('/etc/passwd')`},
 		{"schema-qualified quoted", `SELECT pg_catalog."pg_read_file"('postgresql.conf')`},
 		{"quoted whitespace before paren", `SELECT "pg_terminate_backend"  (1)`},
+		// Escape strings (E'...') let a backslash escape a quote; the boundary
+		// must be tracked so a call after the literal is not hidden.
+		{"e-string escaped quote hides call", `SELECT E'\'' || pg_read_file('/etc/passwd')`},
+		{"e-string lowercase", `SELECT e'\'' || pg_terminate_backend(1)`},
 	}
 	for _, tt := range denied {
 		t.Run("denied/"+tt.name, func(t *testing.T) {
@@ -207,6 +215,8 @@ func TestSQLSafety_FunctionDenylist(t *testing.T) {
 		// and an ordinary quoted column with a space.
 		{"quoted column named like function, no call", `SELECT "pg_terminate_backend" FROM audit_log`},
 		{"quoted column with space", `SELECT "user id", name FROM users`},
+		// A legitimate escape string that is NOT a denied call still passes.
+		{"e-string plain value", `SELECT E'O\'Brien' AS name`},
 	}
 	for _, tt := range allowed {
 		t.Run("allowed/"+tt.name, func(t *testing.T) {

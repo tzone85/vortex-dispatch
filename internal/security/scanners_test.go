@@ -143,6 +143,33 @@ func TestParseSemgrep(t *testing.T) {
 	}
 }
 
+// TestParseSemgrep_ScanErrorEnvelope pins that a scan-level failure (valid
+// JSON, empty results, an error-level entry — e.g. rules failed to load on an
+// offline host) is surfaced as a failure, not swallowed as a clean empty scan.
+// Otherwise RunScanners counts it in `ran` (clean) instead of `failed`
+// (coverage lost), and require_scanners strict mode would not block.
+func TestParseSemgrep_ScanErrorEnvelope(t *testing.T) {
+	out := []byte(`{"results":[],"errors":[{"level":"error","message":"unable to load config: registry unreachable"}]}`)
+	got, err := parseSemgrep(out, "/repo")
+	if err == nil {
+		t.Fatalf("parseSemgrep = nil error, want scan failure surfaced; findings=%+v", got)
+	}
+	if !strings.Contains(err.Error(), "unable to load config") {
+		t.Errorf("error %q does not name the scan error", err.Error())
+	}
+
+	// A scan that produced findings is NOT flipped to failed by a coexisting
+	// non-fatal (warn-level) error entry — coverage clearly wasn't lost.
+	okOut := []byte(`{"results":[{"check_id":"r","path":"/repo/x.go","start":{"line":1},"extra":{"message":"m","severity":"ERROR","metadata":{}}}],"errors":[{"level":"warn","message":"partial parse"}]}`)
+	fs, err := parseSemgrep(okOut, "/repo")
+	if err != nil {
+		t.Fatalf("parseSemgrep with results + warn = %v, want nil", err)
+	}
+	if len(fs) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(fs))
+	}
+}
+
 func TestParseNpmAudit(t *testing.T) {
 	out := []byte(`{
 	  "vulnerabilities": {

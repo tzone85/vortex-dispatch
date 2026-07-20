@@ -177,6 +177,16 @@ func ValidateSQL(query string, writeFlag bool, extraDeny []string) error {
 	}
 }
 
+// isIdentChar reports whether b can appear in a SQL identifier. Used to
+// decide whether an E/e immediately before a quote is a standalone
+// escape-string introducer (E'...') rather than the tail of an identifier.
+func isIdentChar(b byte) bool {
+	return b == '_' ||
+		(b >= 'a' && b <= 'z') ||
+		(b >= 'A' && b <= 'Z') ||
+		(b >= '0' && b <= '9')
+}
+
 // stripSQLCommentsAndStrings removes -- line comments, /* */ block
 // comments, and string literals (single-quoted) from the input, and
 // unwraps double-quoted identifiers to their bare inner text. This
@@ -219,10 +229,25 @@ func stripSQLCommentsAndStrings(s string) string {
 			}
 			continue
 		}
-		// Single-quoted string: '...' with '' as escaped quote
+		// Single-quoted string: '...'. A normal string uses '' as its only
+		// quote escape — standard_conforming_strings=on (the modern Postgres
+		// default) treats a backslash literally. A string introduced by E'/e'
+		// at a token boundary is an *escape string*: there a backslash escapes
+		// the next character, so `\'` does NOT close the string. Missing that
+		// mis-tracks the string boundary and lets a denied call following the
+		// literal be swallowed and hidden — e.g.
+		// `SELECT E'\'' || pg_read_file('x')` classified read-only despite the
+		// real pg_read_file call. Detect escape mode and consume backslash
+		// escapes so the boundary is tracked correctly.
 		if s[i] == '\'' {
+			escapeString := i >= 1 && (s[i-1] == 'E' || s[i-1] == 'e') &&
+				(i == 1 || !isIdentChar(s[i-2]))
 			i++
 			for i < len(s) {
+				if escapeString && s[i] == '\\' {
+					i += 2 // skip the backslash and the char it escapes
+					continue
+				}
 				if s[i] == '\'' {
 					if i+1 < len(s) && s[i+1] == '\'' {
 						i += 2

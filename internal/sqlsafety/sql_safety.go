@@ -178,10 +178,22 @@ func ValidateSQL(query string, writeFlag bool, extraDeny []string) error {
 }
 
 // stripSQLCommentsAndStrings removes -- line comments, /* */ block
-// comments, and string literals (single-quoted) from the input. This
+// comments, and string literals (single-quoted) from the input, and
+// unwraps double-quoted identifiers to their bare inner text. This
 // neutralises ambushes like `SELECT 1; /* */ DROP TABLE foo` that would
 // fool a naive substring check. The output is suitable ONLY for classifier
 // use — it is not a valid SQL string.
+//
+// Double-quoted identifiers are unwrapped (the surrounding quotes dropped,
+// `""` collapsed to nothing) rather than left verbatim: Postgres folds an
+// unquoted identifier to lowercase, so `"pg_read_file"` names the *same*
+// built-in as `pg_read_file`, yet the interposed quote between the name and
+// its `(` used to defeat the denylist regex — a call like
+// `SELECT "pg_terminate_backend"(pid)` slipped past ContainsDeniedFunction
+// and ran under a read-only transaction that does not block it. Collapsing
+// `"pg_read_file"(` to `pg_read_file(` makes the classifier see the true
+// call. Inner text is stripped of quotes only; no denied function name
+// contains a literal quote, so dropping the `""` escape body is safe here.
 func stripSQLCommentsAndStrings(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
@@ -219,6 +231,24 @@ func stripSQLCommentsAndStrings(s string) string {
 					i++
 					break
 				}
+				i++
+			}
+			continue
+		}
+		// Double-quoted identifier: "..." with "" as escaped quote. Unwrap
+		// to the bare inner text so a quoted denied-function name is caught.
+		if s[i] == '"' {
+			i++
+			for i < len(s) {
+				if s[i] == '"' {
+					if i+1 < len(s) && s[i+1] == '"' {
+						i += 2
+						continue
+					}
+					i++
+					break
+				}
+				b.WriteByte(s[i])
 				i++
 			}
 			continue

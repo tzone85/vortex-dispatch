@@ -136,6 +136,12 @@ func TestStripSQLCommentsAndStrings(t *testing.T) {
 		{"SELECT 1 /* unterminated", "SELECT 1 "},
 		// Unterminated string — strip to EOF rather than panic.
 		{"SELECT '''unterminated", "SELECT "},
+		// Double-quoted identifiers unwrap to bare inner text so the
+		// classifier sees the true call shape.
+		{`SELECT "pg_read_file"('x')`, "SELECT pg_read_file()"},
+		{`SELECT "a""b"`, "SELECT ab"},
+		// Unterminated identifier — strip to EOF rather than panic.
+		{`SELECT "unterminated`, "SELECT unterminated"},
 	}
 	for _, tt := range cases {
 		if got := stripSQLCommentsAndStrings(tt.in); got != tt.want {
@@ -168,6 +174,12 @@ func TestSQLSafety_FunctionDenylist(t *testing.T) {
 		{"schema-qualified", "SELECT pg_catalog.pg_terminate_backend(1)"},
 		{"comment ambush reassembles", "SELECT pg_terminate/**/_backend(1)"},
 		{"nested in expression", "SELECT 1 WHERE pg_terminate_backend(pid) IS NOT NULL"},
+		// Double-quoted identifiers name the same lowercase built-in in
+		// Postgres; the quotes must not smuggle a call past the denylist.
+		{"quoted identifier call", `SELECT "pg_terminate_backend"(1234)`},
+		{"quoted identifier read_file", `SELECT "pg_read_file"('/etc/passwd')`},
+		{"schema-qualified quoted", `SELECT pg_catalog."pg_read_file"('postgresql.conf')`},
+		{"quoted whitespace before paren", `SELECT "pg_terminate_backend"  (1)`},
 	}
 	for _, tt := range denied {
 		t.Run("denied/"+tt.name, func(t *testing.T) {
@@ -190,6 +202,11 @@ func TestSQLSafety_FunctionDenylist(t *testing.T) {
 		{"quoted string mention", "SELECT * FROM logs WHERE msg = 'pg_terminate_backend(1)'"},
 		{"comment mention", "SELECT 1 -- pg_terminate_backend(1)"},
 		{"plain select", "SELECT id, name FROM users"},
+		// Quoted identifiers that are NOT a denied call must still pass:
+		// a quoted column that merely shares the name (no following paren),
+		// and an ordinary quoted column with a space.
+		{"quoted column named like function, no call", `SELECT "pg_terminate_backend" FROM audit_log`},
+		{"quoted column with space", `SELECT "user id", name FROM users`},
 	}
 	for _, tt := range allowed {
 		t.Run("allowed/"+tt.name, func(t *testing.T) {

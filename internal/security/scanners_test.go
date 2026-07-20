@@ -272,3 +272,29 @@ Vulnerability #2: GO-2023-5678
 		t.Errorf("dependency CVE should be high, got %v", got[0].Severity)
 	}
 }
+
+// TestParseGovulncheck_FatalErrorSurfaced pins that a govulncheck run that
+// could not execute (e.g. the vulnerability DB is unreachable on an offline
+// host) is surfaced as a failure, not swallowed as a clean, zero-finding scan.
+// Text mode has no unmarshal error to route the failure to `failed`, so the
+// "govulncheck: <msg>" fatal line is the signal.
+func TestParseGovulncheck_FatalErrorSurfaced(t *testing.T) {
+	out := []byte("govulncheck: loading vulnerability database: Get \"https://vuln.go.dev/index/db.json\": dial tcp: lookup vuln.go.dev: no such host\n")
+	got, err := parseGovulncheck(out)
+	if err == nil {
+		t.Fatalf("parseGovulncheck = nil error, want fatal surfaced; findings=%+v", got)
+	}
+	if !strings.Contains(err.Error(), "vulnerability database") {
+		t.Errorf("error %q does not name the fatal cause", err.Error())
+	}
+
+	// A clean run (no vulns, no fatal line) is NOT flipped to an error.
+	clean := []byte("=== Symbol Results ===\n\nNo vulnerabilities found.\n")
+	fs, err := parseGovulncheck(clean)
+	if err != nil {
+		t.Fatalf("parseGovulncheck(clean) = %v, want nil", err)
+	}
+	if len(fs) != 0 {
+		t.Errorf("expected 0 findings on a clean scan, got %d", len(fs))
+	}
+}

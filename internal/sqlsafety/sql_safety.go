@@ -177,18 +177,46 @@ func ValidateSQL(query string, writeFlag bool, extraDeny []string) error {
 	}
 }
 
+// isIdentStart reports whether b may begin a SQL identifier (letter or
+// underscore, not a digit) — used to reject positional parameters like $1 as
+// dollar-quote tags.
+func isIdentStart(b byte) bool {
+	return b == '_' || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+}
+
 // isIdentChar reports whether b can appear in a SQL identifier. Used to
 // decide whether an E/e immediately before a quote is a standalone
 // escape-string introducer (E'...') rather than the tail of an identifier.
 func isIdentChar(b byte) bool {
-	return b == '_' ||
-		(b >= 'a' && b <= 'z') ||
-		(b >= 'A' && b <= 'Z') ||
-		(b >= '0' && b <= '9')
+	return isIdentStart(b) || (b >= '0' && b <= '9')
+}
+
+// dollarQuoteTag reports whether a dollar-quote opening delimiter begins at
+// s[start] (which must be '$'), and if so returns the full delimiter token
+// (e.g. "$$" or "$tag$"). The tag between the dollar signs, if present,
+// follows unquoted-identifier rules (first char a letter or underscore), so a
+// positional parameter like $1 is correctly rejected as a non-delimiter.
+func dollarQuoteTag(s string, start int) (string, bool) {
+	j := start + 1
+	for j < len(s) && s[j] != '$' {
+		if j == start+1 {
+			if !isIdentStart(s[j]) {
+				return "", false
+			}
+		} else if !isIdentChar(s[j]) {
+			return "", false
+		}
+		j++
+	}
+	if j >= len(s) || s[j] != '$' {
+		return "", false
+	}
+	return s[start : j+1], true
 }
 
 // stripSQLCommentsAndStrings removes -- line comments, /* */ block
-// comments, and string literals (single-quoted) from the input, and
+// comments, string literals (single-quoted, including E'...' escape
+// strings), and dollar-quoted strings ($tag$...$tag$) from the input, and
 // unwraps double-quoted identifiers to their bare inner text. This
 // neutralises ambushes like `SELECT 1; /* */ DROP TABLE foo` that would
 // fool a naive substring check. The output is suitable ONLY for classifier
@@ -227,6 +255,29 @@ func stripSQLCommentsAndStrings(s string) string {
 			} else {
 				i = len(s)
 			}
+			continue
+		}
+		// Dollar-quoted string: $tag$ ... $tag$ (tag optional, so $$ ... $$).
+		// Handled before the single-quote branch because an odd number of
+		// apostrophes *inside* a dollar-quoted literal would otherwise desync
+		// the single-quote tracker and swallow a denied call that follows the
+		// literal — e.g. `SELECT $$'$$, pg_read_file('x')` classified read-only
+		// despite the real pg_read_file call outside any string. The tag
+		// follows identifier rules (letter/underscore first), so positional
+		// params like $1 are NOT treated as a delimiter.
+		if s[i] == '$' {
+			if tag, ok := dollarQuoteTag(s, i); ok {
+				closeIdx := strings.Index(s[i+len(tag):], tag)
+				if closeIdx < 0 {
+					i = len(s) // unterminated — consume to EOF
+				} else {
+					i = i + len(tag) + closeIdx + len(tag)
+				}
+				continue
+			}
+			// Not a dollar-quote delimiter ($1 param, lone $): ordinary char.
+			b.WriteByte(s[i])
+			i++
 			continue
 		}
 		// Single-quoted string: '...'. A normal string uses '' as its only

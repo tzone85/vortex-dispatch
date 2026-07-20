@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -173,6 +174,45 @@ func TestParseNpmAudit(t *testing.T) {
 	}
 	if !hasCrit || !hasHigh {
 		t.Errorf("expected one critical and one high dep finding, got %+v", got)
+	}
+}
+
+// TestParseNpmAudit_ErrorEnvelope pins that npm's valid-JSON error envelope
+// (emitted when the audit cannot run — e.g. no lockfile) is surfaced as an
+// error rather than swallowed as a clean, empty scan. Otherwise RunScanners
+// counts it in `ran` (clean coverage) instead of `failed` (coverage lost),
+// letting a dependency-CVE scan silently no-op while the security gate — and
+// require_scanners strict mode — believe the tool ran.
+func TestParseNpmAudit_ErrorEnvelope(t *testing.T) {
+	cases := []struct {
+		name string
+		out  string
+		want string
+	}{
+		{
+			name: "ENOLOCK no lockfile",
+			out:  `{"error":{"code":"ENOLOCK","summary":"This command requires an existing lockfile."}}`,
+			want: "This command requires an existing lockfile",
+		},
+		{
+			name: "error with only code",
+			out:  `{"error":{"code":"EAUDITNOPJSON"}}`,
+			want: "EAUDITNOPJSON",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseNpmAudit([]byte(tc.out))
+			if err == nil {
+				t.Fatalf("parseNpmAudit(%s) = nil error, want failure surfaced; findings=%+v", tc.out, got)
+			}
+			if got != nil {
+				t.Errorf("expected no findings on error envelope, got %+v", got)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %q does not mention %q", err.Error(), tc.want)
+			}
+		})
 	}
 }
 

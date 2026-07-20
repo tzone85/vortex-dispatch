@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os/exec"
 	"path/filepath"
@@ -279,6 +280,18 @@ func parseSemgrep(out []byte, repoDir string) ([]Finding, error) {
 
 func parseNpmAudit(out []byte) ([]Finding, error) {
 	var doc struct {
+		// npm emits a valid-JSON error envelope (e.g. {"error":{"code":
+		// "ENOLOCK",...}}) when the audit cannot actually run — most commonly
+		// a package.json with no lockfile. That envelope unmarshals cleanly
+		// into a nil Vulnerabilities map, so without inspecting Error the scan
+		// would look like a clean pass and be counted in RunScanners' `ran`
+		// list — exactly the "failed scan masquerading as clean" that the
+		// `failed` list exists to prevent (and that require_scanners strict
+		// mode relies on). Surface it as an error so coverage loss is visible.
+		Error *struct {
+			Code    string `json:"code"`
+			Summary string `json:"summary"`
+		} `json:"error"`
 		Vulnerabilities map[string]struct {
 			Name     string `json:"name"`
 			Severity string `json:"severity"`
@@ -288,6 +301,16 @@ func parseNpmAudit(out []byte) ([]Finding, error) {
 	}
 	if err := json.Unmarshal(out, &doc); err != nil {
 		return nil, err
+	}
+	if doc.Error != nil {
+		msg := doc.Error.Summary
+		if msg == "" {
+			msg = doc.Error.Code
+		}
+		if msg == "" {
+			msg = "npm audit reported an error with no detail"
+		}
+		return nil, fmt.Errorf("npm audit error: %s", msg)
 	}
 	findings := make([]Finding, 0, len(doc.Vulnerabilities))
 	for pkg, v := range doc.Vulnerabilities {

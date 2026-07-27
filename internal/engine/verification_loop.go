@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -154,11 +155,31 @@ func checkTests(repoDir string) (passing, failing, total int) {
 	}
 
 	cmd.Dir = repoDir
-	out, _ := cmd.CombinedOutput()
+	out, runErr := cmd.CombinedOutput()
 	output := string(out)
 
+	// ranNonZero is true when the runner actually executed and returned a
+	// non-zero exit (an *exec.ExitError), as opposed to failing to launch (a
+	// missing binary). A non-zero exit with zero parsed test failures means the
+	// run itself failed — a compile error, a vet failure, or a misconfigured
+	// runner — which must NOT be reported as green. Distinguishing "ran and
+	// failed" from "couldn't run" avoids flipping to red merely because the
+	// tool is absent.
+	var exitErr *exec.ExitError
+	ranNonZero := errors.As(runErr, &exitErr)
+
 	if fileExists(filepath.Join(repoDir, "go.mod")) {
-		return parseGoTestJSON(output)
+		passing, failing, total = parseGoTestJSON(output)
+		if ranNonZero && failing == 0 {
+			// `go test ./...` exited non-zero yet no per-test or build failure
+			// was parsed (e.g. a vet failure, or a package that could not even
+			// launch its test binary). Surface it as a failure rather than a
+			// false green on the composed mainline.
+			log.Printf("[verify] go test exited non-zero with no parsed test failure (%v); treating as failed", runErr)
+			failing = 1
+			total = passing + failing
+		}
+		return passing, failing, total
 	}
 
 	// Parse test results (simplified — count PASS/FAIL lines)
@@ -183,6 +204,14 @@ func checkTests(repoDir string) (passing, failing, total int) {
 	}
 
 	total = passing + failing
+	if ranNonZero && failing == 0 {
+		// The JS runner exited non-zero but produced no parseable failure
+		// summary (a config error, a missing dependency, or a crash before any
+		// test ran). Do not report a green tree.
+		log.Printf("[verify] test runner exited non-zero with no parsed failures (%v); treating as failed", runErr)
+		failing = 1
+		total = passing + failing
+	}
 	log.Printf("[verify] tests: %d passing, %d failing, %d total", passing, failing, total)
 	return passing, failing, total
 }
@@ -197,7 +226,19 @@ func parseGoTestJSON(output string) (passing, failing, total int) {
 			Action string `json:"Action"`
 			Test   string `json:"Test"`
 		}
-		if err := json.Unmarshal([]byte(line), &evt); err != nil || evt.Test == "" {
+		if err := json.Unmarshal([]byte(line), &evt); err != nil {
+			continue
+		}
+		// A package that fails to COMPILE emits a package-level "build-fail"
+		// (and a "fail" with an empty Test field) rather than any per-test
+		// event — exactly the cross-story drift the completion gate exists to
+		// catch (e.g. story B removes a symbol story A's test still references).
+		// Counting it here, before the empty-Test skip, prevents a false green.
+		if evt.Action == "build-fail" {
+			failing++
+			continue
+		}
+		if evt.Test == "" {
 			continue
 		}
 		switch evt.Action {

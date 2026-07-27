@@ -128,6 +128,58 @@ func TestLifecycle_Release_Success_Deletes(t *testing.T) {
 	}
 }
 
+// TestLifecycle_Release_CarriesStoryID pins the emit/projection contract: the
+// STORY_DB_DELETED event MUST carry the owning StoryID, because
+// projectStoryDBDeleted keys its UPDATE on (story_id, db_id). Before the fix,
+// Release emitted an empty StoryID, so the projection matched zero rows and the
+// story_databases row stayed stuck at status="created" forever (wrong dashboard
+// DB column + vxd metrics DB section).
+func TestLifecycle_Release_CarriesStoryID(t *testing.T) {
+	es := &fakeEventStore{}
+	lc := devdb.NewLifecycle(null.New(), es, devdb.Config{Provider: "null"})
+
+	// Provision stamps the owning story on the returned DB; the caller hands
+	// that same DB back to Release.
+	db, err := lc.Provision(context.Background(), "a8cbef1f-3a", "myproj", t.TempDir())
+	if err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if err := lc.Release(context.Background(), db, devdb.OutcomeSuccess); err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+	if len(es.appended) != 2 {
+		t.Fatalf("appended = %d, want 2 (created + deleted)", len(es.appended))
+	}
+	del := es.appended[1]
+	if del.Type != state.EventStoryDBDeleted {
+		t.Fatalf("second event type = %v, want STORY_DB_DELETED", del.Type)
+	}
+	if del.StoryID != "a8cbef1f-3a" {
+		t.Errorf("STORY_DB_DELETED StoryID = %q, want a8cbef1f-3a (empty here silently no-ops the projection UPDATE)", del.StoryID)
+	}
+}
+
+// TestLifecycle_Release_RecoversStoryIDFromName pins the fallback path: a DB
+// that reaches Release without the provisioning label (e.g. orphan recovery)
+// still yields the correct StoryID because FormatDBName encodes it in the name.
+func TestLifecycle_Release_RecoversStoryIDFromName(t *testing.T) {
+	es := &fakeEventStore{}
+	lc := devdb.NewLifecycle(null.New(), es, devdb.Config{Provider: "null"})
+
+	name := devdb.FormatDBName(devdb.PrefixVXD, "myproj", "a8cbef1f-3a")
+	db := devdb.DB{ID: "abc", Name: name} // no Labels
+
+	if err := lc.Release(context.Background(), db, devdb.OutcomeSuccess); err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+	if len(es.appended) != 1 {
+		t.Fatalf("appended = %d, want 1", len(es.appended))
+	}
+	if got := es.appended[0].StoryID; got != "a8cbef1f-3a" {
+		t.Errorf("StoryID recovered from name = %q, want a8cbef1f-3a", got)
+	}
+}
+
 func TestLifecycle_Release_FailedWithKeepDB_Retains(t *testing.T) {
 	rp := &recordingProvider{Provider: null.New()}
 	es := &fakeEventStore{}

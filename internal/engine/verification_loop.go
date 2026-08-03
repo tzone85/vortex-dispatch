@@ -154,13 +154,29 @@ func checkTests(repoDir string) (passing, failing, total int) {
 	}
 
 	cmd.Dir = repoDir
-	out, _ := cmd.CombinedOutput()
+	out, runErr := cmd.CombinedOutput()
 	output := string(out)
 
 	if fileExists(filepath.Join(repoDir, "go.mod")) {
 		return parseGoTestJSON(output)
 	}
 
+	return parseNodeTestOutput(output, runErr != nil)
+}
+
+// parseNodeTestOutput scores jest/vitest output. The counting is intentionally
+// crude (it keys off the presence of the result-JSON fields), but it carries
+// one safety property the completion gate depends on: runFailed reports whether
+// the runner process exited non-zero. A runner that ABORTS before emitting any
+// result JSON — a broken merged jest.config/vitest.config, a setup module that
+// throws at load, an unresolvable runner — produces none of the signals below,
+// so passing/failing both stay 0. checkBuild does NOT execute the test runner
+// (it runs `npm run build` / `tsc --noEmit`, and build tsconfigs typically
+// exclude test files), so without the runFailed guard the completion gate would
+// report GREEN on a suite that never ran — the same false-green class as the Go
+// build-fail bug. The guard can only ever move the verdict toward RED
+// (fail-closed); it never manufactures a false GREEN.
+func parseNodeTestOutput(output string, runFailed bool) (passing, failing, total int) {
 	// Parse test results (simplified — count PASS/FAIL lines)
 	for _, line := range strings.Split(output, "\n") {
 		if strings.Contains(line, "\"numPassedTests\"") || strings.Contains(line, "PASS:") {
@@ -182,22 +198,47 @@ func checkTests(repoDir string) (passing, failing, total int) {
 		}
 	}
 
+	// A non-zero runner exit that produced no parseable result means the suite
+	// did not run — count it as a failure so ShouldRunFixCycle (TestsFailing > 0)
+	// fires instead of completing GREEN on an unexecuted suite. Bounded to the
+	// zero/zero case so a clean run (exit 0) or a run that emitted counts is
+	// never disturbed.
+	if runFailed && passing == 0 && failing == 0 {
+		failing = 1
+	}
+
 	total = passing + failing
 	log.Printf("[verify] tests: %d passing, %d failing, %d total", passing, failing, total)
 	return passing, failing, total
 }
 
 func parseGoTestJSON(output string) (passing, failing, total int) {
+	buildFailed := false
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
 		var evt struct {
-			Action string `json:"Action"`
-			Test   string `json:"Test"`
+			Action      string `json:"Action"`
+			Test        string `json:"Test"`
+			FailedBuild string `json:"FailedBuild"`
 		}
-		if err := json.Unmarshal([]byte(line), &evt); err != nil || evt.Test == "" {
+		if err := json.Unmarshal([]byte(line), &evt); err != nil {
+			continue
+		}
+		// A test-file compile failure surfaces only as package-scoped events with
+		// no Test field: a "build-fail" action, or a package-level "fail" carrying
+		// FailedBuild. `go build ./...` (checkBuild) does NOT compile _test.go
+		// files, so these are the ONLY signal that the test binary is broken. If
+		// we skip them the completion gate reports 0 failing and marks the
+		// requirement GREEN on a suite that does not even compile — the exact
+		// "shipped on a red mainline" class the gate exists to prevent.
+		if evt.Action == "build-fail" || evt.FailedBuild != "" {
+			buildFailed = true
+			continue
+		}
+		if evt.Test == "" {
 			continue
 		}
 		switch evt.Action {
@@ -206,6 +247,12 @@ func parseGoTestJSON(output string) (passing, failing, total int) {
 		case "fail":
 			failing++
 		}
+	}
+	// Surface an un-compilable test suite as at least one failure so
+	// ShouldRunFixCycle (TestsFailing > 0) fires even when no individual test
+	// could run. Only bump when nothing else already counted as failing.
+	if buildFailed && failing == 0 {
+		failing = 1
 	}
 	total = passing + failing
 	log.Printf("[verify] tests: %d passing, %d failing, %d total", passing, failing, total)

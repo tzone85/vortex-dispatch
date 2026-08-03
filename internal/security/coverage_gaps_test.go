@@ -193,6 +193,34 @@ func TestParseNpmAudit_FallsBackToMapKeyForName(t *testing.T) {
 	}
 }
 
+// TestParseNpmAudit_ErrorPayloadIsNotCleanRun pins the false-clean fix: when
+// `npm audit --json` cannot audit (e.g. no package-lock.json → ENOLOCK, or a
+// registry failure) it emits a top-level {"error":{...}} object with no
+// vulnerabilities. That must surface as an error so RunScanners routes npm-audit
+// to `failed` (lost coverage), NOT as an empty clean run that silently defeats
+// security.require_scanners.
+func TestParseNpmAudit_ErrorPayloadIsNotCleanRun(t *testing.T) {
+	out := []byte(`{"error":{"code":"ENOLOCK","summary":"This command requires an existing lockfile.","detail":"..."}}`)
+	fs, err := parseNpmAudit(out)
+	if err == nil {
+		t.Fatalf("npm audit error payload must surface as an error (lost coverage), got findings=%v err=nil", fs)
+	}
+}
+
+// TestParseNpmAudit_CleanReportStillParses ensures the error guard does not
+// false-positive on a normal audit response (no error key), including an
+// all-clear audit with an empty vulnerabilities map.
+func TestParseNpmAudit_CleanReportStillParses(t *testing.T) {
+	out := []byte(`{"auditReportVersion":2,"vulnerabilities":{},"metadata":{"vulnerabilities":{"total":0}}}`)
+	fs, err := parseNpmAudit(out)
+	if err != nil {
+		t.Fatalf("a clean audit report must parse without error, got %v", err)
+	}
+	if len(fs) != 0 {
+		t.Fatalf("clean audit must yield zero findings, got %d", len(fs))
+	}
+}
+
 func TestParseGovulncheck_MalformedLinesSkipped(t *testing.T) {
 	out := []byte("Vulnerability #1 without colon\nVulnerability #2:   \nVulnerability #3: GO-2025-999\n")
 	fs, err := parseGovulncheck(out)

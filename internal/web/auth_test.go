@@ -288,8 +288,9 @@ func TestAuthHeaders_SetsSecurityBaseline(t *testing.T) {
 			t.Errorf("%s = %q, want %q", want.key, got, want.value)
 		}
 	}
-	if csp := resp.Header.Get("Content-Security-Policy"); csp == "" {
-		t.Error("Content-Security-Policy must be set")
+	wantCSP := "default-src 'self'; img-src 'self' data:; media-src 'self' https://d8j0ntlcm91z4.cloudfront.net; connect-src 'self' ws: wss:; frame-ancestors 'none'"
+	if got := resp.Header.Get("Content-Security-Policy"); got != wantCSP {
+		t.Errorf("Content-Security-Policy = %q, want %q", got, wantCSP)
 	}
 }
 

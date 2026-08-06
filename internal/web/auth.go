@@ -251,7 +251,7 @@ func (a *authenticator) wrap(next http.Handler) http.Handler {
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none'")
+		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; media-src 'self' https://d8j0ntlcm91z4.cloudfront.net; connect-src 'self' ws: wss:; frame-ancestors 'none'")
 
 		if _, ok := authBypassedPaths[r.URL.Path]; ok {
 			next.ServeHTTP(w, r)

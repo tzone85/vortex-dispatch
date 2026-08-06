@@ -649,6 +649,12 @@ tmux list-sessions
 tmux attach -t <session-name>   # Watch agent work live
 ```
 
+Web dashboard uses Quiet Horizon decorative video from
+`d8j0ntlcm91z4.cloudfront.net`, fading into static dark data surface. If remote
+media is unavailable—or browser requests reduced motion—dashboard remains fully
+usable with static gradient fallback. No dashboard state or controls depend on
+video loading.
+
 ### Column headers in the dashboard
 
 | Column | Meaning |

@@ -87,7 +87,11 @@ func denyPattern(fn string) *regexp.Regexp {
 // supplied by the operator (devdb.function_denylist_extra). Comments and
 // string literals are stripped first, so a `pg_terminate/**/_backend(...)`
 // comment ambush reassembles into the plain call and is caught, while a
-// quoted mention ('pg_terminate_backend') does not false-positive.
+// quoted string mention ('pg_terminate_backend') does not false-positive.
+// Double-quoted identifiers are unwrapped by the stripper (their delimiters
+// removed but the name kept), so `"pg_terminate_backend"(...)` — a valid
+// Postgres call of the same built-in — is caught too and cannot slip past the
+// denylist.
 func ContainsDeniedFunction(query string, extra []string) (string, bool) {
 	stripped := stripSQLCommentsAndStrings(query)
 	for _, fn := range defaultFunctionDenylist {
@@ -178,10 +182,15 @@ func ValidateSQL(query string, writeFlag bool, extraDeny []string) error {
 }
 
 // stripSQLCommentsAndStrings removes -- line comments, /* */ block
-// comments, and string literals (single-quoted) from the input. This
-// neutralises ambushes like `SELECT 1; /* */ DROP TABLE foo` that would
-// fool a naive substring check. The output is suitable ONLY for classifier
-// use — it is not a valid SQL string.
+// comments, and string literals (single-quoted) from the input, and unwraps
+// double-quoted identifiers (removing the `"` delimiters but KEEPING the
+// identifier name). This neutralises ambushes like
+// `SELECT 1; /* */ DROP TABLE foo` that would fool a naive substring check,
+// and — because the identifier name is preserved — a denylisted function
+// wrapped in double quotes (`"pg_terminate_backend"(...)`, a valid Postgres
+// call of the same built-in) reassembles into the bare call so the denylist
+// pattern still matches. The output is suitable ONLY for classifier use — it
+// is not a valid SQL string.
 func stripSQLCommentsAndStrings(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
@@ -207,7 +216,8 @@ func stripSQLCommentsAndStrings(s string) string {
 			}
 			continue
 		}
-		// Single-quoted string: '...' with '' as escaped quote
+		// Single-quoted string: '...' with '' as escaped quote. Dropped
+		// entirely — a string literal's content is data, never a call.
 		if s[i] == '\'' {
 			i++
 			for i < len(s) {
@@ -219,6 +229,29 @@ func stripSQLCommentsAndStrings(s string) string {
 					i++
 					break
 				}
+				i++
+			}
+			continue
+		}
+		// Double-quoted identifier: "..." with "" as an escaped quote. Unlike a
+		// string literal, the identifier NAME is significant to the classifier —
+		// "pg_terminate_backend"(…) invokes the same built-in as the bare form —
+		// so emit the inner name WITHOUT the surrounding quotes rather than
+		// dropping it. Consuming the whole quoted token here also prevents a
+		// stray apostrophe inside an identifier ("it's") from being mistaken for
+		// the start of a string literal.
+		if s[i] == '"' {
+			i++
+			for i < len(s) {
+				if s[i] == '"' {
+					if i+1 < len(s) && s[i+1] == '"' {
+						i += 2 // "" escaped quote inside the identifier
+						continue
+					}
+					i++
+					break
+				}
+				b.WriteByte(s[i])
 				i++
 			}
 			continue

@@ -238,3 +238,44 @@ func TestSQLSafety_DenylistExtraConfig(t *testing.T) {
 		t.Errorf("ContainsDeniedFunction = (%q, %v), want (audit_purge, true)", fn, hit)
 	}
 }
+
+// TestSQLSafety_QuotedIdentifierBypass pins the fix for the double-quoted
+// identifier denylist bypass: a side-effecting function wrapped in Postgres
+// double quotes (`"pg_terminate_backend"(...)`) is a valid call of the same
+// built-in and must be rejected in read-only mode, not slip past denyPattern
+// (which required "(" immediately after the bare name).
+func TestSQLSafety_QuotedIdentifierBypass(t *testing.T) {
+	denied := []string{
+		`SELECT "pg_terminate_backend"(123)`,
+		`SELECT pg_catalog."pg_terminate_backend"(123)`,
+		`SELECT "pg_read_file"('/etc/passwd')`,
+		`SELECT  "pg_cancel_backend" (1)`,
+		`SELECT "PG_TERMINATE_BACKEND"(1)`, // case-insensitive denylist over-blocks the (invalid) upper form — safe direction
+	}
+	for _, q := range denied {
+		if _, hit := ContainsDeniedFunction(q, nil); !hit {
+			t.Errorf("ContainsDeniedFunction(%q) = false, want denied (quoted-identifier bypass)", q)
+		}
+		if err := ValidateSQLForReadOnly(q, false); err == nil {
+			t.Errorf("ValidateSQLForReadOnly(%q, false) = nil, want rejection", q)
+		}
+	}
+
+	// A quoted identifier that merely CONTAINS a denylisted substring, or a
+	// string-literal mention, must NOT false-positive.
+	for _, q := range []string{
+		`SELECT "my_pg_read_file_wrapper"(1)`,     // different identifier
+		`SELECT count(*) FROM "pg_read_file_log"`, // quoted table name, no call
+		`SELECT 'pg_terminate_backend'`,           // string literal, not a call
+	} {
+		if _, hit := ContainsDeniedFunction(q, nil); hit {
+			t.Errorf("ContainsDeniedFunction(%q) = true, want no false positive", q)
+		}
+	}
+
+	// An apostrophe inside a double-quoted identifier must not be mistaken for
+	// a string-literal start (which would swallow a following denied call).
+	if _, hit := ContainsDeniedFunction(`SELECT "it's", pg_terminate_backend(1)`, nil); !hit {
+		t.Error("apostrophe inside a quoted identifier broke stripping; denied call was missed")
+	}
+}

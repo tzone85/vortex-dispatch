@@ -201,17 +201,44 @@ func (q *QA) RunCommandChecks(ctx context.Context, worktreePath string) QAResult
 // preMergeDecision decides whether a story's merge must be blocked because its
 // rebased worktree fails the repo-wide checks. The rule is deadlock-free: only
 // block when the story turns a GREEN base RED. If the base branch is already
-// failing the same checks, the breakage is not attributable to this story, so
-// it is allowed through (blocking would deadlock every story behind a
-// pre-existing main failure).
+// failing THOSE checks, the breakage is not attributable to this story, so it
+// is allowed through (blocking would deadlock every story behind a pre-existing
+// main failure).
+//
+// Attribution is PER CHECK, not on the aggregate QAResult.Passed. A base that
+// is red on one check (e.g. perpetual lint debt) must not mask a regression the
+// story introduces in a DIFFERENT check: comparing only base.Passed would let a
+// build/test regression merge whenever the base was red on anything at all,
+// turning the gate into a silent no-op for the whole requirement.
 func preMergeDecision(rebased, base QAResult) (block bool, reason string) {
 	if rebased.Passed {
 		return false, ""
 	}
-	if !base.Passed {
-		return false, "base branch already failing the same checks — not attributable to this story"
+	// A fully-green base ⇒ every red check on the rebased worktree is this
+	// story's regression. (Handles the common case and base results that carry
+	// no per-check breakdown.)
+	if base.Passed {
+		return true, "pre-merge verify: story turns a green base red: " + rebased.FailureSummary()
 	}
-	return true, "pre-merge verify: story turns a green base red: " + rebased.FailureSummary()
+	// Partially-red base: block only checks that are GREEN on the base but RED
+	// on the rebased worktree. base and rebased are produced by the same
+	// RunCommandChecks config, so check names line up.
+	baseRed := make(map[string]bool, len(base.Checks))
+	for _, c := range base.Checks {
+		if !c.Passed {
+			baseRed[c.Name] = true
+		}
+	}
+	var regressed []string
+	for _, c := range rebased.Checks {
+		if !c.Passed && !baseRed[c.Name] {
+			regressed = append(regressed, c.Name)
+		}
+	}
+	if len(regressed) == 0 {
+		return false, "base branch already failing these checks — not attributable to this story"
+	}
+	return true, "pre-merge verify: story turns a green base red (" + strings.Join(regressed, ", ") + "): " + rebased.FailureSummary()
 }
 
 // computeQualityScore derives a 1-5 quality rating from QA results.

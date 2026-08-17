@@ -251,7 +251,16 @@ func TestForceAcquireLock_OverridesExistingAndReads(t *testing.T) {
 }
 
 func TestWriteLockFile_InvalidPath(t *testing.T) {
-	err := writeLockFile("/nonexistent/path/lock.json", LockInfo{PID: 1})
+	// Parent component is a regular file → os.WriteFile fails with ENOTDIR for
+	// any euid, and nothing leaks outside the temp dir. The old hard-coded
+	// "/nonexistent/path/lock.json" target succeeded as root (its parent was
+	// created by TestWriteMetadata_InvalidDir's polluting write), making the
+	// assertion silently pass/fail depending on euid and test order.
+	notDir := filepath.Join(t.TempDir(), "iamafile")
+	if err := os.WriteFile(notDir, []byte("x"), 0o600); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	err := writeLockFile(filepath.Join(notDir, "lock.json"), LockInfo{PID: 1})
 	if err == nil {
 		t.Error("expected error writing to invalid path")
 	}

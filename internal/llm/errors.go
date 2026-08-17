@@ -107,6 +107,53 @@ func ContainsCapacitySignature(s string) bool {
 	return false
 }
 
+// capacityNoticeSignatures are the subset of capacity signals that a CLI has been
+// observed to leak as *successful completion content* — a session/usage-limit
+// banner or the untyped API error envelope. They are high-precision: unlike the
+// generic phrases in capacitySignatures ("rate limit", "connection refused",
+// "overloaded", …), they essentially never appear as ordinary substrings inside
+// legitimate source files.
+var capacityNoticeSignatures = []string{
+	"hit your session limit", // Claude Max banner leaked as content
+	"hit your usage limit",   // alternate Max wording
+	`"api_error_status":429`, // untyped CLI error envelope leaked as content
+	`"api_error_status":529`,
+	`"api_error_status": 429`,
+	`"api_error_status": 529`,
+}
+
+// leakedNoticeMaxLen bounds how long a leaked capacity/session-limit notice can
+// be. Such a notice is a short status blurb; a genuinely resolved source file is
+// longer and must not be misread as a capacity error merely because it contains a
+// generic phrase like "rate limit" or "connection refused".
+const leakedNoticeMaxLen = 512
+
+// LooksLikeLeakedCapacityNotice reports whether an LLM's *successful* response
+// content is actually a leaked session-limit / overloaded / rate-limit notice
+// rather than real content. Some CLI versions emit such a notice as a successful
+// completion instead of an error envelope; written verbatim it would corrupt the
+// target (e.g. a conflict-resolved source file).
+//
+// It fires on (a) the unambiguous session/usage-limit banner or the untyped API
+// error envelope at ANY length, or (b) any capacity signature within a SHORT
+// blurb. It deliberately does NOT flag a long body that merely contains a generic
+// capacity phrase — that is the false positive that would misclassify a correctly
+// resolved conflict in rate-limiter / networking / error-handling code as a
+// synthetic 429 and wedge the pipeline. Use this (not ContainsCapacitySignature)
+// when scanning content that could legitimately BE a large file.
+func LooksLikeLeakedCapacityNotice(content string) bool {
+	lower := strings.ToLower(content)
+	for _, sig := range capacityNoticeSignatures {
+		if strings.Contains(lower, sig) {
+			return true
+		}
+	}
+	if len(strings.TrimSpace(content)) <= leakedNoticeMaxLen {
+		return ContainsCapacitySignature(lower)
+	}
+	return false
+}
+
 // IsCapacityError returns true when the error is a transient capacity exhaustion
 // — HTTP 429 (rate/session limit) or 529 (overloaded) — whether it arrived as a
 // typed *APIError or as a stringified CLI error that never got classified.

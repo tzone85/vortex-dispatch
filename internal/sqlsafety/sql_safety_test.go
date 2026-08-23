@@ -136,6 +136,21 @@ func TestStripSQLCommentsAndStrings(t *testing.T) {
 		{"SELECT 1 /* unterminated", "SELECT 1 "},
 		// Unterminated string — strip to EOF rather than panic.
 		{"SELECT '''unterminated", "SELECT "},
+		// Double-quoted identifiers unwrap to bare inner text so the
+		// classifier sees the true call shape.
+		{`SELECT "pg_read_file"('x')`, "SELECT pg_read_file()"},
+		{`SELECT "a""b"`, "SELECT ab"},
+		// Unterminated identifier — strip to EOF rather than panic.
+		{`SELECT "unterminated`, "SELECT unterminated"},
+		// Escape string: \' is an escaped quote, not the closing quote, so
+		// the boundary is tracked and the trailing call survives stripping.
+		{`SELECT E'\'' || pg_read_file('x')`, "SELECT E || pg_read_file()"},
+		{`SELECT e'\\'`, "SELECT e"},
+		// Dollar-quoted strings are dropped; an embedded apostrophe does not
+		// desync the tracker, so a trailing call survives.
+		{`SELECT $$'$$, pg_read_file('x')`, "SELECT , pg_read_file()"},
+		{`SELECT $t$a'b$t$ FROM x`, "SELECT  FROM x"},
+		{"SELECT n = $1", "SELECT n = $1"},
 	}
 	for _, tt := range cases {
 		if got := stripSQLCommentsAndStrings(tt.in); got != tt.want {
@@ -168,6 +183,20 @@ func TestSQLSafety_FunctionDenylist(t *testing.T) {
 		{"schema-qualified", "SELECT pg_catalog.pg_terminate_backend(1)"},
 		{"comment ambush reassembles", "SELECT pg_terminate/**/_backend(1)"},
 		{"nested in expression", "SELECT 1 WHERE pg_terminate_backend(pid) IS NOT NULL"},
+		// Double-quoted identifiers name the same lowercase built-in in
+		// Postgres; the quotes must not smuggle a call past the denylist.
+		{"quoted identifier call", `SELECT "pg_terminate_backend"(1234)`},
+		{"quoted identifier read_file", `SELECT "pg_read_file"('/etc/passwd')`},
+		{"schema-qualified quoted", `SELECT pg_catalog."pg_read_file"('postgresql.conf')`},
+		{"quoted whitespace before paren", `SELECT "pg_terminate_backend"  (1)`},
+		// Escape strings (E'...') let a backslash escape a quote; the boundary
+		// must be tracked so a call after the literal is not hidden.
+		{"e-string escaped quote hides call", `SELECT E'\'' || pg_read_file('/etc/passwd')`},
+		{"e-string lowercase", `SELECT e'\'' || pg_terminate_backend(1)`},
+		// Dollar-quoted strings with an odd apostrophe inside must not desync
+		// the single-quote tracker and hide the trailing call.
+		{"dollar-quote odd apostrophe hides call", `SELECT $$'$$, pg_read_file('/etc/passwd')`},
+		{"tagged dollar-quote hides call", `SELECT $tag$'$tag$, pg_terminate_backend(1)`},
 	}
 	for _, tt := range denied {
 		t.Run("denied/"+tt.name, func(t *testing.T) {
@@ -190,6 +219,17 @@ func TestSQLSafety_FunctionDenylist(t *testing.T) {
 		{"quoted string mention", "SELECT * FROM logs WHERE msg = 'pg_terminate_backend(1)'"},
 		{"comment mention", "SELECT 1 -- pg_terminate_backend(1)"},
 		{"plain select", "SELECT id, name FROM users"},
+		// Quoted identifiers that are NOT a denied call must still pass:
+		// a quoted column that merely shares the name (no following paren),
+		// and an ordinary quoted column with a space.
+		{"quoted column named like function, no call", `SELECT "pg_terminate_backend" FROM audit_log`},
+		{"quoted column with space", `SELECT "user id", name FROM users`},
+		// A legitimate escape string that is NOT a denied call still passes.
+		{"e-string plain value", `SELECT E'O\'Brien' AS name`},
+		// Dollar-quoted literal with no trailing denied call passes; a
+		// positional parameter ($1) is not a dollar-quote delimiter.
+		{"dollar-quote plain value", `SELECT $$hello world$$ AS greeting`},
+		{"positional parameter not a delimiter", `SELECT id FROM t WHERE n = $1`},
 	}
 	for _, tt := range allowed {
 		t.Run("allowed/"+tt.name, func(t *testing.T) {
@@ -236,5 +276,45 @@ func TestSQLSafety_DenylistExtraConfig(t *testing.T) {
 	fn, hit := ContainsDeniedFunction("SELECT audit_purge()", extra)
 	if !hit || fn != "audit_purge" {
 		t.Errorf("ContainsDeniedFunction = (%q, %v), want (audit_purge, true)", fn, hit)
+	}
+}
+
+// TestSQLSafety_UnicodeEscapeIdentifier pins that a Postgres Unicode-escape
+// identifier (U&"…") — whose \XXXX escapes decode to a function name only
+// server-side, so the denylist regex can't see the real name — is rejected in
+// read-only mode. The escapes below decode to pg_read_file. A U&'…' *string*
+// (content never executes) and a plain double-quoted identifier are NOT
+// flagged, and --write bypasses the check.
+func TestSQLSafety_UnicodeEscapeIdentifier(t *testing.T) {
+	rejected := []string{
+		`SELECT U&"\0070\0067_\0072\0065\0061\0064_\0066\0069\006C\0065"('/etc/passwd')`,
+		`SELECT u&"\0070\0067"()`,
+		`SELECT id FROM U&"\0074"`, // decoded table name, still refused read-only
+	}
+	for _, q := range rejected {
+		err := ValidateSQL(q, false, nil)
+		if err == nil {
+			t.Errorf("ValidateSQL(%q, false) = nil, want Unicode-escape rejection", q)
+			continue
+		}
+		if !strings.Contains(err.Error(), "Unicode-escape") {
+			t.Errorf("error %v does not name the Unicode-escape cause", err)
+		}
+	}
+
+	allowed := []string{
+		`SELECT U&'\0041' AS a`,             // U&'…' is a string literal — safe
+		`SELECT "pg_read_file" FROM audit`,  // plain quoted identifier, no U&
+		`SELECT amount FROM u_and_others`,   // identifier merely starting u...
+	}
+	for _, q := range allowed {
+		if err := ValidateSQL(q, false, nil); err != nil {
+			t.Errorf("ValidateSQL(%q, false) = %v, want nil", q, err)
+		}
+	}
+
+	// --write opts out of the safety check.
+	if err := ValidateSQL(`SELECT U&"\0070\0067"()`, true, nil); err != nil {
+		t.Errorf("ValidateSQL with --write = %v, want nil", err)
 	}
 }

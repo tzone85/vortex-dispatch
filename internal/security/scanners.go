@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os/exec"
 	"path/filepath"
@@ -179,9 +180,20 @@ func parseGosec(out []byte, repoDir string) ([]Finding, error) {
 				ID string `json:"id"`
 			} `json:"cwe"`
 		} `json:"Issues"`
+		// gosec reports compile/package-load failures in "Golang errors"
+		// (filename → errors) while still emitting valid JSON with an empty
+		// Issues list. Decoding only Issues would return a clean empty scan
+		// for a run that could not actually analyse the code — the same
+		// masquerade the other parsers guard against. Fail closed only when
+		// no issues were produced, so a scan that found issues is never
+		// flipped to failed by a per-file parse error alongside real results.
+		GolangErrors map[string]json.RawMessage `json:"Golang errors"`
 	}
 	if err := json.Unmarshal(out, &doc); err != nil {
 		return nil, err
+	}
+	if len(doc.Issues) == 0 && len(doc.GolangErrors) > 0 {
+		return nil, fmt.Errorf("gosec reported %d package-load error(s) and no issues; scan coverage lost", len(doc.GolangErrors))
 	}
 	findings := make([]Finding, 0, len(doc.Issues))
 	for _, i := range doc.Issues {
@@ -248,9 +260,35 @@ func parseSemgrep(out []byte, repoDir string) ([]Finding, error) {
 				} `json:"metadata"`
 			} `json:"extra"`
 		} `json:"results"`
+		// semgrep always emits a top-level "errors" array alongside "results".
+		// On a scan-level failure (e.g. `--config auto` cannot load rules on an
+		// offline dispatch host) it emits valid JSON with results:[] and an
+		// error-level entry, and exits non-zero. Decoding only results would
+		// return ([], nil) — counted as a clean `ran` scan rather than `failed`,
+		// hiding total coverage loss from the gate and require_scanners strict
+		// mode. Inspect errors so that masquerade is surfaced.
+		Errors []struct {
+			Level   string `json:"level"`
+			Message string `json:"message"`
+		} `json:"errors"`
 	}
 	if err := json.Unmarshal(out, &doc); err != nil {
 		return nil, err
+	}
+	// Fail closed only when no results were produced AND a fatal error is
+	// present: a scan that returned findings clearly wasn't a total loss, so
+	// non-fatal per-file warnings that coexist with results never flip a
+	// successful scan to failed.
+	if len(doc.Results) == 0 {
+		for _, e := range doc.Errors {
+			if strings.EqualFold(e.Level, "error") {
+				msg := e.Message
+				if msg == "" {
+					msg = "semgrep reported a scan error with no results"
+				}
+				return nil, fmt.Errorf("semgrep scan error: %s", msg)
+			}
+		}
 	}
 	findings := make([]Finding, 0, len(doc.Results))
 	for _, r := range doc.Results {
@@ -279,6 +317,18 @@ func parseSemgrep(out []byte, repoDir string) ([]Finding, error) {
 
 func parseNpmAudit(out []byte) ([]Finding, error) {
 	var doc struct {
+		// npm emits a valid-JSON error envelope (e.g. {"error":{"code":
+		// "ENOLOCK",...}}) when the audit cannot actually run — most commonly
+		// a package.json with no lockfile. That envelope unmarshals cleanly
+		// into a nil Vulnerabilities map, so without inspecting Error the scan
+		// would look like a clean pass and be counted in RunScanners' `ran`
+		// list — exactly the "failed scan masquerading as clean" that the
+		// `failed` list exists to prevent (and that require_scanners strict
+		// mode relies on). Surface it as an error so coverage loss is visible.
+		Error *struct {
+			Code    string `json:"code"`
+			Summary string `json:"summary"`
+		} `json:"error"`
 		Vulnerabilities map[string]struct {
 			Name     string `json:"name"`
 			Severity string `json:"severity"`
@@ -288,6 +338,16 @@ func parseNpmAudit(out []byte) ([]Finding, error) {
 	}
 	if err := json.Unmarshal(out, &doc); err != nil {
 		return nil, err
+	}
+	if doc.Error != nil {
+		msg := doc.Error.Summary
+		if msg == "" {
+			msg = doc.Error.Code
+		}
+		if msg == "" {
+			msg = "npm audit reported an error with no detail"
+		}
+		return nil, fmt.Errorf("npm audit error: %s", msg)
 	}
 	findings := make([]Finding, 0, len(doc.Vulnerabilities))
 	for pkg, v := range doc.Vulnerabilities {
@@ -311,10 +371,21 @@ func parseNpmAudit(out []byte) ([]Finding, error) {
 
 func parseGovulncheck(out []byte) ([]Finding, error) {
 	var findings []Finding
+	// govulncheck runs in text mode, so — unlike the JSON scanners — a failure
+	// produces no unmarshal error to route it to `failed`. Its fatal errors
+	// print as "govulncheck: <msg>" (e.g. the vulnerability DB is unreachable
+	// on an offline dispatch host). Without detecting that, a scan that never
+	// ran returns zero findings and is counted as a clean `ran` scan, hiding
+	// total coverage loss from the gate and require_scanners strict mode — the
+	// same masquerade the JSON parsers guard against.
+	var scanErr string
 	sc := bufio.NewScanner(bytes.NewReader(out))
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
+		if strings.HasPrefix(line, "govulncheck:") && scanErr == "" {
+			scanErr = strings.TrimSpace(strings.TrimPrefix(line, "govulncheck:"))
+		}
 		// Lines look like: "Vulnerability #1: GO-2024-1234"
 		if !strings.HasPrefix(line, "Vulnerability #") {
 			continue
@@ -338,7 +409,15 @@ func parseGovulncheck(out []byte) ([]Finding, error) {
 			Source:   "scanner",
 		})
 	}
-	return findings, sc.Err()
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	// A fatal error with no vulnerability findings means the scan did not run
+	// — surface it as a failure rather than a clean empty result.
+	if len(findings) == 0 && scanErr != "" {
+		return nil, fmt.Errorf("govulncheck error: %s", scanErr)
+	}
+	return findings, nil
 }
 
 // Run executes the scanner against repoDir and returns parsed findings. A

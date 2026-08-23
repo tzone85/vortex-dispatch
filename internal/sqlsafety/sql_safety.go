@@ -164,6 +164,9 @@ func ValidateSQL(query string, writeFlag bool, extraDeny []string) error {
 	if writeFlag {
 		return nil
 	}
+	if hasUnicodeEscapeIdentifier(query) {
+		return fmt.Errorf("query uses a Unicode-escape identifier (U&\"…\"), whose decoded name cannot be safety-checked; re-run with --write if this is intentional")
+	}
 	if fn, hit := ContainsDeniedFunction(query, extraDeny); hit {
 		return fmt.Errorf("query calls side-effecting function %s(), which READ ONLY transactions do not block; re-run with --write if this is intentional", fn)
 	}
@@ -177,14 +180,89 @@ func ValidateSQL(query string, writeFlag bool, extraDeny []string) error {
 	}
 }
 
+// isIdentStart reports whether b may begin a SQL identifier (letter or
+// underscore, not a digit) — used to reject positional parameters like $1 as
+// dollar-quote tags.
+func isIdentStart(b byte) bool {
+	return b == '_' || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+}
+
+// isIdentChar reports whether b can appear in a SQL identifier. Used to
+// decide whether an E/e immediately before a quote is a standalone
+// escape-string introducer (E'...') rather than the tail of an identifier.
+func isIdentChar(b byte) bool {
+	return isIdentStart(b) || (b >= '0' && b <= '9')
+}
+
+// dollarQuoteTag reports whether a dollar-quote opening delimiter begins at
+// s[start] (which must be '$'), and if so returns the full delimiter token
+// (e.g. "$$" or "$tag$"). The tag between the dollar signs, if present,
+// follows unquoted-identifier rules (first char a letter or underscore), so a
+// positional parameter like $1 is correctly rejected as a non-delimiter.
+func dollarQuoteTag(s string, start int) (string, bool) {
+	j := start + 1
+	for j < len(s) && s[j] != '$' {
+		if j == start+1 {
+			if !isIdentStart(s[j]) {
+				return "", false
+			}
+		} else if !isIdentChar(s[j]) {
+			return "", false
+		}
+		j++
+	}
+	if j >= len(s) || s[j] != '$' {
+		return "", false
+	}
+	return s[start : j+1], true
+}
+
 // stripSQLCommentsAndStrings removes -- line comments, /* */ block
-// comments, and string literals (single-quoted) from the input. This
+// comments, string literals (single-quoted, including E'...' escape
+// strings), and dollar-quoted strings ($tag$...$tag$) from the input, and
+// unwraps double-quoted identifiers to their bare inner text. This
 // neutralises ambushes like `SELECT 1; /* */ DROP TABLE foo` that would
 // fool a naive substring check. The output is suitable ONLY for classifier
 // use — it is not a valid SQL string.
+//
+// Double-quoted identifiers are unwrapped (the surrounding quotes dropped,
+// `""` collapsed to nothing) rather than left verbatim: Postgres folds an
+// unquoted identifier to lowercase, so `"pg_read_file"` names the *same*
+// built-in as `pg_read_file`, yet the interposed quote between the name and
+// its `(` used to defeat the denylist regex — a call like
+// `SELECT "pg_terminate_backend"(pid)` slipped past ContainsDeniedFunction
+// and ran under a read-only transaction that does not block it. Collapsing
+// `"pg_read_file"(` to `pg_read_file(` makes the classifier see the true
+// call. Inner text is stripped of quotes only; no denied function name
+// contains a literal quote, so dropping the `""` escape body is safe here.
 func stripSQLCommentsAndStrings(s string) string {
+	stripped, _ := lexSQL(s)
+	return stripped
+}
+
+// hasUnicodeEscapeIdentifier reports whether the query contains a
+// Postgres Unicode-escape *identifier* (U&"…") outside of comments and
+// string literals. Such an identifier can name a function to call while its
+// \XXXX escapes decode only server-side, so the denylist regex — which sees
+// the raw escapes — cannot recognise the decoded name (e.g.
+// `SELECT U&"\0070\0067_..."('/etc/passwd')` calls pg_read_file). The
+// read-only gate rejects these rather than attempt to decode arbitrary
+// escapes; an operator who truly needs one re-runs with --write. Only the
+// identifier form is flagged: U&'…' is a string literal (its content never
+// executes) and is already stripped correctly.
+func hasUnicodeEscapeIdentifier(query string) bool {
+	_, u := lexSQL(query)
+	return u
+}
+
+// lexSQL walks the query once, returning it with -- / block comments,
+// string literals (single-quoted incl. E'…' escape strings, and
+// dollar-quoted) removed and double-quoted identifiers unwrapped, plus a
+// flag reporting whether a Unicode-escape identifier (U&"…") was seen.
+func lexSQL(s string) (string, bool) {
 	var b strings.Builder
 	b.Grow(len(s))
+	unicodeEscapeIdent := false
 	i := 0
 	for i < len(s) {
 		// Line comment: -- ... \n
@@ -207,10 +285,48 @@ func stripSQLCommentsAndStrings(s string) string {
 			}
 			continue
 		}
-		// Single-quoted string: '...' with '' as escaped quote
+		// Dollar-quoted string: $tag$ ... $tag$ (tag optional, so $$ ... $$).
+		// Handled before the single-quote branch because an odd number of
+		// apostrophes *inside* a dollar-quoted literal would otherwise desync
+		// the single-quote tracker and swallow a denied call that follows the
+		// literal — e.g. `SELECT $$'$$, pg_read_file('x')` classified read-only
+		// despite the real pg_read_file call outside any string. The tag
+		// follows identifier rules (letter/underscore first), so positional
+		// params like $1 are NOT treated as a delimiter.
+		if s[i] == '$' {
+			if tag, ok := dollarQuoteTag(s, i); ok {
+				closeIdx := strings.Index(s[i+len(tag):], tag)
+				if closeIdx < 0 {
+					i = len(s) // unterminated — consume to EOF
+				} else {
+					i = i + len(tag) + closeIdx + len(tag)
+				}
+				continue
+			}
+			// Not a dollar-quote delimiter ($1 param, lone $): ordinary char.
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		// Single-quoted string: '...'. A normal string uses '' as its only
+		// quote escape — standard_conforming_strings=on (the modern Postgres
+		// default) treats a backslash literally. A string introduced by E'/e'
+		// at a token boundary is an *escape string*: there a backslash escapes
+		// the next character, so `\'` does NOT close the string. Missing that
+		// mis-tracks the string boundary and lets a denied call following the
+		// literal be swallowed and hidden — e.g.
+		// `SELECT E'\'' || pg_read_file('x')` classified read-only despite the
+		// real pg_read_file call. Detect escape mode and consume backslash
+		// escapes so the boundary is tracked correctly.
 		if s[i] == '\'' {
+			escapeString := i >= 1 && (s[i-1] == 'E' || s[i-1] == 'e') &&
+				(i == 1 || !isIdentChar(s[i-2]))
 			i++
 			for i < len(s) {
+				if escapeString && s[i] == '\\' {
+					i += 2 // skip the backslash and the char it escapes
+					continue
+				}
 				if s[i] == '\'' {
 					if i+1 < len(s) && s[i+1] == '\'' {
 						i += 2
@@ -223,8 +339,33 @@ func stripSQLCommentsAndStrings(s string) string {
 			}
 			continue
 		}
+		// Double-quoted identifier: "..." with "" as escaped quote. Unwrap
+		// to the bare inner text so a quoted denied-function name is caught.
+		// A U&"…" / u&"…" prefix marks a Unicode-escape identifier whose
+		// \XXXX escapes decode only server-side — flag it so the read-only
+		// gate can reject it (the raw escapes can't be matched by the regex).
+		if s[i] == '"' {
+			if i >= 2 && s[i-1] == '&' && (s[i-2] == 'U' || s[i-2] == 'u') &&
+				(i == 2 || !isIdentChar(s[i-3])) {
+				unicodeEscapeIdent = true
+			}
+			i++
+			for i < len(s) {
+				if s[i] == '"' {
+					if i+1 < len(s) && s[i+1] == '"' {
+						i += 2
+						continue
+					}
+					i++
+					break
+				}
+				b.WriteByte(s[i])
+				i++
+			}
+			continue
+		}
 		b.WriteByte(s[i])
 		i++
 	}
-	return b.String()
+	return b.String(), unicodeEscapeIdent
 }

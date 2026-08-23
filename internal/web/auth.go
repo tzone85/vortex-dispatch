@@ -225,14 +225,13 @@ func (a *authenticator) Rotate() (string, error) {
 
 // RequireToken is a thin compatibility wrapper for callers that don't
 // need the bootstrap-nonce flow. Equivalent to NewAuthMiddleware with
-// only Token set (or AllowUnauthenticated when token is empty — only
-// the AllowUnauthenticated path is explicit; empty token still panics
-// in NewAuthMiddleware, mirroring the safety guarantee).
+// only Token set, so it inherits the same safety guarantee: an empty
+// token PANICS rather than silently serving an unauthenticated
+// dashboard. Callers that genuinely want no auth must go through
+// NewAuthMiddleware with an explicit AllowUnauthenticated=true — the
+// fail-open path is never reachable by leaving the token blank.
 func RequireToken(token string, next http.Handler) http.Handler {
-	mw := NewAuthMiddleware(AuthOptions{
-		Token:                token,
-		AllowUnauthenticated: token == "",
-	})
+	mw := NewAuthMiddleware(AuthOptions{Token: token})
 	return mw(next)
 }
 

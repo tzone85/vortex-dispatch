@@ -100,6 +100,21 @@ func TestNewAuthMiddleware_AllowUnauthenticatedExplicit(t *testing.T) {
 
 // ─── RequireToken — bypass paths + missing/wrong token ───────────────────
 
+// TestRequireToken_EmptyTokenPanics pins the safety contract: RequireToken must
+// NOT silently fail open on a blank token. Previously it set
+// AllowUnauthenticated: token == "", so RequireToken("") served an
+// unauthenticated dashboard — contradicting its own doc, NewAuthMiddleware's
+// panic guarantee, and CLAUDE.md. An empty token is misconfiguration and must
+// panic, exactly like NewAuthMiddleware(AuthOptions{}).
+func TestRequireToken_EmptyTokenPanics(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("RequireToken(\"\") must panic, not fail open to an unauthenticated dashboard")
+		}
+	}()
+	RequireToken("", http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+}
+
 func TestRequireToken_AllowsBypassPaths(t *testing.T) {
 	h := RequireToken("the-token", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

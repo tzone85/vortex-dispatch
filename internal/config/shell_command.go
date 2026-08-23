@@ -56,6 +56,15 @@ func ValidateShellCommand(cmd string, strict bool) error {
 	if !strict {
 		return nil
 	}
+	// A newline or carriage return is a statement separator to `sh -c`, so it
+	// smuggles a second command exactly like `;` does — the construct strict
+	// mode exists to forbid. The metacharacter scan below is substring-based
+	// against printable sequences and would let a newline slip through, so
+	// check for it explicitly first. `command_list` is the sanctioned way to
+	// express multi-step work, so a newline has no legitimate use here.
+	if strings.ContainsAny(cmd, "\n\r") {
+		return fmt.Errorf("config-supplied command contains a newline, rejected by security.strict_shell_commands; use command_list to express multi-step commands")
+	}
 	for _, p := range shellChainPatterns {
 		if strings.Contains(cmd, p.seq) {
 			return fmt.Errorf("config-supplied command contains %s, rejected by security.strict_shell_commands; use command_list to express multi-step commands", p.name)

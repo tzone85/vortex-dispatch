@@ -154,11 +154,13 @@ func checkTests(repoDir string) (passing, failing, total int) {
 	}
 
 	cmd.Dir = repoDir
-	out, _ := cmd.CombinedOutput()
+	out, runErr := cmd.CombinedOutput()
 	output := string(out)
 
 	if fileExists(filepath.Join(repoDir, "go.mod")) {
-		return parseGoTestJSON(output)
+		passing, failing, _ = parseGoTestJSON(output)
+		failing = applyRunnerFailure(runErr, failing)
+		return passing, failing, passing + failing
 	}
 
 	// Parse test results (simplified — count PASS/FAIL lines)
@@ -182,9 +184,30 @@ func checkTests(repoDir string) (passing, failing, total int) {
 		}
 	}
 
+	failing = applyRunnerFailure(runErr, failing)
 	total = passing + failing
 	log.Printf("[verify] tests: %d passing, %d failing, %d total", passing, failing, total)
 	return passing, failing, total
+}
+
+// applyRunnerFailure is the fail-closed guard for the completion gate. The test
+// runner exits non-zero when ANY test fails, but also when the suite could not
+// run at all: a *_test.go file that does not compile (the exact cross-story
+// drift this gate exists to catch), a panic outside a named test, a `go vet`
+// failure, a TestMain os.Exit, or a JS runner that failed to launch. Those
+// surface as package-level events with no attributable test name, so the
+// parsers above score them 0 failing. Without this guard the gate would read
+// build=pass, failing=0 and wave REQ_COMPLETED through on a tree whose test
+// suite does not even build (go build ./... skips *_test.go). When the runner
+// failed but no named failure was parsed, record one so ShouldRunFixCycle
+// fires the auto-fix loop / REQ_BLOCKED instead of silently completing.
+func applyRunnerFailure(runErr error, failing int) int {
+	if runErr != nil && failing == 0 {
+		log.Printf("[verify] test runner exited non-zero with no attributable test failure "+
+			"(compile error, panic, or runner launch failure): %v", runErr)
+		return 1
+	}
+	return failing
 }
 
 func parseGoTestJSON(output string) (passing, failing, total int) {

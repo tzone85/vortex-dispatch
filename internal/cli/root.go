@@ -52,6 +52,7 @@ func init() {
 	rootCmd.AddCommand(newAutoresearchCmd())
 	rootCmd.AddCommand(newLogsCmd())
 	rootCmd.AddCommand(newWatchCmd())
+	rootCmd.AddCommand(newDoctorCmd())
 }
 
 func Execute() error {

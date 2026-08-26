@@ -212,6 +212,7 @@ improve:
 | `vxd figma auth` | One-time INTERACTIVE session: create + paste a Figma personal access token (validated via /v1/me, stored at `<state_dir>/figma.token` 0600). After this, Figma-referencing runs are fire-and-forget again |
 | `vxd figma status` | Show whether Figma access is configured and for which account |
 | `vxd backup` | Create tar.gz archive of project state (`--output DIR`) |
+| `vxd replay` | Rebuild the SQLite projection from `events.jsonl` (disaster recovery). Moves the old db aside to `vxd.db.bak-<timestamp>`, streams every event through the projector, reports per-type counts. `--dry-run` validates the event log only (corrupt lines with line numbers, non-zero exit, SQLite untouched). Refuses to run while a live pipeline holds the lock. |
 | `vxd gc` | Garbage-collect branches + expired logs |
 | `vxd improve log` | Browse improvement changelog (`--disposition`, `--category`, `--since`, `--errors`) |
 | `vxd improve runs` | Show daily run summaries (findings, PRs, email status) |

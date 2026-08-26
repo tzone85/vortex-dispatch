@@ -253,6 +253,7 @@ vhs docs/demo.tape
 | `vxd pause <req-id>` | Pause a running requirement |
 | `vxd memory` | Launch the memory dashboard (timeline, findings explorer, opportunities) |
 | `vxd backup [--output DIR]` | Create tar.gz archive of project state (events.jsonl, store.db, config) |
+| `vxd replay [--dry-run]` | Rebuild the SQLite projection from events.jsonl (disaster recovery); moves the old db aside to `vxd.db.bak-<timestamp>`; `--dry-run` validates the event log (corrupt lines reported with line numbers) without touching SQLite |
 
 ### Submitting Requirements
 
@@ -381,6 +382,28 @@ vxd backup --output /backups  # to specific directory
 ```
 
 Archives include `events.jsonl`, `store.db`, and other state files. Combined with the append-only event log design, this provides a baseline disaster recovery story (RPO = backup interval, RTO = restore + replay time).
+
+### Disaster Recovery
+
+VXD is event-sourced: `events.jsonl` is the source of truth and the SQLite
+projection (`vxd.db`) is a rebuildable materialized view. If the projection is
+lost, corrupt, or suspected of diverging from the event history, rebuild it in
+one command:
+
+```bash
+vxd replay              # move vxd.db aside to vxd.db.bak-<timestamp>, create a fresh db,
+                        # stream every event through the projector in order, report counts
+vxd replay --dry-run    # validate events.jsonl only: decode every line, report corrupt
+                        # lines with line numbers, exit non-zero — SQLite untouched
+```
+
+Notes:
+
+- The previous database (with its WAL/SHM sidecars) is moved aside, never deleted — restore the `.bak-<timestamp>` files to undo a replay.
+- A replay refuses to run while a live pipeline holds the project lock file (`vxd.lock`); stale locks from dead processes are reclaimed automatically.
+- Corrupt event-log lines block a real replay (a partial rebuild would silently diverge from the source of truth) — fix or remove the reported lines first; `--dry-run` pinpoints them.
+
+Typical recovery flow: `vxd backup` on a schedule gives you point-in-time archives; `vxd replay` closes the loop by rebuilding the live projection from the append-only log after a crash or corruption.
 
 ## Configuration
 

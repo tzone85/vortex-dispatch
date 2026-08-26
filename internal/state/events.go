@@ -99,6 +99,15 @@ const (
 	// Operational security events.
 	EventDashboardTokenRotated EventType = "DASHBOARD_TOKEN_ROTATED" // dashboard bearer token rotated (TTL expiry or `vxd dashboard rotate-token`)
 
+	// Cost-tracking events (F2). STORY_COST_RECORDED lands once per measured
+	// LLM call (stage: agent|review|planning|conflict|diagnosis) with raw token
+	// usage and an estimated USD cost (0 for subscription-mode CLI calls).
+	// REQ_BUDGET_EXCEEDED fires when a requirement's accumulated est_usd
+	// crosses billing.max_usd_per_req; the accompanying REQ_PAUSED performs the
+	// actual status transition (same clean-pause path as a capacity pause).
+	EventStoryCostRecorded EventType = "STORY_COST_RECORDED"
+	EventReqBudgetExceeded EventType = "REQ_BUDGET_EXCEEDED"
+
 	// Autoresearch harness events. See docs/superpowers/specs/2026-05-02-autoresearch-harness-design.md.
 	EventBaselineMeasured    EventType = "BASELINE_MEASURED"
 	EventExperimentProposed  EventType = "EXPERIMENT_PROPOSED"

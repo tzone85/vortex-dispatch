@@ -107,6 +107,18 @@ type Monitor struct {
 	// on each story before merge, pausing the requirement when a finding meets
 	// the gate severity. Nil disables the per-story security gate.
 	securityGate *SecurityGate
+
+	// costMeter records STORY_COST_RECORDED events for metered LLM calls made
+	// by monitor-owned components (reviewer, manager, conflict resolver).
+	// Nil means no metering is active for this run.
+	costMeter llm.UsageRecorder
+}
+
+// SetCostMeter wires the F2 usage recorder into the monitor so that every
+// successful, Stage-tagged LLM call made by pipeline components is recorded
+// as a STORY_COST_RECORDED event. Pass nil to disable metering.
+func (m *Monitor) SetCostMeter(rec llm.UsageRecorder) {
+	m.costMeter = rec
 }
 
 // SetNotifier configures the outbound webhook notifier (Slack, Discord, etc.).

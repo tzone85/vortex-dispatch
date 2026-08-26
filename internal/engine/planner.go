@@ -221,13 +221,19 @@ agents to study the rendered PNGs in %s/ before writing UI code.`, designCtx, fi
 		}
 	}
 
-	// Call Tech Lead
-	resp, err := p.llmClient.Complete(ctx, llm.CompletionRequest{
+	// Call Tech Lead. Persisted plans opt into cost metering (F2); ephemeral
+	// estimates (`vxd estimate`) record nothing, matching their no-persist contract.
+	planReq := llm.CompletionRequest{
 		Model:     p.config.Models.TechLead.Model,
 		MaxTokens: p.config.Models.TechLead.MaxTokens,
 		System:    systemPrompt,
 		Messages:  []llm.Message{{Role: llm.RoleUser, Content: userMessage}},
-	})
+	}
+	if persist {
+		planReq.Stage = "planning"
+		planReq.ReqID = reqID
+	}
+	resp, err := p.llmClient.Complete(ctx, planReq)
 	if err != nil {
 		return PlanResult{}, fmt.Errorf("tech lead planning: %w", err)
 	}

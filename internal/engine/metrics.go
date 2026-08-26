@@ -74,6 +74,7 @@ type RequirementStat struct {
 	Errors          int
 	Stories         []StoryStat
 	DBMetrics       state.StoryDBMetrics
+	Cost            state.StoryCostSummary
 }
 
 // ComputeMetrics calculates pipeline metrics from the event store.
@@ -197,6 +198,12 @@ func ComputeMetrics(es state.EventStore, ps *state.SQLiteStore, limit int, logDi
 		dbm, _ := ps.StoryDBMetricsByReq(req.ID)
 		reqStat.DBMetrics = dbm
 
+		// Per-requirement cost accounting (F2): tokens + est USD by stage.
+		costSum, costErr := ps.StoryCostSummaryByReq(req.ID)
+		if costErr == nil {
+			reqStat.Cost = costSum
+		}
+
 		m.RequirementStats = append(m.RequirementStats, reqStat)
 	}
 
@@ -309,6 +316,20 @@ func FormatMetrics(m PipelineMetrics) string {
 				fmt.Fprintf(&b, "      DB-hours: %.2f\n", hours)
 				if rs.DBMetrics.Provider != "" {
 					fmt.Fprintf(&b, "      Provider: %s\n", rs.DBMetrics.Provider)
+				}
+			}
+			if rs.Cost.TotalInputTokens > 0 || rs.Cost.TotalOutputTokens > 0 || rs.Cost.TotalEstUSD > 0 {
+				b.WriteString("    Cost:\n")
+				fmt.Fprintf(&b, "      Tokens: %d in / %d out | Est: $%.4f\n",
+					rs.Cost.TotalInputTokens, rs.Cost.TotalOutputTokens, rs.Cost.TotalEstUSD)
+				stages := make([]string, 0, len(rs.Cost.ByStage))
+				for st := range rs.Cost.ByStage {
+					stages = append(stages, st)
+				}
+				sort.Strings(stages)
+				for _, st := range stages {
+					sc := rs.Cost.ByStage[st]
+					fmt.Fprintf(&b, "      %-9s %d in / %d out ($%.4f)\n", st+":", sc.InputTokens, sc.OutputTokens, sc.EstUSD)
 				}
 			}
 		}

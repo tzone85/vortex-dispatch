@@ -374,13 +374,30 @@ func runResume(cmd *cobra.Command, args []string) error {
 		llmErr = nil
 		fmt.Fprintf(out, "[DRY RUN] Using simulated LLM responses\n")
 	}
+
+	// Cost metering (F2): wrap every LLM client so successful completions
+	// record STORY_COST_RECORDED events. Pricing follows billing.llm_costs.mode:
+	// per_token prices via the static table; subscription (CLI) records raw
+	// token volume with est_usd=0 — no marginal cost, but spend is visible.
+	priced := s.Config.Billing.LLMCosts.Mode == "per_token"
+	meter := &costRecorder{events: s.Events, proj: s.Proj, priced: priced}
+	if llmClient != nil {
+		llmClient = llm.NewMeteredClient(llmClient, meter, priced)
+	}
 	if llmErr != nil {
 		log.Printf("Warning: LLM client unavailable, skipping code review: %v", llmErr)
 	} else {
 		reviewerClient, reviewerCfg := resolveReviewerClient(s.Config, llmClient, godmode, dryRun)
+		// resolveReviewerClient often returns the senior client, which is ALREADY
+		// metered (llmClient was wrapped above) — double-wrapping would record
+		// every review call twice. Only wrap genuinely fresh clients.
+		if _, alreadyMetered := reviewerClient.(*llm.MeteredClient); !alreadyMetered {
+			reviewerClient = llm.NewMeteredClient(reviewerClient, meter, priced)
+		}
 		reviewer = engine.NewReviewer(reviewerClient, reviewerCfg.Model, reviewerCfg.MaxTokens, s.Events, s.Proj)
+		reviewer.SetCostMeter(meter)
 	}
-	if s.Config.Planning.DesignApproach != "" {
+	if s.Config.Planning.DesignApproach != "" && reviewer != nil {
 		reviewer.SetDesignApproach(s.Config.Planning.DesignApproach)
 	}
 
@@ -401,6 +418,11 @@ func runResume(cmd *cobra.Command, args []string) error {
 
 	monitor := engine.NewMonitor(reg, watchdog, reviewer, qaRunner, merger, runtimeCfg, s.Events, s.Proj)
 	monitor.SetCheckpointPath(checkpointPath)
+
+	// F2: hand the store-backed cost recorder to the monitor so pipeline-owned
+	// LLM components (reviewer, manager diagnosis, conflict resolution) meter
+	// their calls into STORY_COST_RECORDED.
+	monitor.SetCostMeter(meter)
 	if artStore != nil {
 		monitor.SetArtifactStore(artStore)
 	}
@@ -444,7 +466,7 @@ func runResume(cmd *cobra.Command, args []string) error {
 		var techLeadModelName string
 		if !dryRun {
 			if tlc, tlErr := buildPlanningClient(s.Config.Models.TechLead.Provider, godmode); tlErr == nil {
-				techLeadClient = tlc
+				techLeadClient = llm.NewMeteredClient(tlc, meter, priced)
 				techLeadModelName = s.Config.Models.TechLead.Model
 			}
 		}
@@ -455,6 +477,7 @@ func runResume(cmd *cobra.Command, args []string) error {
 			s.Proj,
 			s.Events,
 		)
+		conflictResolver.SetCostMeter(meter)
 		monitor.SetConflictResolver(conflictResolver)
 	}
 
@@ -462,6 +485,7 @@ func runResume(cmd *cobra.Command, args []string) error {
 	if llmClient != nil {
 		managerModel := s.Config.Models.Manager
 		manager := engine.NewManager(llmClient, managerModel.Model, managerModel.MaxTokens, s.Events, s.Proj)
+		manager.SetCostMeter(meter)
 		monitor.SetManager(manager)
 	}
 
@@ -473,7 +497,7 @@ func runResume(cmd *cobra.Command, args []string) error {
 		} else {
 			pc, planErr := buildPlanningClient(s.Config.Models.TechLead.Provider, godmode)
 			if planErr == nil {
-				planningClient = pc
+				planningClient = llm.NewMeteredClient(pc, meter, priced)
 			}
 		}
 		if planningClient != nil {

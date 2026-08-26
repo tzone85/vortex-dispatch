@@ -24,6 +24,16 @@ type CompletionRequest struct {
 	MaxTokens   int       `json:"max_tokens"`
 	Temperature float64   `json:"temperature,omitempty"`
 	System      string    `json:"system,omitempty"` // System prompt (Anthropic-style)
+	// Stage opts this call into cost metering (F2): one of
+	// agent|review|planning|conflict|diagnosis. When a MeteredClient wraps
+	// the client, a non-empty Stage records the call's usage as a
+	// STORY_COST_RECORDED event; an empty Stage passes through unmetered.
+	Stage string `json:"stage,omitempty"`
+	// ReqID / StoryID attribute the metered call to a requirement/story in
+	// the cost projection. Optional — the recorder falls back to resolving
+	// the requirement from StoryID via the projection store.
+	ReqID   string `json:"req_id,omitempty"`
+	StoryID string `json:"story_id,omitempty"`
 }
 
 // CompletionResponse holds the result of a completion call.

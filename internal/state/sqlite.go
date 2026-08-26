@@ -96,6 +96,19 @@ CREATE TABLE IF NOT EXISTS story_databases (
     PRIMARY KEY (story_id, db_id)
 );
 CREATE INDEX IF NOT EXISTS idx_story_databases_status ON story_databases(status);
+
+CREATE TABLE IF NOT EXISTS story_costs (
+    id TEXT PRIMARY KEY,
+    story_id TEXT NOT NULL DEFAULT '',
+    req_id TEXT NOT NULL DEFAULT '',
+    stage TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL DEFAULT '',
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    est_usd REAL NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_story_costs_req_id ON story_costs(req_id);
 `
 
 // SQLiteStore implements ProjectionStore using SQLite.
@@ -246,6 +259,14 @@ func (s *SQLiteStore) Project(evt Event) error {
 	case EventDashboardTokenRotated:
 		// Informational: token rotations are recorded in the event log for the
 		// audit trail; no projection state to mutate.
+		return nil
+
+	case EventStoryCostRecorded:
+		return s.projectStoryCostRecorded(evt, payload)
+	case EventReqBudgetExceeded:
+		// Informational: the budget-exceeded signal lives in the event log for
+		// the audit trail; the accompanying REQ_PAUSED performs the actual
+		// status transition (same clean-pause path as a capacity pause).
 		return nil
 	case EventStoryPRCreated:
 		return s.projectStoryPRCreated(evt.StoryID, payload)
@@ -1007,6 +1028,79 @@ func (s *SQLiteStore) StoryDBStatusAll() (map[string]string, error) {
 		out[sid] = st
 	}
 	return out, rows.Err()
+}
+
+// --- cost tracking (F2) ---
+
+// StageCost aggregates token usage and estimated spend for one pipeline stage.
+type StageCost struct {
+	InputTokens  int
+	OutputTokens int
+	EstUSD       float64
+}
+
+// StoryCostSummary aggregates STORY_COST_RECORDED events for a requirement.
+type StoryCostSummary struct {
+	ReqID             string
+	TotalInputTokens  int
+	TotalOutputTokens int
+	TotalEstUSD       float64
+	ByStage           map[string]StageCost
+}
+
+// projectStoryCostRecorded inserts one measured LLM-call cost row. Each event
+// carries its own ULID primary key, so replays are naturally idempotent.
+func (s *SQLiteStore) projectStoryCostRecorded(evt Event, payload map[string]any) error {
+	id := ulid.MustNew(ulid.Timestamp(evt.Timestamp), rand.Reader)
+	_, err := s.db.Exec(
+		`INSERT OR IGNORE INTO story_costs
+		 (id, story_id, req_id, stage, model, input_tokens, output_tokens, est_usd, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id.String(),
+		payloadStr(payload, "story_id"),
+		payloadStr(payload, "req_id"),
+		payloadStr(payload, "stage"),
+		payloadStr(payload, "model"),
+		payloadInt(payload, "input_tokens"),
+		payloadInt(payload, "output_tokens"),
+		payloadFloat(payload, "est_usd"),
+		evt.Timestamp,
+	)
+	return err
+}
+
+// StoryCostSummaryByReq returns aggregated cost accounting for a requirement:
+// total tokens + estimated USD, broken down by pipeline stage. Unknown
+// requirements aggregate to a zero summary, not an error.
+func (s *SQLiteStore) StoryCostSummaryByReq(reqID string) (StoryCostSummary, error) {
+	sum := StoryCostSummary{ReqID: reqID, ByStage: map[string]StageCost{}}
+	rows, err := s.db.Query(
+		`SELECT stage, COALESCE(input_tokens, 0), COALESCE(output_tokens, 0), COALESCE(est_usd, 0)
+		 FROM story_costs WHERE req_id = ?`,
+		reqID,
+	)
+	if err != nil {
+		return sum, fmt.Errorf("query story_costs for %s: %w", reqID, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var stage string
+		var in, out int
+		var usd float64
+		if err := rows.Scan(&stage, &in, &out, &usd); err != nil {
+			return sum, err
+		}
+		sum.TotalInputTokens += in
+		sum.TotalOutputTokens += out
+		sum.TotalEstUSD += usd
+		sc := sum.ByStage[stage]
+		sc.InputTokens += in
+		sc.OutputTokens += out
+		sc.EstUSD += usd
+		sum.ByStage[stage] = sc
+	}
+	return sum, rows.Err()
 }
 
 // --- payload extraction helpers ---

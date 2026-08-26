@@ -116,6 +116,12 @@ func runReq(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
+		// F2: meter the persisted planning call into STORY_COST_RECORDED.
+		// per_token mode prices via the static table; subscription records raw
+		// tokens at est_usd=0. Ephemeral estimates stay unmetered (the planner
+		// only tags Stage when persisting).
+		planPriced := s.Config.Billing.LLMCosts.Mode == "per_token"
+		client = llm.NewMeteredClient(client, &costRecorder{events: s.Events, proj: s.Proj, priced: planPriced}, planPriced)
 	}
 
 	// Generate requirement ID

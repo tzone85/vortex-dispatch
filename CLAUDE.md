@@ -53,6 +53,8 @@ Tier 4: Pause (human intervention required)
 - `STORY_SECURITY_PASSED` / `STORY_SECURITY_FAILED` — per-story security gate result; a FAILED gate pauses the requirement (human decision) rather than escalating
 - `SECURITY_SCAN_COMPLETED` — a standalone `vxd security scan` finished (findings count, max severity)
 - `SECURITY_RULE_LEARNED` — the security agent added a new vulnerability class to the knowledge base from a confirmed finding (self-upskilling)
+- `STORY_COST_RECORDED` — one LLM call's usage recorded (story_id, req_id, stage [agent|review|planning|diagnosis|conflict], model, input/output tokens, est_usd; subscription CLI calls record token volume with est_usd=0). Projected into `story_costs`; summarized per requirement in `vxd metrics`
+- `REQ_BUDGET_EXCEEDED` — accumulated est_usd for a requirement crossed `billing.max_usd_per_req`; the requirement is paused through the clean-pause path (no escalation-tier burn). Raise the cap (or set 0 = unlimited) and `vxd resume`
 
 ### Event Sourcing
 - **Source of truth**: `events.jsonl` (append-only, fsync'd)
@@ -141,6 +143,7 @@ security:
 billing:
   default_rate: 150.0
   currency: USD
+  max_usd_per_req: 0   # hard per-requirement spend cap in est USD (0 = unlimited). Over cap → REQ_BUDGET_EXCEEDED + clean pause (no tier burn); raise cap + `vxd resume`
 notify:
   slack_webhook_url: ""     # empty disables all outbound notifications
   notify_on_sla: false      # send STORY_SLA_BREACHED

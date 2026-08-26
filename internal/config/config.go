@@ -215,7 +215,7 @@ type QAConfig struct {
 	SuccessCriteria []SuccessCriterion `yaml:"success_criteria,omitempty"`
 	// DisablePreMergeVerify turns OFF the repo-wide pre-merge QA gate. The gate
 	// re-runs lint/build/test on the rebased worktree before merging and blocks
-	// a story that turns a green base branch red (keeping main always-green).
+	// a story that turns a green base red (keeping main always-green).
 	// Default (false) = gate ON. It never blocks when the base is already red.
 	DisablePreMergeVerify bool `yaml:"disable_pre_merge_verify,omitempty"`
 	// DisableCompletionGate turns OFF the requirement-completion verification
@@ -293,14 +293,14 @@ type SuccessCriterion struct {
 // AutoresearchConfig configures the per-repo autoresearch experiment harness.
 // See docs/superpowers/specs/2026-05-02-autoresearch-harness-design.md.
 type AutoresearchConfig struct {
-	Enabled        bool                `yaml:"enabled"`
-	Metric         AutoresearchMetric  `yaml:"metric"`
-	EditablePaths  []string            `yaml:"editable_paths"`
-	ForbiddenPaths []string            `yaml:"forbidden_paths,omitempty"`
-	Gate           string              `yaml:"gate"`        // "auto" | "winning" | "pr"
-	Budget         string              `yaml:"budget"`      // duration string, e.g. "5m"
-	Parallel       int                 `yaml:"parallel"`    // max concurrent experiments
-	Continuous     bool                `yaml:"continuous"`  // run back-to-back vs scheduled batch only
+	Enabled        bool                 `yaml:"enabled"`
+	Metric         AutoresearchMetric   `yaml:"metric"`
+	EditablePaths  []string             `yaml:"editable_paths"`
+	ForbiddenPaths []string             `yaml:"forbidden_paths,omitempty"`
+	Gate           string               `yaml:"gate"`   // "auto" | "winning" | "pr"
+	Budget         string               `yaml:"budget"` // duration string, e.g. "5m"
+	Parallel       int                  `yaml:"parallel"`   // max concurrent experiments
+	Continuous     bool                 `yaml:"continuous"` // run back-to-back vs scheduled batch only
 	Schedule       AutoresearchSchedule `yaml:"schedule,omitempty"`
 	Tripwire       AutoresearchTripwire `yaml:"tripwire,omitempty"`
 	Bayes          AutoresearchBayes    `yaml:"bayes,omitempty"`
@@ -308,7 +308,7 @@ type AutoresearchConfig struct {
 
 // AutoresearchMetric describes how to measure an experiment outcome.
 type AutoresearchMetric struct {
-	Command        string                  `yaml:"command"`
+	Command        string                   `yaml:"command"`
 	Parser         AutoresearchMetricParser `yaml:"parser"`
 	TieEpsilon     float64                  `yaml:"tie_epsilon"`
 	TiebreakRubric string                   `yaml:"tiebreak_rubric,omitempty"`
@@ -397,12 +397,20 @@ func (m *IntKeyMap) UnmarshalYAML(value *yaml.Node) error {
 	return nil
 }
 
-// BillingConfig controls cost estimation and client quoting.
+// BillingConfig controls cost estimation, client quoting, and (since F2)
+// live per-requirement spend accounting.
 type BillingConfig struct {
 	DefaultRate   float64            `yaml:"default_rate"`
 	Currency      string             `yaml:"currency"`
 	HoursPerPoint map[int][2]float64 `yaml:"hours_per_point"`
 	LLMCosts      LLMCostConfig      `yaml:"llm_costs"`
+	// MaxUSDPerReq is the hard spend cap per requirement, in estimated USD.
+	// After each post-execution pipeline the monitor sums the requirement's
+	// STORY_COST_RECORDED est_usd; over the cap it emits REQ_BUDGET_EXCEEDED
+	// and pauses the requirement (clean pause — no escalation-tier burn).
+	// Raise the cap (or set 0) and run `vxd resume` to continue.
+	// Default 0 = unlimited (no budget enforcement).
+	MaxUSDPerReq float64 `yaml:"max_usd_per_req"`
 }
 
 // LLMCostConfig tracks LLM API costs.
@@ -582,6 +590,9 @@ func (c Config) Validate() error {
 	}
 	if c.Billing.Currency == "" {
 		return fmt.Errorf("billing.currency must not be empty")
+	}
+	if c.Billing.MaxUSDPerReq < 0 {
+		return fmt.Errorf("billing.max_usd_per_req must be >= 0 (0 = unlimited), got %f", c.Billing.MaxUSDPerReq)
 	}
 	validLLMModes := map[string]bool{"subscription": true, "per_token": true}
 	if !validLLMModes[c.Billing.LLMCosts.Mode] {

@@ -135,6 +135,17 @@ type RoutingConfig struct {
 	MaxSeniorRetries              int `yaml:"max_senior_retries"`
 	MaxManagerAttempts            int `yaml:"max_manager_attempts"`
 	MaxConcurrentAgents           int `yaml:"max_concurrent_agents"`
+	// Adaptive enables history-aware tier selection (F3): when true, the
+	// dispatcher consults STORY_COMPLETED / STORY_ESCALATED history and may
+	// demote a story to a cheaper tier with a strong success record at that
+	// complexity (>= 80% over adaptive_min_samples resolved attempts) or
+	// promote it one tier when the default tier succeeds < 40% of the time.
+	// Opt-in; default false keeps pure complexity-threshold routing.
+	Adaptive bool `yaml:"adaptive"`
+	// AdaptiveMinSamples is the minimum resolved attempts per
+	// (tier, complexity) cell before adaptive routing trusts the history.
+	// 0 or negative falls back to the built-in default of 5.
+	AdaptiveMinSamples int `yaml:"adaptive_min_samples"`
 }
 
 // MonitorConfig controls the supervisor monitoring loop.

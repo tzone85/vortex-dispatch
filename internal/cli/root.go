@@ -53,6 +53,7 @@ func init() {
 	rootCmd.AddCommand(newLogsCmd())
 	rootCmd.AddCommand(newWatchCmd())
 	rootCmd.AddCommand(newReplayCmd())
+	rootCmd.AddCommand(newDoctorCmd())
 }
 
 func Execute() error {

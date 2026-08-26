@@ -52,7 +52,7 @@ type techLeadContext struct {
 //
 // Resolution strategy (in order):
 //  1. Binary file: deterministic policy (--ours or git rm), no LLM call.
-//  2. Senior LLM (fast path): resolves simple text conflicts.
+//  2. Senior LLM (fast path): resolveFile meters via costMeter.
 //  3. Tech Lead LLM (escalation): richer prompt with requirement/story context,
 //     triggered when (a) senior fails, (b) resolved content still contains
 //     conflict markers, or (c) conflict spans >3 files.
@@ -67,6 +67,16 @@ type ConflictResolver struct {
 	techLeadClient llm.Client
 	techLeadModel  string
 	projStore      state.ProjectionStore
+
+	// costMeter records STORY_COST_RECORDED events for successful resolution
+	// calls (F2). Nil = unmetered (unit tests).
+	costMeter llm.UsageRecorder
+}
+
+// SetCostMeter wires the F2 usage recorder so senior + tech-lead conflict
+// resolution calls record their token usage. Pass nil to disable metering.
+func (cr *ConflictResolver) SetCostMeter(rec llm.UsageRecorder) {
+	cr.costMeter = rec
 }
 
 // NewConflictResolver creates a ConflictResolver.
@@ -217,7 +227,7 @@ func (cr *ConflictResolver) RebaseWithResolution(ctx context.Context, storyID, w
 			}
 
 			// Try senior resolver first (fast path).
-			resolved, seniorErr := cr.resolveFile(ctx, file, string(content))
+			resolved, seniorErr := cr.resolveFile(ctx, storyID, file, string(content))
 
 			// Escalate to Tech Lead if:
 			//  - senior failed entirely, OR
@@ -226,7 +236,7 @@ func (cr *ConflictResolver) RebaseWithResolution(ctx context.Context, storyID, w
 			if seniorErr != nil || needsTechLead {
 				if cr.techLeadClient != nil {
 					tlCtx := cr.buildTechLeadContext(ctx, storyID, worktreePath, file)
-					resolved, rErr = cr.resolveFileTechLead(ctx, file, string(content), tlCtx)
+					resolved, rErr = cr.resolveFileTechLead(ctx, storyID, file, string(content), tlCtx)
 					if rErr != nil {
 						// Only a genuine resolution dead-end (the model returned
 						// commentary or left conflict markers) gets the
@@ -516,7 +526,7 @@ func (cr *ConflictResolver) handleBinaryConflict(storyID, worktreePath, absPath,
 }
 
 // resolveFile sends a conflicted file to the senior LLM and returns the resolved content.
-func (cr *ConflictResolver) resolveFile(ctx context.Context, filename, conflictedContent string) (string, error) {
+func (cr *ConflictResolver) resolveFile(ctx context.Context, storyID, filename, conflictedContent string) (string, error) {
 	if cr.llmClient == nil {
 		return "", fmt.Errorf("no senior LLM client configured")
 	}
@@ -553,11 +563,25 @@ File: %s
 		MaxTokens:   cr.maxTokens,
 		Temperature: 0.0,
 	})
+
 	if err != nil {
 		if llm.IsFatalAPIError(err) {
 			return "", fmt.Errorf("fatal API error (credits exhausted or auth failure): %w", err)
 		}
 		return "", err
+	}
+
+	// Meter the conflict-resolution call (F2) via the monitor-wired recorder.
+	// Success only — a failed call did no work and must not record spend.
+	if cr.costMeter != nil {
+		reqID := ""
+		if cr.projStore != nil {
+			if story, gErr := cr.projStore.GetStory(storyID); gErr == nil {
+				reqID = story.ReqID
+			}
+		}
+		cr.costMeter.RecordUsage("conflict", reqID, storyID, cr.model,
+			resp.Usage.InputTokens, resp.Usage.OutputTokens, 0)
 	}
 
 	// Defensive: some CLI versions surface a session-limit / overloaded notice as
@@ -591,7 +615,7 @@ File: %s
 
 // resolveFileTechLead sends a conflicted file to the Tech Lead LLM with full
 // requirement/story context and returns the resolved content.
-func (cr *ConflictResolver) resolveFileTechLead(ctx context.Context, filename, conflictedContent string, tlCtx techLeadContext) (string, error) {
+func (cr *ConflictResolver) resolveFileTechLead(ctx context.Context, storyID, filename, conflictedContent string, tlCtx techLeadContext) (string, error) {
 	if cr.techLeadClient == nil {
 		return "", fmt.Errorf("no Tech Lead LLM client configured")
 	}
@@ -660,11 +684,24 @@ resolved file content — no explanations, no markdown fences.`,
 		MaxTokens:   cr.maxTokens,
 		Temperature: 0.0,
 	})
+
 	if err != nil {
 		if llm.IsFatalAPIError(err) {
 			return "", fmt.Errorf("fatal API error (credits exhausted or auth failure): %w", err)
 		}
 		return "", err
+	}
+
+	// Meter the escalated conflict-resolution call (F2). Success only.
+	if cr.costMeter != nil {
+		reqID := ""
+		if cr.projStore != nil {
+			if story, gErr := cr.projStore.GetStory(storyID); gErr == nil {
+				reqID = story.ReqID
+			}
+		}
+		cr.costMeter.RecordUsage("conflict", reqID, storyID, cr.techLeadModel,
+			resp.Usage.InputTokens, resp.Usage.OutputTokens, 0)
 	}
 
 	// Defensive: some CLI versions surface a session-limit / overloaded notice

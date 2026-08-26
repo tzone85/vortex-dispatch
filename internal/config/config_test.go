@@ -608,3 +608,22 @@ func TestImproveDefaultDisabled(t *testing.T) {
 		t.Fatal("DefaultConfig().Improve.Enabled must be false — the pipeline is experimental and opt-in")
 	}
 }
+
+// TestDefaultConfig_BudgetUnlimited pins the F2 budget-cap default: 0 means
+// unlimited (no enforcement), the default validates, and negative caps are
+// rejected at load time.
+func TestDefaultConfig_BudgetUnlimited(t *testing.T) {
+	cfg := config.DefaultConfig()
+	if cfg.Billing.MaxUSDPerReq != 0 {
+		t.Fatalf("expected billing.max_usd_per_req default 0 (unlimited), got %f", cfg.Billing.MaxUSDPerReq)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("default config should validate with unlimited budget: %v", err)
+	}
+
+	neg := config.DefaultConfig()
+	neg.Billing.MaxUSDPerReq = -1
+	if err := neg.Validate(); err == nil {
+		t.Fatal("expected validation error for negative billing.max_usd_per_req")
+	}
+}

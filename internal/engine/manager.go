@@ -113,6 +113,13 @@ type Manager struct {
 	projStore  state.ProjectionStore
 	model      string
 	maxTokens  int
+	costMeter  llm.UsageRecorder
+}
+
+// SetCostMeter wires the F2 usage recorder so the diagnosis call's token
+// usage is recorded as a STORY_COST_RECORDED event. Pass nil to disable.
+func (m *Manager) SetCostMeter(rec llm.UsageRecorder) {
+	m.costMeter = rec
 }
 
 // NewManager creates a Manager wired to the given LLM client, model
@@ -165,6 +172,16 @@ func (m *Manager) Diagnose(ctx context.Context, dc DiagnosticContext) (ManagerAc
 	})
 	if err != nil {
 		return ManagerAction{}, fmt.Errorf("manager LLM call: %w", err)
+	}
+
+	// Meter the diagnosis call (F2) via the monitor-wired recorder.
+	if m.costMeter != nil {
+		reqID := ""
+		if story, gErr := m.projStore.GetStory(dc.StoryID); gErr == nil {
+			reqID = story.ReqID
+		}
+		m.costMeter.RecordUsage("diagnosis", reqID, dc.StoryID, m.model,
+			resp.Usage.InputTokens, resp.Usage.OutputTokens, 0)
 	}
 
 	cleaned := extractJSON(resp.Content)

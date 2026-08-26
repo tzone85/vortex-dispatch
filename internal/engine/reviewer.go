@@ -64,6 +64,7 @@ type Reviewer struct {
 	model          string
 	maxTokens      int
 	designApproach string // "ddd-tdd", "tdd", "standard"
+	costMeter      llm.UsageRecorder
 }
 
 // NewReviewer creates a Reviewer wired to the given LLM client, model
@@ -81,6 +82,12 @@ func NewReviewer(client llm.Client, model string, maxTokens int, es state.EventS
 // SetDesignApproach configures the design methodology the reviewer checks for.
 func (r *Reviewer) SetDesignApproach(approach string) {
 	r.designApproach = approach
+}
+
+// SetCostMeter wires the F2 usage recorder so the review call's token usage
+// is recorded as a STORY_COST_RECORDED event. Pass nil to disable metering.
+func (r *Reviewer) SetCostMeter(rec llm.UsageRecorder) {
+	r.costMeter = rec
 }
 
 // Review takes a story ID, title, acceptance criteria, and the git diff of
@@ -182,6 +189,22 @@ Respond with JSON:
 	})
 	if err != nil {
 		return ReviewResult{}, fmt.Errorf("reviewer LLM call: %w", err)
+	}
+
+	// Meter the review call (F2): raw usage → STORY_COST_RECORDED via the
+	// monitor-wired recorder (nil = unmetered, e.g. unit tests).
+	if r.costMeter != nil {
+		reviewModel := resp.Model
+		if reviewModel == "" {
+			reviewModel = r.model
+		}
+		reqID := ""
+		if story, gErr := r.projStore.GetStory(storyID); gErr == nil {
+			reqID = story.ReqID
+		}
+		r.costMeter.RecordUsage("review", reqID, storyID, reviewModel,
+			resp.Usage.InputTokens, resp.Usage.OutputTokens,
+			0) // est_usd resolved by the recorder from billing mode
 	}
 
 	var result ReviewResult

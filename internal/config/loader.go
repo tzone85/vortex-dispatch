@@ -124,6 +124,11 @@ func DefaultConfig() Config {
 			GateSeverity: "critical",
 			AutoLearn:    true,
 		},
+		QA: QAConfig{
+			// Retry a failed TEST step once before calling the failure real;
+			// lint/build are deterministic and never retried. 0 disables.
+			FlakyRetries: 1,
+		},
 		SLA: SLAConfig{
 			MaxMinutesPerComplexity: IntKeyMap{
 				1:  60,   // 1hr

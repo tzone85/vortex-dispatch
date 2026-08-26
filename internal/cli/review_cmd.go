@@ -110,6 +110,12 @@ func safeBrowserURL(rawURL string) (string, bool) {
 	return u.String(), true
 }
 
+// startBrowser is the process-spawn seam for openURL. Tests override it so
+// running the suite never opens real browser tabs on the host.
+var startBrowser = func(name string, args ...string) error {
+	return exec.Command(name, args...).Start()
+}
+
 func openURL(rawURL string) {
 	safeURL, ok := safeBrowserURL(rawURL)
 	if !ok {
@@ -121,12 +127,12 @@ func openURL(rawURL string) {
 	// continue, the URL is already printed for the user to copy.
 	switch runtime.GOOS {
 	case "darwin":
-		_ = exec.Command("open", safeURL).Start()
+		_ = startBrowser("open", safeURL)
 	case "linux":
-		_ = exec.Command("xdg-open", safeURL).Start()
+		_ = startBrowser("xdg-open", safeURL)
 	case "windows":
 		// rundll32 FileProtocolHandler opens the URL in the default browser
 		// WITHOUT invoking cmd.exe's metacharacter parser, unlike `cmd /c start`.
-		_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", safeURL).Start()
+		_ = startBrowser("rundll32", "url.dll,FileProtocolHandler", safeURL)
 	}
 }

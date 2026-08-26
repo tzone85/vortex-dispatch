@@ -241,6 +241,12 @@ type QAConfig struct {
 	// default of 2. Set to a negative value to disable auto-fix (hard gate only:
 	// verify once, block on red).
 	CompletionFixCycles int `yaml:"completion_fix_cycles,omitempty"`
+	// FlakyRetries is how many times a FAILED test step is re-run before the
+	// failure counts as real (default 1; 0 disables retrying). A test that
+	// passes on retry keeps QA green but emits STORY_QA_FLAKY (step, attempts)
+	// so flakiness stays visible in vxd metrics instead of silently burning
+	// escalation tiers. Lint/build failures are deterministic and never retry.
+	FlakyRetries int `yaml:"flaky_retries"`
 }
 
 // SecurityConfig controls the security agent: the per-story pre-merge security

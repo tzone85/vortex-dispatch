@@ -430,6 +430,12 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 		}
 	}
 
+	// 3.5 Budget cap (F2): enforce billing.max_usd_per_req after the pipeline.
+	// Over cap → REQ_BUDGET_EXCEEDED + clean pause (same path as a capacity
+	// pause — no escalation-tier burn); `vxd resume` continues once the
+	// operator raises the cap.
+	m.checkBudget(storyID)
+
 	// 4. Check if requirement is paused before next wave dispatch
 	if m.isRequirementPaused(storyID) {
 		log.Printf("[pipeline] requirement for %s is paused, skipping next wave dispatch", storyID)

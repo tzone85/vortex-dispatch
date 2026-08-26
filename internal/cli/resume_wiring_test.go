@@ -60,3 +60,21 @@ func TestResume_WiresSecurityGate(t *testing.T) {
 		}
 	}
 }
+
+// TestResume_WiresCostMeter guards F2 cost tracking against the dead-wire
+// class: usage is only recorded as STORY_COST_RECORDED if the resume path
+// actually wraps its LLM clients in llm.NewMeteredClient with the
+// store-backed costRecorder.
+func TestResume_WiresCostMeter(t *testing.T) {
+	src, err := os.ReadFile("resume.go")
+	if err != nil {
+		t.Fatalf("read resume.go: %v", err)
+	}
+	code := string(src)
+
+	for _, want := range []string{"NewMeteredClient(", "costRecorder{"} {
+		if !strings.Contains(code, want) {
+			t.Errorf("resume.go must wire LLM cost metering: missing %q", want)
+		}
+	}
+}

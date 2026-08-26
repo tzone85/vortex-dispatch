@@ -238,6 +238,7 @@ vhs docs/demo.tape
 | `vxd dashboard rotate-token` | Mint a fresh dashboard bearer token (replaces `~/.vxd/dashboard.token`); restart a running daemon to complete rotation. Tokens also auto-rotate at startup when older than `dashboard.token_ttl_hours`. |
 | `vxd watch [req-id]` | Terminal-friendly always-on status: tails events for one requirement (defaults to the newest in the current repo) until terminal status or Ctrl+C. |
 | `vxd preflight` | Run pre-flight environment checks (19 checks, 3 severity tiers) |
+| `vxd doctor [--req ID] [--json]` | Run automated pipeline diagnostics — the mechanical version of the [Troubleshooting](#troubleshooting) checklist; exits 1 when any CRITICAL finding is reported |
 | `vxd estimate <requirement>` | Estimate cost (`--quick`, `--json`, `--rate`, `--save`) |
 | `vxd report <req-id>` | Generate client delivery report (`--html`, `--internal`, `--output`) |
 | `vxd figma auth` | One-time interactive session: store a Figma personal access token (validated, 0600) |
@@ -548,6 +549,28 @@ Full training guides are available in the [`docs/`](docs/) directory:
 - **[Contributing](docs/contributing.md)** -- Adding runtimes, components, commands
 
 ## Troubleshooting
+
+### Start with `vxd doctor`
+
+Before hand-diagnosing, run the mechanical version of this checklist:
+
+```bash
+vxd doctor             # findings + fix hints, human-readable
+vxd doctor --json      # machine-readable output for CI / scripts
+vxd doctor --req <id>  # scope the stuck-story check to one requirement
+```
+
+Seven checks run locally with no LLM/API spend:
+
+1. **Binary PATH shadowing** — flags a vxd running from outside `~/.local/bin/` (stale-build symptom: "new features appear absent")
+2. **Model IDs** — validates every `models.*` binding against a static known-good alias list and flags dated snapshot IDs that will retire to HTTP 404 (no live API calls)
+3. **Stuck stories** — in-progress stories with no events past `monitor.stuck_threshold_s`, each with its silent age
+4. **Stale locks** — lock files whose owning PID is dead (same liveness probe the advisory lock uses)
+5. **Orphans** — git worktrees under the state worktree dir and `vxd-*` tmux sessions no active story claims
+6. **Merge-base sanity** — detects which of `origin/main`/`origin/master`/`main`/`master` actually resolves and warns when `merge.base_branch` disagrees (mirrors the review-diff candidate order)
+7. **Dirty base checkout** — uncommitted repo-root changes that would block the post-merge fast-forward
+
+Exit code is **1** when any CRITICAL finding is present (stuck stories are critical), so it drops straight into CI or cron.
 
 ### Agents terminate immediately with no code changes
 

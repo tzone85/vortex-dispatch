@@ -185,6 +185,7 @@ improve:
 | `vxd estimate "req"` | Cost estimation with `--quick`, `--json`, `--rate` |
 | `vxd report <req-id>` | Client delivery report (`--html`, `--internal`) |
 | `vxd preflight` | Run 19 pre-flight checks before dispatch |
+| `vxd doctor` | Automated pipeline diagnostics — the mechanical version of the Debugging Checklist: binary PATH shadowing, model-ID validity (static known-good alias list, no API calls), stuck in-progress stories with per-story age (`--req <id>` scopes), stale lock files (dead-PID liveness), orphaned worktrees + `vxd-*` tmux sessions, merge-base sanity (main vs master), dirty base checkout. `--json` for machine output; exit code 1 when any CRITICAL finding |
 | `vxd approve <story-id>` | Approve a story PR for merge (`--all <req-id>` for batch) |
 | `vxd approve-plan` | Approve story plan before dispatch |
 | `vxd reject-plan` | Reject a plan with feedback |

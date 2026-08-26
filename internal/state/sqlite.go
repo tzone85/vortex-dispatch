@@ -247,6 +247,11 @@ func (s *SQLiteStore) Project(evt Event) error {
 		return s.updateStoryStatus(evt.StoryID, "pr_submitted")
 	case EventStoryQAFailed:
 		return s.updateStoryStatus(evt.StoryID, "draft")
+	case EventStoryQAFlaky:
+		// Informational: flakiness telemetry (a test step failed then passed
+		// on retry). The accompanying STORY_QA_PASSED / STORY_QA_FAILED event
+		// owns the story-status transition; mutating status here could race it.
+		return nil
 	case EventStorySecurityPassed, EventStorySecurityFailed:
 		// Informational: the security gate's pass/fail is recorded in the event
 		// log; pausing on failure is handled by the pipeline (REQ_PAUSED), so no

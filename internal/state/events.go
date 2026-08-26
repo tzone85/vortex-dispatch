@@ -35,6 +35,7 @@ const (
 	EventStoryQAStarted       EventType = "STORY_QA_STARTED"
 	EventStoryQAPassed        EventType = "STORY_QA_PASSED"
 	EventStoryQAFailed        EventType = "STORY_QA_FAILED"
+	EventStoryQAFlaky         EventType = "STORY_QA_FLAKY" // test step failed then passed on retry (qa.flaky_retries)
 	EventStorySecurityPassed  EventType = "STORY_SECURITY_PASSED"
 	EventStorySecurityFailed  EventType = "STORY_SECURITY_FAILED"
 	EventStoryPRCreated       EventType = "STORY_PR_CREATED"

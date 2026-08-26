@@ -49,6 +49,7 @@ Tier 4: Pause (human intervention required)
 - `STORY_REWRITTEN` — manager rewrote story description/acceptance criteria
 - `STORY_SPLIT` — tech lead decomposed into child stories
 - `STORY_SLA_BREACHED` — story exceeded per-complexity duration limit (configurable via `sla.max_minutes_per_complexity`)
+- `STORY_QA_FLAKY` — a QA test step failed then passed on retry (`qa.flaky_retries`); QA stays green but the flake is recorded (step, attempts) and counted per requirement in `vxd metrics` — one flaky test must not burn escalation tiers, but must stay visible
 - `REQ_BLOCKED` — completion gate could not get the composed mainline green after its auto-fix budget; requirement status → `blocked` instead of `completed` (resume with `--godmode` after addressing `.vxd-fix-gaps.md`)
 - `STORY_SECURITY_PASSED` / `STORY_SECURITY_FAILED` — per-story security gate result; a FAILED gate pauses the requirement (human decision) rather than escalating
 - `SECURITY_SCAN_COMPLETED` — a standalone `vxd security scan` finished (findings count, max severity)
@@ -133,6 +134,7 @@ qa:
       value: "PASS"
     - kind: file_exists
       path: coverage.html
+  flaky_retries: 1                # re-run a FAILED test step up to N times; pass-on-retry keeps QA green but emits STORY_QA_FLAKY (0 disables; lint/build never retried — deterministic)
   disable_completion_gate: false  # default false = gate ON (verify composed mainline before REQ_COMPLETED)
   completion_fix_cycles: 2        # auto-fix attempts vs a red mainline before REQ_BLOCKED (0→2, negative→hard gate)
 security:

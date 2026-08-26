@@ -710,6 +710,9 @@ func buildQAConfig(cfg config.Config, projectDir, repoDir string) engine.QAConfi
 			qaCfg.TestCommand = profile.Test.TestCommand
 		}
 	}
+	// Flaky-retry feature (F5): re-run a failed TEST step up to
+	// qa.flaky_retries times; lint/build are deterministic and never retried.
+	qaCfg.FlakyRetries = cfg.QA.FlakyRetries
 	for _, sc := range cfg.QA.SuccessCriteria {
 		qaCfg.SuccessCriteria = append(qaCfg.SuccessCriteria, engine.Criterion{
 			Kind:           engine.CriterionKind(sc.Kind),

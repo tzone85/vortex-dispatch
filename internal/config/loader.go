@@ -35,6 +35,8 @@ func DefaultConfig() Config {
 			MaxSeniorRetries:              2,
 			MaxManagerAttempts:            2,
 			MaxConcurrentAgents:           5,
+			Adaptive:                      false, // F3: opt-in history-aware tier selection
+			AdaptiveMinSamples:            5,
 		},
 		Monitor: MonitorConfig{
 			PollIntervalMs:         10000,

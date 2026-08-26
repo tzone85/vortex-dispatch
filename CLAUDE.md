@@ -115,6 +115,8 @@ models:
   junior: {provider: anthropic, model: claude-haiku-4-5}  # was google/gemma-4-27b-it — a 404 model that killed the junior tier
 routing:
   junior_max_complexity: 3
+  adaptive: false            # F3 opt-in: history-aware tier selection — demote when a cheaper tier shows >=80% success at that complexity, promote one tier when the default tier succeeds <40% (never above senior); decisions logged + stamped on STORY_STARTED as adaptive_decision (docs/adaptive-routing.md)
+  adaptive_min_samples: 5    # resolved attempts per (tier, complexity) before adaptive routing trusts the history
   max_retries_before_escalation: 2
 monitor:
   stuck_threshold_s: 600  # seconds before AGENT_STUCK fires (default 600 = 10 min)

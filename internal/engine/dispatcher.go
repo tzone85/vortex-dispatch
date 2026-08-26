@@ -26,6 +26,12 @@ type Assignment struct {
 	SessionName  string
 	WorktreePath string
 	Branch       string
+	// AdaptiveDecision records a history-aware routing override applied by
+	// the dispatcher ("" when static complexity routing decided). The
+	// executor copies it onto the STORY_STARTED payload as
+	// "adaptive_decision" so routing decisions stay auditable from the
+	// event log.
+	AdaptiveDecision string
 }
 
 // Dispatcher routes ready stories to agent roles based on complexity and
@@ -105,7 +111,7 @@ func (d *Dispatcher) DispatchWave(dag *graph.DAG, completed map[string]bool, req
 	agentCounter := 0
 
 	for _, story := range dispatchable {
-		role := d.routeStory(story)
+		role, adaptiveDecision := d.routeStoryWithDecision(story)
 		agentCounter++
 
 		// Prefer highest-reputation agent for this role; fall back to counter-based ID.
@@ -115,11 +121,12 @@ func (d *Dispatcher) DispatchWave(dag *graph.DAG, completed map[string]bool, req
 		branch := fmt.Sprintf("vxd/%s", story.ID)
 
 		assignment := Assignment{
-			StoryID:     story.ID,
-			Role:        role,
-			AgentID:     agentID,
-			SessionName: sessionName,
-			Branch:      branch,
+			StoryID:          story.ID,
+			Role:             role,
+			AgentID:          agentID,
+			SessionName:      sessionName,
+			Branch:           branch,
+			AdaptiveDecision: adaptiveDecision,
 		}
 		assignments = append(assignments, assignment)
 
@@ -292,6 +299,44 @@ func (d *Dispatcher) routeStory(story PlannedStory) agent.Role {
 		}
 	}
 	return agent.RouteByComplexity(story.Complexity, d.config.Routing)
+}
+
+// routeStoryWithDecision wraps routeStory with adaptive (history-aware) tier
+// selection when routing.adaptive is enabled. The returned decision string
+// describes any override applied ("" = static routing won); the dispatcher
+// attaches it to the Assignment so the executor can carry it on the
+// STORY_STARTED payload for auditability.
+func (d *Dispatcher) routeStoryWithDecision(story PlannedStory) (agent.Role, string) {
+	role := d.routeStory(story)
+	if !d.config.Routing.Adaptive {
+		return role, ""
+	}
+
+	// An escalation already overrode static routing for this story (tier-1
+	// senior retry path). Adaptive refinement must never DEMOTE an escalated
+	// story back down — the escalation chain is authoritative.
+	if role != agent.RouteByComplexity(story.Complexity, d.config.Routing) {
+		return role, ""
+	}
+
+	events, err := d.eventStore.List(state.EventFilter{})
+	if err != nil {
+		log.Printf("[dispatcher] adaptive routing skipped for %s: history unavailable: %v", story.ID, err)
+		return role, ""
+	}
+
+	rates := TierSuccessRates(events)
+	rec := RecommendTier(story.Complexity, rates, d.config.Routing)
+	if rec == role {
+		return role, ""
+	}
+
+	recTier, _ := routeTierForRole(rec)
+	outcome := rates[recTier][story.Complexity]
+	decision := fmt.Sprintf("adaptive: routed %s (cx %d) %s→%s, %s success %d/%d",
+		story.ID, story.Complexity, role, rec, rec, outcome.Successes, outcome.Total())
+	log.Printf("[dispatcher] %s", decision)
+	return rec, decision
 }
 
 func (d *Dispatcher) runtimeForRole(role agent.Role) string {

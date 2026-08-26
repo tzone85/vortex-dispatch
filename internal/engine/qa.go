@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,10 +21,19 @@ type QACheckResult struct {
 	Elapsed time.Duration
 }
 
+// FlakyStep records a QA step that failed at least once and passed on retry.
+type FlakyStep struct {
+	Step     string // "lint" | "build" | "test"
+	Attempts int    // total executions including the passing one
+}
+
 // QAResult holds the aggregate outcome of all QA checks for a story.
 type QAResult struct {
 	Passed bool
 	Checks []QACheckResult
+	// FlakySteps lists steps that passed only after a retry (flaky-retry
+	// feature). Empty unless qa.flaky_retries > 0 and a retry succeeded.
+	FlakySteps []FlakyStep
 }
 
 // FailureSummary returns a structured description of what failed and why,
@@ -77,6 +87,10 @@ type QAConfig struct {
 	// bearing success criteria reject shell chaining/redirection
 	// metacharacters and must use command_list for multi-step work.
 	StrictShellCommands bool
+	// FlakyRetries is how many times a FAILED test step is re-run before the
+	// failure is treated as real (qa.flaky_retries; default 1, 0 disables).
+	// Only the test step retries: lint/build failures are deterministic.
+	FlakyRetries int
 }
 
 // QA runs lint, build, and test commands against a worktree directory and
@@ -114,7 +128,8 @@ func (q *QA) Run(ctx context.Context, storyID, worktreePath string) (QAResult, e
 		return QAResult{}, fmt.Errorf("project qa started: %w", err)
 	}
 
-	result := q.RunCommandChecks(ctx, worktreePath)
+	result := q.runCommandChecksWithRetry(ctx, worktreePath)
+	q.emitFlakyEvents(storyID, result.FlakySteps)
 
 	// Evaluate declarative success criteria (if configured).
 	if len(q.config.SuccessCriteria) > 0 {
@@ -290,4 +305,61 @@ func needsShell(command string) bool {
 		strings.Contains(command, "'") ||
 		strings.Contains(command, "\"") ||
 		strings.Contains(command, "=")
+}
+
+// runCommandChecksWithRetry runs lint/build/test, re-running a FAILED test
+// step up to FlakyRetries times (qa.flaky_retries). A test step that passes
+// on retry keeps QA green but is recorded in result.FlakySteps so the caller
+// can emit STORY_QA_FLAKY — one flaky test must stay visible instead of
+// burning escalation tiers. Lint/build failures are deterministic and are
+// never retried.
+func (q *QA) runCommandChecksWithRetry(ctx context.Context, worktreePath string) QAResult {
+	checks := []struct {
+		name    string
+		command string
+	}{
+		{"lint", q.config.LintCommand},
+		{"build", q.config.BuildCommand},
+		{"test", q.config.TestCommand},
+	}
+
+	result := QAResult{Passed: true}
+	for _, check := range checks {
+		if check.command == "" {
+			continue
+		}
+		checkResult := q.runCheck(ctx, worktreePath, check.name, check.command)
+		attempts := 1
+		for !checkResult.Passed && check.name == "test" && attempts <= q.config.FlakyRetries {
+			checkResult = q.runCheck(ctx, worktreePath, check.name, check.command)
+			attempts++
+		}
+		if checkResult.Passed && attempts > 1 {
+			result.FlakySteps = append(result.FlakySteps, FlakyStep{Step: check.name, Attempts: attempts})
+		}
+		result.Checks = append(result.Checks, checkResult)
+		if !checkResult.Passed {
+			result.Passed = false
+		}
+	}
+	return result
+}
+
+// emitFlakyEvents appends + projects one STORY_QA_FLAKY event per retried-
+// and-passed step. Best-effort: a projection failure is logged, never fails
+// QA — the pass/fail signal must not depend on observability.
+func (q *QA) emitFlakyEvents(storyID string, flaky []FlakyStep) {
+	for _, fs := range flaky {
+		evt := state.NewEvent(state.EventStoryQAFlaky, "qa", storyID, map[string]any{
+			"step":     fs.Step,
+			"attempts": fs.Attempts,
+		})
+		if err := q.eventStore.Append(evt); err != nil {
+			log.Printf("[qa] emit %s for %s: %v", evt.Type, storyID, err)
+			continue
+		}
+		if err := q.projStore.Project(evt); err != nil {
+			log.Printf("[qa] project %s for %s: %v", evt.Type, storyID, err)
+		}
+	}
 }

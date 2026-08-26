@@ -1574,9 +1574,20 @@ func TestNewConfigValidateCmd(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestOpenURL_DoesNotPanic(t *testing.T) {
-	// openURL spawns a subprocess that may or may not exist — just make sure
-	// the function itself doesn't panic.
+	// Stub the spawn seam: the suite must never open real browser tabs on
+	// the host (this test used to leak an example.com tab per run).
+	prev := startBrowser
+	var gotArgs []string
+	startBrowser = func(name string, args ...string) error {
+		gotArgs = append([]string{name}, args...)
+		return nil
+	}
+	defer func() { startBrowser = prev }()
+
 	openURL("https://example.com")
+	if len(gotArgs) < 2 || gotArgs[len(gotArgs)-1] != "https://example.com" {
+		t.Errorf("expected browser spawn with URL, got %v", gotArgs)
+	}
 }
 
 // ---------------------------------------------------------------------------

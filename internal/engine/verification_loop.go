@@ -154,11 +154,25 @@ func checkTests(repoDir string) (passing, failing, total int) {
 	}
 
 	cmd.Dir = repoDir
-	out, _ := cmd.CombinedOutput()
+	out, runErr := cmd.CombinedOutput()
 	output := string(out)
 
 	if fileExists(filepath.Join(repoDir, "go.mod")) {
-		return parseGoTestJSON(output)
+		passing, failing, total = parseGoTestJSON(output)
+		// A non-zero exit with zero counted per-test failures means an
+		// *uncounted* failure: a test-package compile error (`go test -json`
+		// reports it as a package-level fail with an empty Test field, which
+		// parseGoTestJSON skips — and `go build ./...` never compiles _test.go
+		// files, so checkBuild misses it too), a `go vet` failure, a panic
+		// before any test event, or the runner failing to launch at all. The
+		// completion gate exists precisely to catch these; treat it as a
+		// failure instead of reporting a green suite that actually exits red.
+		if runErr != nil && failing == 0 {
+			log.Printf("[verify] go test exited non-zero with no counted failures (%v) — treating as an uncounted failure (likely a test-compilation error)", runErr)
+			failing = 1
+			total = passing + failing
+		}
+		return passing, failing, total
 	}
 
 	// Parse test results (simplified — count PASS/FAIL lines)
@@ -183,6 +197,14 @@ func checkTests(repoDir string) (passing, failing, total int) {
 	}
 
 	total = passing + failing
+	// Same fail-safe for the JS path: a runner that exits non-zero without a
+	// countable failure (jest/vitest config error, missing binary, crash before
+	// any test) must not be reported as a passing suite.
+	if runErr != nil && failing == 0 {
+		log.Printf("[verify] test runner exited non-zero with no counted failures (%v) — treating as an uncounted failure", runErr)
+		failing = 1
+		total = passing + failing
+	}
 	log.Printf("[verify] tests: %d passing, %d failing, %d total", passing, failing, total)
 	return passing, failing, total
 }

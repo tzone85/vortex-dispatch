@@ -101,7 +101,14 @@ func runReplay(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("create fresh projection store: %w", err)
 	}
-	defer ps.Close()
+	// Best-effort guard so the handle is released on the error-return paths
+	// below; the success path closes explicitly and checks the error.
+	closed := false
+	defer func() {
+		if !closed {
+			_ = ps.Close()
+		}
+	}()
 
 	applied := 0
 	for _, evt := range events {
@@ -110,6 +117,16 @@ func runReplay(cmd *cobra.Command, _ []string) error {
 		}
 		applied++
 	}
+
+	// Close explicitly and surface the error before reporting success. Replay
+	// is disaster recovery, so a failed close (WAL checkpoint / flush error)
+	// means the rebuilt projection may be incomplete on disk — reporting
+	// "Projection rebuilt" over a discarded Close error would hide a corrupt
+	// recovery from the operator.
+	if err := ps.Close(); err != nil {
+		return fmt.Errorf("finalize rebuilt projection %s: %w", dbPath, err)
+	}
+	closed = true
 
 	duration := time.Since(start).Round(time.Millisecond)
 	fmt.Fprintf(out, "Replayed %d events from %s\n", applied, eventsPath)

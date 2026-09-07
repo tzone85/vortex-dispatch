@@ -197,19 +197,8 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 				log.Printf("[monitor] append PIPELINE_STALLED event: %v", err)
 			}
 
-			// Notify via webhook if configured
-			if m.notifier != nil {
-				go func() {
-					if err := m.notifier.Notify(ctx, notify.Message{
-						Title:     fmt.Sprintf("VXD STALLED: %s", rc.ReqID),
-						Body:      fmt.Sprintf("%d stories stuck, all escalation tiers exhausted.\nRun: vxd resume %s --godmode", pendingCount, rc.ReqID),
-						Severity:  "error",
-						EventType: string(state.EventPipelineStalled),
-					}); err != nil {
-						log.Printf("[monitor] PIPELINE_STALLED notify failed: %v", err)
-					}
-				}()
-			}
+			// Notify via webhook if configured.
+			m.notifyStalledAsync(rc.ReqID, pendingCount)
 		} else {
 			log.Printf("[auto-resume] no stories ready for next wave (dependencies not met)")
 		}
@@ -242,6 +231,34 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 	}
 
 	return active
+}
+
+// notifyStalledAsync sends the PIPELINE_STALLED webhook notification
+// fire-and-forget. It deliberately roots a fresh, self-bounded context rather
+// than accepting the caller's ctx: a stall makes dispatchNextWave return no new
+// agents, so RunWithContext returns immediately after this call and the
+// caller's deferred cancel() tears its ctx down microseconds later. Binding the
+// webhook POST to that ctx aborted it with context.Canceled and silently
+// dropped the PIPELINE_STALLED alert — documented as ALWAYS sent, the
+// human-intervention signal — exactly when an operator needs paging. This
+// matches the fresh-context pattern of the SLA-breach and requirement-outcome
+// notify sites. No-ops when no webhook is configured.
+func (m *Monitor) notifyStalledAsync(reqID string, pendingCount int) {
+	if m.notifier == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := m.notifier.Notify(ctx, notify.Message{
+			Title:     fmt.Sprintf("VXD STALLED: %s", reqID),
+			Body:      fmt.Sprintf("%d stories stuck, all escalation tiers exhausted.\nRun: vxd resume %s --godmode", pendingCount, reqID),
+			Severity:  "error",
+			EventType: string(state.EventPipelineStalled),
+		}); err != nil {
+			log.Printf("[monitor] PIPELINE_STALLED notify failed: %v", err)
+		}
+	}()
 }
 
 // handleManagerEscalation runs the Manager LLM to diagnose a tier-2 story

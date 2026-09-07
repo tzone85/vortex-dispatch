@@ -101,7 +101,14 @@ func runReplay(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("create fresh projection store: %w", err)
 	}
-	defer ps.Close()
+	defer func() {
+		// Surface a close failure: this is the disaster-recovery command's
+		// final handle on the freshly rebuilt projection, so a failed close is
+		// worth telling the operator about rather than swallowing.
+		if cerr := ps.Close(); cerr != nil {
+			fmt.Fprintf(out, "warning: closing rebuilt projection store: %v\n", cerr)
+		}
+	}()
 
 	applied := 0
 	for _, evt := range events {

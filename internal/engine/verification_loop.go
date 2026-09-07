@@ -197,7 +197,21 @@ func parseGoTestJSON(output string) (passing, failing, total int) {
 			Action string `json:"Action"`
 			Test   string `json:"Test"`
 		}
-		if err := json.Unmarshal([]byte(line), &evt); err != nil || evt.Test == "" {
+		if err := json.Unmarshal([]byte(line), &evt); err != nil {
+			continue
+		}
+		// A package whose test binary fails to compile emits a package-scoped
+		// "build-fail" action with NO Test field and produces zero per-test
+		// events. `go build ./...` (checkBuild) never compiles _test.go files,
+		// so a test-only compile break would otherwise leave failing==0 and let
+		// the completion gate report the composed mainline GREEN on a tree whose
+		// test suite does not compile — exactly the cross-story drift (a changed
+		// signature a sibling story's test still calls the old way) the gate
+		// exists to catch. Count it as a failure.
+		if evt.Test == "" {
+			if evt.Action == "build-fail" {
+				failing++
+			}
 			continue
 		}
 		switch evt.Action {

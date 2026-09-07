@@ -109,7 +109,7 @@ func TestLifecycle_Release_Success_Deletes(t *testing.T) {
 	lc := devdb.NewLifecycle(rp, es, devdb.Config{Provider: "null"})
 
 	db := devdb.DB{ID: "abc", Name: "vxd-myproj-story-1"}
-	if err := lc.Release(context.Background(), db, devdb.OutcomeSuccess); err != nil {
+	if err := lc.Release(context.Background(), "story-1", db, devdb.OutcomeSuccess); err != nil {
 		t.Fatalf("Release: %v", err)
 	}
 	if len(rp.deleted) != 1 || rp.deleted[0] != "abc" {
@@ -120,6 +120,12 @@ func TestLifecycle_Release_Success_Deletes(t *testing.T) {
 	}
 	if es.appended[0].Type != state.EventStoryDBDeleted {
 		t.Errorf("type = %v, want STORY_DB_DELETED", es.appended[0].Type)
+	}
+	// StoryID must be carried on the event: the projection updates the row keyed
+	// by (story_id, db_id). An empty StoryID matches no row and the "deleted"
+	// status never projects, leaving released DBs shown as active forever.
+	if es.appended[0].StoryID != "story-1" {
+		t.Errorf("StoryID = %q, want %q", es.appended[0].StoryID, "story-1")
 	}
 	var payload map[string]any
 	_ = json.Unmarshal(es.appended[0].Payload, &payload)
@@ -134,7 +140,7 @@ func TestLifecycle_Release_FailedWithKeepDB_Retains(t *testing.T) {
 	lc := devdb.NewLifecycle(rp, es, devdb.Config{Provider: "null", KeepDBOnFail: true})
 
 	db := devdb.DB{ID: "abc"}
-	if err := lc.Release(context.Background(), db, devdb.OutcomeFailed); err != nil {
+	if err := lc.Release(context.Background(), "story-1", db, devdb.OutcomeFailed); err != nil {
 		t.Fatal(err)
 	}
 	if len(rp.deleted) != 0 {
@@ -152,7 +158,7 @@ func TestLifecycle_Release_FailedWithoutKeepDB_Deletes(t *testing.T) {
 	es := &fakeEventStore{}
 	lc := devdb.NewLifecycle(rp, es, devdb.Config{Provider: "null", KeepDBOnFail: false})
 
-	if err := lc.Release(context.Background(), devdb.DB{ID: "abc"}, devdb.OutcomeFailed); err != nil {
+	if err := lc.Release(context.Background(), "story-1", devdb.DB{ID: "abc"}, devdb.OutcomeFailed); err != nil {
 		t.Fatal(err)
 	}
 	if len(rp.deleted) != 1 {

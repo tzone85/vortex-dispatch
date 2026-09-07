@@ -47,3 +47,34 @@ func TestParseGoTestJSONCountsCompileFailures(t *testing.T) {
 		t.Fatal("a test-suite compile break must trigger a completion-gate fix cycle, not report GREEN")
 	}
 }
+
+// TestParseJSTestOutput_CollectionFailureCountsAsFailure is the JS/TS sibling of
+// the Go compile-break guard: a jest/vitest run that fails to collect tests (a
+// spec's TypeScript compile error, a broken config, a missing runner) exits
+// non-zero and emits none of the pass/fail markers, so parsing yields 0/0/0.
+// The completion gate would report the mainline GREEN on a suite that does not
+// compile. A non-zero exit with no parseable results must count as a failure.
+func TestParseJSTestOutput_CollectionFailureCountsAsFailure(t *testing.T) {
+	// A vitest collection error — no numPassedTests/numFailedTests/Tests: markers.
+	crash := "Error: Failed to load config\n  at ...\nTypeError: Cannot read properties of undefined"
+
+	passing, failing, _ := parseJSTestOutput(crash, true /* runFailed */)
+	if failing == 0 {
+		t.Fatalf("a runner crash with no parseable results must count as a failure; got pass=%d fail=%d", passing, failing)
+	}
+	if !ShouldRunFixCycle(VerificationResult{BuildPasses: true, TestsFailing: failing}) {
+		t.Fatal("a JS/TS test-collection failure must trigger a fix cycle, not report GREEN")
+	}
+
+	// Guard against misfire: a clean run that exits zero with no parseable
+	// output (e.g. jest --passWithNoTests on an empty suite) is NOT a failure.
+	if _, f, _ := parseJSTestOutput("", false /* runFailed */); f != 0 {
+		t.Fatalf("an empty suite that exits zero must not be counted as failing; got fail=%d", f)
+	}
+
+	// And a normal run whose counts DID parse is untouched by the guard even on
+	// a non-zero exit (jest exits non-zero when tests fail).
+	if p, f, _ := parseJSTestOutput(`{"numPassedTests":3,"numFailedTests":1}`, true); p != 1 || f != 1 {
+		t.Fatalf("parsed counts must survive the guard; got pass=%d fail=%d", p, f)
+	}
+}

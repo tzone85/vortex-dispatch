@@ -1,155 +1,118 @@
 # Contributing to VXD
 
-## Branch Policy
+VXD is the public, Apache-2.0 orchestration core maintained by Vortex Dispatch.
+Before proposing a feature, read [`docs/OPEN_CORE.md`](docs/OPEN_CORE.md). The
+short version: improve VXD as a strong standalone open-source project, but do
+not use this repository to mirror private commercial software-factory IP.
 
-**All changes to `main` must go through a pull request.** Direct pushes to `main` are not allowed by convention.
+## Branch policy
 
-```
-main (protected by convention)
-  └── feat/my-feature   ← work here
-  └── fix/broken-thing  ← or here
-  └── docs/update-readme ← or here
+All changes to `main` should go through a pull request.
+
+```text
+main
+  ├── feat/my-feature
+  ├── fix/broken-thing
+  └── docs/update-readme
 ```
 
 ### Workflow
 
-1. **Create a feature branch** from `main`:
-   ```bash
-   git checkout main && git pull origin main
-   git checkout -b feat/my-feature
-   ```
+1. Create a branch from `main`.
+2. Make the smallest coherent change.
+3. Run the relevant build and tests.
+4. Push the branch and open a PR.
+5. Squash-merge once CI passes.
 
-2. **Make your changes**, commit with conventional messages (see below).
+```bash
+git checkout main && git pull origin main
+git checkout -b feat/my-feature
 
-3. **Run tests** before pushing:
-   ```bash
-   go build ./cmd/vxd/
-   go test $(go list ./... | grep -v improve) -count=1
-   go test -tags e2e ./test/   # optional: E2E tests
-   ```
+go build -o ~/.local/bin/vxd ./cmd/vxd
+go test ./... -count=1
 
-4. **Push and open a PR**:
-   ```bash
-   git push -u origin feat/my-feature
-   gh pr create --base main --fill
-   ```
+git push -u origin feat/my-feature
+gh pr create --base main --fill
+```
 
-5. **Squash-merge** the PR once CI passes:
-   ```bash
-   gh pr merge --squash --delete-branch
-   ```
-
-6. **Clean up locally**:
-   ```bash
-   git checkout main && git pull origin main
-   git branch -d feat/my-feature
-   ```
-
-### Branch Naming
+## Branch naming
 
 | Prefix | Use |
-|--------|-----|
+|---|---|
 | `feat/` | New features |
 | `fix/` | Bug fixes |
 | `docs/` | Documentation only |
 | `test/` | Test additions or fixes |
-| `refactor/` | Code restructuring (no behavior change) |
-| `chore/` | Build, CI, dependency updates |
+| `refactor/` | Behaviour-preserving restructuring |
+| `chore/` | Build, CI, dependencies and housekeeping |
 
-## Commit Messages
+## Commit messages
 
-Follow [Conventional Commits](https://www.conventionalcommits.org/):
+Use Conventional Commits where practical:
 
-```
-type(scope): short description
-
-Longer explanation if needed.
-
-Co-Authored-By: Oz <oz-agent@warp.dev>
+```text
+feat(engine): add bounded retry state
+fix(runtime): preserve cancellation on adapter failure
+docs: clarify review modes
 ```
 
-**Types**: `feat`, `fix`, `docs`, `test`, `refactor`, `chore`, `perf`, `ci`
+If an AI agent materially contributed to the change, disclose that in the
+commit/PR according to your normal contribution practice.
 
-**Scope** (optional): the package or area, e.g., `engine`, `repolearn`, `cli`
+## Testing requirements
 
-**Co-author line**: Always include when working with an AI agent.
+- Add tests for behavioural changes.
+- Agent-behaviour changes need wiring/integration coverage proving the new path
+  is actually activated.
+- Event changes need projector and replay coverage.
+- Use temporary directories in tests rather than machine-specific paths.
+- Run `go test ./... -count=1` before opening a PR unless the affected area
+  documents a stricter command.
 
-### Examples
+## Public/private boundary
 
-```
-feat(repolearn): add Pass 2 git history analysis
-fix(engine): use prefixed story IDs in E2E test
-docs: add Repo Learning section to README
-test(engine): add wiring tests for profile injection
-chore(ci): update Go version to 1.26
-```
+Good candidates for VXD include:
 
-## Testing Requirements
+- provider/runtime adapters,
+- CLI and developer-experience improvements,
+- worktree and Git reliability,
+- generic planning/orchestration improvements,
+- basic review and QA,
+- dashboards and diagnostics,
+- portable event-sourcing/recovery fixes,
+- documentation and examples.
 
-- **TDD is mandatory** — write tests before or alongside implementation.
-- **Wiring tests** (`engine/wiring_test.go`) are required for any feature that modifies agent behavior. These prove the feature is *activated*, not just implemented.
-- **All tests must pass** before opening a PR:
-  ```bash
-  go test $(go list ./... | grep -v improve) -count=1
-  ```
-- The `internal/improve/` package is excluded from the default test run because it contains a flaky prompt injection test that requires network access.
-- E2E tests use the `e2e` build tag:
-  ```bash
-  go test -tags e2e ./test/
-  ```
+Do **not** commit:
 
-## Build
+- private Vortex Dispatch repository names or paths,
+- customer identifiers or customer-specific policies,
+- unpublished commercial prompts,
+- proprietary benchmark datasets,
+- private cross-project learning data,
+- production-only routing/optimisation intelligence whose primary purpose is
+  the commercial software factory,
+- internal product strategy or unpublished roadmaps.
 
-### macOS / Linux
+Public and private systems are not required to stay feature-identical. A useful
+idea may be independently implemented in VXD when it makes VXD better for its
+users, but private code should never be copied here simply to keep parity.
 
-```bash
-# Build to the standard location (CRITICAL: not ~/go/bin/)
-go build -o ~/.local/bin/vxd ./cmd/vxd
+## Event-sourcing rules
 
-# Or use make
-make build
-make test
-make lint
-```
+The event history is the source of truth; SQLite is a materialized projection.
+New state-changing event types must be handled explicitly by the projector and
+covered by tests. Replay must remain deterministic.
 
-### Windows (native PowerShell)
+## Code style
 
-```powershell
-# Build to %USERPROFILE%\.local\bin\vxd.exe (matches the Unix layout when WSL2
-# shares your home dir). Adjust the output path if you prefer %GOPATH%\bin.
-go build -o "$env:USERPROFILE\.local\bin\vxd.exe" ./cmd/vxd
-go test ./...
-```
+- Prefer pure logic with thin I/O adapters.
+- Wrap errors with useful context.
+- Preserve cancellation and timeouts across process boundaries.
+- Avoid secrets in logs, events and test fixtures.
+- Keep runtime/provider-specific behaviour behind interfaces where practical.
 
-The `Makefile` is bash-only — use the `go` commands above on native Windows
-shells, or run `make` inside WSL2.
+## Documentation
 
-### Cross-compiling a Windows binary from macOS / Linux
-
-```bash
-GOOS=windows GOARCH=amd64 go build -o dist/vxd.exe ./cmd/vxd
-```
-
-The resulting `.exe` is a valid PE32+ binary; copy it onto a Windows host or
-launch it through WSL's `/mnt/c/...` mount.
-
-## Event Sourcing Rules
-
-- New event types **MUST** be handled in `sqlite.go Project()` — the `default` case silently ignores unknown events.
-- Always add a wiring test when introducing a new event type.
-- Events are the source of truth; SQLite projections are materialized views.
-
-## Code Style
-
-- Follow existing patterns — `package engine` (internal tests) preferred over `engine_test`.
-- Pure functions for logic, thin adapters for I/O.
-- Use `t.TempDir()` in tests, never hardcoded paths.
-- Error wrapping: `fmt.Errorf("context: %w", err)`.
-
-## VXD vs NXD
-
-VXD (private, cloud APIs) and NXD (public, Ollama) share core packages. When making changes:
-
-- **NEVER** reference VXD in NXD code.
-- Core fixes should be ported to NXD.
-- Module path: `github.com/tzone85/vortex-dispatch` (VXD) vs `github.com/tzone85/nexus-dispatch` (NXD).
+Behavioural changes should update user-facing documentation in the same PR.
+Public docs should explain observable VXD behaviour, not private Vortex
+Dispatch implementation details.

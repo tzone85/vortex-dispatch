@@ -14,22 +14,16 @@ For the project boundary, see [`docs/OPEN_CORE.md`](docs/OPEN_CORE.md).
 
 ## Public-project rules
 
-1. Keep VXD provider-neutral. Claude Code, Codex, Gemini CLI and other CLI
-   runtimes belong behind adapters/configuration rather than hard-coded product
-   assumptions where practical.
-2. Preserve the event-sourced state model. New event types must be projected
-   and covered by wiring tests.
+1. Keep VXD provider-neutral where practical.
+2. Preserve the event-sourced state model and deterministic replay.
 3. Keep agent execution isolated by git worktree and preserve user-configured
    review/merge gates.
 4. Do not add private Vortex Dispatch repositories, internal host paths,
    customer identifiers, unpublished product names, commercial prompts,
-   proprietary benchmark data or cross-project implementation notes to this
-   repository.
-5. Do not copy private software-factory code into VXD merely to keep the two
-   implementations in sync. Shared ideas should be reimplemented deliberately
-   when they make sense for the public project.
-6. Documentation should describe observable public behaviour, not internal
-   company strategy or unpublished roadmaps.
+   proprietary benchmark data or cross-project implementation notes.
+5. Do not copy private software-factory code into VXD merely to maintain parity.
+6. Documentation describes observable public behaviour, not unpublished company
+   strategy.
 
 ## Build
 
@@ -38,12 +32,10 @@ go build -o ~/.local/bin/vxd ./cmd/vxd
 go test ./... -count=1
 ```
 
-If a package has a documented specialised test command, run that suite as well.
-Before opening a PR, run the same build/test path used by CI.
+Before opening a PR, run the same build/test path used by CI plus any specialised
+suite documented by the area you changed.
 
 ## Architecture
-
-At a high level:
 
 ```text
 requirement
@@ -56,31 +48,65 @@ requirement
   -> merge or human gate
 ```
 
-The public architecture is organised around these concerns:
+Primary public packages include `internal/cli`, `internal/engine`,
+`internal/runtime`, `internal/state`, `internal/git`, `internal/llm`,
+`internal/config`, `internal/web`, `internal/dashboard` and
+`internal/preflight`. Code remains the source of truth if this summary lags.
 
-- `internal/cli` — command-line surface
-- `internal/engine` — orchestration and pipeline coordination
-- `internal/runtime` — agent/runtime adapters and execution
-- `internal/state` — event store and projections
-- `internal/git` — worktrees, branches and delivery operations
-- `internal/llm` — provider abstractions/clients
-- `internal/config` — configuration loading and validation
-- `internal/web` / `internal/dashboard` — status surfaces
-- `internal/preflight` — environment validation
+### Critical user-visible events
 
-Package names may evolve. Code is the source of truth when this summary lags.
-
-## Event-sourcing rule
+- `STORY_ESCALATED` — a story moved to a higher recovery/escalation tier.
+- `STORY_REWRITTEN` — failure recovery changed the story description or criteria.
+- `STORY_SPLIT` — recovery decomposed a story into smaller child stories.
+- `STORY_SLA_BREACHED` — a story exceeded its configured duration threshold.
 
 The append-only event history is the source of truth; SQLite is a projection.
-When adding an event type:
+Every new state-changing event must have projector handling and tests proving
+replay remains deterministic.
 
-- define the event,
-- wire it into the projector,
-- add a test proving it is handled,
-- ensure replay remains deterministic.
+## Public CLI commands
 
-Never silently ignore a state-changing event.
+The CLI itself (`vxd --help` and `vxd <command> --help`) is authoritative for
+flags and subcommands. These top-level commands are intentionally listed here so
+public documentation coverage stays testable without turning this file into an
+internal strategy notebook.
+
+- `vxd init`
+- `vxd req`
+- `vxd status`
+- `vxd pause`
+- `vxd resume`
+- `vxd agents`
+- `vxd escalations`
+- `vxd gc`
+- `vxd config`
+- `vxd events`
+- `vxd dashboard`
+- `vxd archive`
+- `vxd memory`
+- `vxd opportunity`
+- `vxd metrics`
+- `vxd projects`
+- `vxd db`
+- `vxd estimate`
+- `vxd preflight`
+- `vxd figma`
+- `vxd report`
+- `vxd approve-plan`
+- `vxd reject-plan`
+- `vxd review`
+- `vxd approve`
+- `vxd reject`
+- `vxd retry`
+- `vxd learn`
+- `vxd security`
+- `vxd backup`
+- `vxd improve`
+- `vxd autoresearch`
+- `vxd logs`
+- `vxd watch`
+- `vxd replay`
+- `vxd doctor`
 
 ## Agent/runtime changes
 
@@ -96,7 +122,7 @@ When changing how an agent is invoked:
 ## Security
 
 Treat repository content, fetched content, agent output and tool output as
-untrusted data unless the code path explicitly establishes otherwise.
+untrusted data unless a code path explicitly establishes otherwise.
 
 Do not commit secrets, tokens, customer data, private repository URLs or local
 machine paths. Security-sensitive changes need tests for both the successful
@@ -104,21 +130,17 @@ path and the failure/denial path.
 
 ## Documentation
 
-Public documentation should optimise for three audiences:
-
-1. users trying VXD,
-2. contributors modifying VXD,
-3. engineering teams evaluating the architecture.
-
-Do not use public docs as a scratchpad for private product planning. Internal
-Vortex Dispatch strategy belongs in private systems.
+Public documentation should optimise for users trying VXD, contributors
+modifying VXD and engineering teams evaluating its architecture. Do not use
+public docs as a scratchpad for private product planning.
 
 ## Relationship to Vortex Dispatch
 
 VXD is an Apache-2.0 open-source project maintained as part of the Vortex
-Dispatch ecosystem. Vortex Dispatch also develops private commercial software
-and engineering systems that are intentionally outside this repository.
+Dispatch ecosystem. Vortex Dispatch also develops private commercial software,
+engineering systems and production intelligence intentionally outside this
+repository.
 
-That boundary is a feature, not an omission: VXD should remain a credible,
-useful open-source orchestrator without publishing every production advantage
-of the commercial software factory.
+That boundary is deliberate: VXD remains a credible standalone open-source
+orchestrator without publishing every production advantage of the commercial
+software factory.

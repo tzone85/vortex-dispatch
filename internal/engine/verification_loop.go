@@ -154,40 +154,58 @@ func checkTests(repoDir string) (passing, failing, total int) {
 	}
 
 	cmd.Dir = repoDir
-	out, _ := cmd.CombinedOutput()
+	// Keep the exit error: a test runner that fails to compile or start emits
+	// no per-test failure events, so the parsed counts alone cannot distinguish
+	// "0 failing" from "the suite never ran". The exit code can.
+	out, runErr := cmd.CombinedOutput()
 	output := string(out)
 
 	if fileExists(filepath.Join(repoDir, "go.mod")) {
-		return parseGoTestJSON(output)
-	}
-
-	// Parse test results (simplified — count PASS/FAIL lines)
-	for _, line := range strings.Split(output, "\n") {
-		if strings.Contains(line, "\"numPassedTests\"") || strings.Contains(line, "PASS:") {
-			passing++
-		}
-		if strings.Contains(line, "\"numFailedTests\"") || strings.Contains(line, "FAIL:") {
-			failing++
-		}
-	}
-
-	// Fallback: parse Jest summary line
-	if strings.Contains(output, "Tests:") {
+		passing, failing, total = parseGoTestJSON(output)
+	} else {
+		// Parse test results (simplified — count PASS/FAIL lines)
 		for _, line := range strings.Split(output, "\n") {
-			if strings.Contains(line, "Tests:") && strings.Contains(line, "passed") {
-				// Parse "Tests: X failed, Y passed, Z total"
-				_, _ = fmt.Sscanf(line, "Tests: %d failed, %d passed, %d total", &failing, &passing, &total) // partial parse keeps zero counters
-				break
+			if strings.Contains(line, "\"numPassedTests\"") || strings.Contains(line, "PASS:") {
+				passing++
+			}
+			if strings.Contains(line, "\"numFailedTests\"") || strings.Contains(line, "FAIL:") {
+				failing++
 			}
 		}
+
+		// Fallback: parse Jest summary line
+		if strings.Contains(output, "Tests:") {
+			for _, line := range strings.Split(output, "\n") {
+				if strings.Contains(line, "Tests:") && strings.Contains(line, "passed") {
+					// Parse "Tests: X failed, Y passed, Z total"
+					_, _ = fmt.Sscanf(line, "Tests: %d failed, %d passed, %d total", &failing, &passing, &total) // partial parse keeps zero counters
+					break
+				}
+			}
+		}
+
+		total = passing + failing
 	}
 
-	total = passing + failing
+	// Fail closed. The runner exited non-zero but we parsed no test-level
+	// failures, which means the suite failed to compile or start — a Go
+	// test-only build break (which `go build ./...` does not catch because it
+	// never compiles test files), a `go vet` failure, a panic before any test
+	// ran, or a jest/vitest config/compile error that emits no failed-test
+	// count. Reporting 0 failing here would let the completion gate mark a
+	// requirement complete on a suite that never actually ran.
+	if runErr != nil && failing == 0 {
+		log.Printf("[verify] test runner exited with error (%v) but parsed 0 test-level failures — treating the suite as failing (it did not compile or run)", runErr)
+		failing = 1
+		total = passing + failing
+	}
+
 	log.Printf("[verify] tests: %d passing, %d failing, %d total", passing, failing, total)
 	return passing, failing, total
 }
 
 func parseGoTestJSON(output string) (passing, failing, total int) {
+	buildFailed := false
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -197,7 +215,20 @@ func parseGoTestJSON(output string) (passing, failing, total int) {
 			Action string `json:"Action"`
 			Test   string `json:"Test"`
 		}
-		if err := json.Unmarshal([]byte(line), &evt); err != nil || evt.Test == "" {
+		if err := json.Unmarshal([]byte(line), &evt); err != nil {
+			continue
+		}
+		// A package whose test binary fails to compile emits a package-level
+		// "build-fail" action (and a "fail" with an empty Test) but no per-test
+		// pass/fail events. Since `go build ./...` never compiles test files,
+		// this is the only signal that a test-only build break exists — it must
+		// count as a failure or the completion gate treats a non-compiling
+		// suite as clean.
+		if evt.Action == "build-fail" {
+			buildFailed = true
+			continue
+		}
+		if evt.Test == "" {
 			continue
 		}
 		switch evt.Action {
@@ -207,8 +238,10 @@ func parseGoTestJSON(output string) (passing, failing, total int) {
 			failing++
 		}
 	}
+	if buildFailed && failing == 0 {
+		failing = 1
+	}
 	total = passing + failing
-	log.Printf("[verify] tests: %d passing, %d failing, %d total", passing, failing, total)
 	return passing, failing, total
 }
 

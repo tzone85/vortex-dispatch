@@ -70,8 +70,8 @@ VXD orchestrates AI coding agents (Claude Code, Codex, Gemini CLI) to autonomous
 │                      │              └──────────────────┬┘       │        │
 │                      │                                │         │        │
 │                 ┌────▼─────┐    ┌──────────┐   ┌─────▼──┐      │        │
-│                 │Escalation│◀───│  Manager  │   │ Reaper │      │        │
-│                 │ Machine  │    │(Diagnosis)│   │(Cleanup│      │        │
+│                 │Escalation│◀───│  Manager  │   │Cleanup │      │        │
+│                 │ Machine  │    │(Diagnosis)│   │(inline)│      │        │
 │                 └──────────┘    └──────────┘   └────────┘      │        │
 │                                                                 │        │
 │                 ┌───────────────────────────────────────┐        │        │
@@ -184,7 +184,7 @@ Story Fails (Review/QA rejection)
 │ If still failing ──▶                                           │
 │                                                                 │
 │ Tier 4: PAUSE (human intervention required)                     │
-│ └── Story status = "paused", vxd resume --force to retry       │
+│ └── Requirement paused (REQ_PAUSED); story status unchanged    │
 └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -935,14 +935,14 @@ $0  ─╱─────────┬─────────┬───�
 | Role | Default Provider | Default Model | Max Tokens | Purpose |
 |------|:---:|:---|:---:|:---|
 | Tech Lead | Anthropic | claude-opus-4-8 | 16,000 | Requirement decomposition |
-| Senior | Anthropic | claude-sonnet-4-6 | 8,000 | Complex features, code review |
-| Intermediate | Google AI | gemma-4-27b-it | 4,000 | Moderate tasks |
-| Junior | Google AI | gemma-4-27b-it | 4,000 | Simple features |
-| QA | Anthropic | claude-sonnet-4-6 | 8,000 | Quality assurance |
-| Supervisor | Google AI | gemma-4-27b-it | 4,000 | Drift detection |
-| Manager | Anthropic | claude-sonnet-4-6 | 8,000 | Failure diagnosis |
+| Senior | Anthropic | claude-opus-4-7 | 8,000 | Complex features, code review |
+| Intermediate | Anthropic | claude-haiku-4-5 | 4,000 | Moderate tasks |
+| Junior | Anthropic | claude-haiku-4-5 | 4,000 | Simple features |
+| QA | Anthropic | claude-opus-4-7 | 8,000 | Quality assurance |
+| Supervisor | Anthropic | claude-haiku-4-5 | 4,000 | Drift detection (not wired in yet) |
+| Manager | Anthropic | claude-opus-4-7 | 8,000 | Failure diagnosis |
 
-### Cost Strategy
+### Cost Strategy (opt-in hybrid setup)
 
 | Tier | Provider | Cost Model | Rationale |
 |------|----------|:---:|:---|
@@ -1052,9 +1052,9 @@ Every piece of data that leaves VXD's process boundary is classified below:
 
 | Provider | Data Retention | Training on Input | Zero-Retention Option | VXD Usage |
 |----------|:---:|:---:|:---:|:---|
-| **Anthropic API** | 30 days (safety) | No (commercial) | Yes (enterprise) | Tech Lead, Senior, QA, Manager |
+| **Anthropic API** | 30 days (safety) | No (commercial) | Yes (enterprise) | All roles by default |
 | **Claude CLI (Max)** | Per subscription terms | No | N/A | Primary agent runtime |
-| **Google AI** | Per Gemini API terms | May be used | Enterprise tier | Junior, Intermediate, Supervisor |
+| **Google AI** | Per Gemini API terms | May be used | Enterprise tier | Opt-in for execution roles |
 | **OpenAI API** | 30 days (default) | No (opted out) | Yes (enterprise) | Optional, not default |
 
 **Client recommendation:** For sensitive client work, restrict to Anthropic-only models with enterprise zero-retention agreement. Configure in `vxd.yaml`:

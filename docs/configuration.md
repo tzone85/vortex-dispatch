@@ -49,31 +49,31 @@ models:
     max_tokens: 16000
   senior:
     provider: anthropic
-    model: claude-sonnet-4-6
+    model: claude-opus-4-7
     max_tokens: 8000
   intermediate:
-    provider: google
-    model: gemma-4-27b-it
+    provider: anthropic
+    model: claude-haiku-4-5
     max_tokens: 4000
   junior:
-    provider: google
-    model: gemma-4-27b-it
+    provider: anthropic
+    model: claude-haiku-4-5
     max_tokens: 4000
   qa:
     provider: anthropic
-    model: claude-sonnet-4-6
+    model: claude-opus-4-7
     max_tokens: 8000
   supervisor:
-    provider: google
-    model: gemma-4-27b-it
+    provider: anthropic
+    model: claude-haiku-4-5
     max_tokens: 4000
   manager:
     provider: anthropic
-    model: claude-sonnet-4-6
+    model: claude-opus-4-7
     max_tokens: 8000
 ```
 
-Defaults bias execution roles (junior/intermediate/supervisor) toward Gemma (free tier on Google AI Studio) and reserve Anthropic budget for verification roles (tech_lead/senior/qa/manager). Swap any role to OpenAI/Haiku/Sonnet — see the cost-optimised and quality-maximised examples below.
+Every role defaults to the `anthropic` provider. To put a role on Gemma (Google AI Studio free tier), OpenAI or Codex, change that role's `provider` and `model`; see the cost-optimised and quality-maximised examples below.
 
 | Role | Recommended Model | Why |
 |------|-------------------|-----|
@@ -82,9 +82,9 @@ Defaults bias execution roles (junior/intermediate/supervisor) toward Gemma (fre
 | Intermediate | Haiku/Sonnet | Medium stories; Haiku for cost savings, Sonnet for quality |
 | Junior | Haiku/GPT-4o-mini | Simple stories; cheapest models work well here |
 | QA | Sonnet | Needs to understand code quality; Sonnet is the sweet spot |
-| Supervisor | Sonnet | Drift detection needs good judgment but not maximum reasoning |
+| Supervisor | — | Not wired into the pipeline yet, so this binding has no effect |
 
-**Tuning tip:** Start with the defaults. If junior agents produce low-quality code that fails review repeatedly, upgrade them to Sonnet. If costs are a concern, move intermediate to Haiku.
+**Tuning tip:** Start with the defaults. If junior agents produce low-quality code that fails review repeatedly, upgrade them to Sonnet. If costs are a concern, move QA or Senior from Opus to Sonnet, or put the execution roles on Gemma.
 
 ### routing
 

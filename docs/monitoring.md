@@ -1,6 +1,6 @@
 # Monitoring and Intervention
 
-VXD includes three monitoring systems that keep the pipeline running without human intervention: the **Watchdog**, the **Supervisor**, and the **TUI Dashboard**. This guide explains how each works and when you need to step in.
+VXD keeps the pipeline running without human intervention through the monitor's poll loop and its **Watchdog**, with the TUI and web **Dashboards** for visibility. A **Supervisor** exists in code but is not active yet (see the Supervisor section). This guide explains how each works and when you need to step in.
 
 ## Watchdog
 
@@ -8,7 +8,7 @@ The Watchdog monitors individual agent sessions in real time. It runs continuous
 
 ### How It Works
 
-Every `poll_interval_ms` (default: 10 seconds), the Watchdog:
+On every monitor poll (`poll_interval_ms`, default: 10 seconds), the Watchdog:
 1. Captures the last N lines of output from each tmux session
 2. Computes a SHA-256 fingerprint of the output
 3. Compares the fingerprint to the previous check
@@ -20,7 +20,8 @@ Every `poll_interval_ms` (default: 10 seconds), the Watchdog:
 | Permission prompt | `permission_pattern` regex matches | Sends "Y" to session | (none) |
 | Plan mode | `plan_mode_pattern` regex matches | Sends Escape key | (none) |
 | Agent stuck | Fingerprint unchanged for `stuck_threshold_s` | Emits stuck event | `AGENT_STUCK` |
-| Agent done | `idle_pattern` regex matches | Marks story complete | `STORY_COMPLETED` |
+
+Completion is not a Watchdog action. On the same poll pass the monitor asks the runtime for the session status (`DetectStatus`, which matches `idle_pattern`). When the runtime reports the session done or terminated, the monitor emits `STORY_COMPLETED` and starts review.
 
 ### Configuration
 
@@ -54,47 +55,15 @@ These patterns are compiled at startup. If an agent enters an unexpected state, 
 | Medium (Sonnet) | 120-180s |
 | Slow (Opus, complex stories) | 180-300s |
 
-## Supervisor
+## Supervisor (not active)
 
-The Supervisor provides periodic high-level oversight across all stories in a requirement.
+`internal/engine/supervisor.go` defines a `Supervisor` that asks an LLM whether the stories still match the requirement and emits `SUPERVISOR_CHECK` or `SUPERVISOR_DRIFT_DETECTED`. Nothing in the pipeline calls `NewSupervisor` today, so:
 
-### How It Works
+- no periodic drift checks run and no `SUPERVISOR_*` events are emitted,
+- `models.supervisor` is accepted in config (and listed by `vxd doctor`) but has no effect,
+- `SUPERVISOR_REPRIORITIZE` is no longer an event type.
 
-The Supervisor is an LLM-powered agent (Sonnet by default) that reviews:
-- The original requirement
-- Current status of all stories
-- Progress so far
-
-It produces a structured assessment:
-
-```
-{
-  "on_track": true/false,
-  "concerns": ["list of concerns"],
-  "reprioritize": ["story IDs to reprioritize"]
-}
-```
-
-### Events
-
-| Outcome | Event |
-|---------|-------|
-| Everything on track | `SUPERVISOR_CHECK` |
-| Drift detected | `SUPERVISOR_DRIFT_DETECTED` |
-| Reprioritization needed | `SUPERVISOR_REPRIORITIZE` |
-
-### When Drift Is Detected
-
-If the Supervisor determines stories are drifting from the original requirement, VXD:
-1. Emits `SUPERVISOR_DRIFT_DETECTED` with details
-2. Logs concerns for visibility
-3. May reprioritize remaining stories
-
-You can view supervisor findings via:
-
-```bash
-vxd events --type SUPERVISOR_DRIFT_DETECTED
-```
+Until the Supervisor is wired in, use `vxd status` and `vxd events` to spot drift yourself.
 
 ## Escalations
 
@@ -261,7 +230,7 @@ vxd dashboard --web
 vxd dashboard --web --port 9090   # custom port (default: 8787)
 ```
 
-Opens a browser-based dashboard at `http://localhost:8787`. Binds to localhost only — no external access.
+Starts the dashboard on `http://localhost:8787`, bound to localhost only, and prints the URL. Pass `--open` to open a browser as well. Every request needs the dashboard token (see Authentication below).
 
 #### Sections
 
@@ -299,8 +268,23 @@ The client reconnects automatically on disconnect with exponential backoff.
 
 - Vanilla HTML, CSS, and JavaScript — no external dependencies or build step
 - Dark theme
-- No authentication in v1 — restrict network access at the OS level if needed
 - Empty states are shown for each section when there is no data yet
+
+#### Authentication
+
+Every endpoint except `/health` requires the dashboard token. A request is accepted when it carries one of:
+
+| Credential | Where it comes from |
+|------------|---------------------|
+| `Authorization: Bearer <token>` header | `~/.vxd/dashboard.token` (mode 0600), or `VXD_DASHBOARD_TOKEN` when set |
+| `?bootstrap=<nonce>` query parameter | One-time nonce in the dashboard link VXD opens or prints; the first use sets the cookie below and burns the nonce |
+| `vxd_dashboard_token` cookie | Set by the bootstrap step (HttpOnly, SameSite=Strict) |
+
+Anything else gets `401 Unauthorized`. The token rotates at startup when the file is older than `dashboard.token_ttl_hours` (default 168), or on demand with `vxd dashboard rotate-token`; each rotation emits `DASHBOARD_TOKEN_ROTATED`. For scripts, send the token from the file:
+
+```bash
+curl -H "Authorization: Bearer $(cat ~/.vxd/dashboard.token)" http://localhost:8787/api/v1/requirements
+```
 
 ## CLI Monitoring Commands
 
@@ -339,7 +323,6 @@ VXD is designed to run autonomously, but some situations require human attention
 |--------|-----------|
 | Tier 4 pause (escalation exhausted) | Review the story requirements — they may be ambiguous or infeasible |
 | Repeated QA failures across stories | Check if lint/build/test commands are correct in config |
-| Supervisor drift detected | Review the original requirement and story decomposition |
 | Agent stuck with high `stuck_threshold_s` | Check if the runtime CLI is responsive (`tmux attach -t <session>`) |
 | No progress after `vxd resume` | Run `vxd preflight` to verify environment, check API keys and CLIs |
 | Stories awaiting approval | Use `vxd review`, `vxd approve`, or `vxd reject` to advance the pipeline |

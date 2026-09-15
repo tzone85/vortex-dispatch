@@ -51,7 +51,7 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 # For OpenAI models (Codex runtime, or if using OpenAI for planner)
 export OPENAI_API_KEY="sk-..."
 
-# For Google AI Studio (free tier — used by default for Junior/Intermediate/Supervisor)
+# For Google AI Studio (optional — only for roles you set to provider: google)
 export GOOGLE_AI_API_KEY="your-key-here"
 
 # For GitHub CLI (needed for PR creation)
@@ -60,7 +60,7 @@ gh auth login
 
 > **Cost note:** The ANTHROPIC_API_KEY is only used for VXD's internal operations (a few API calls per story). The spawned coding agents — which do the heavy work — use your Claude Code subscription at no extra cost. If you only use OpenAI for internal operations, you don't need ANTHROPIC_API_KEY at all.
 
-> **Gemma 4 default:** VXD uses Google AI Studio's free tier for execution roles (Junior, Intermediate, Supervisor) by default. Get a free API key from [Google AI Studio](https://aistudio.google.com/apikey). If no `GOOGLE_AI_API_KEY` is set, configure these roles to use `anthropic` or `openai` in `vxd.yaml`. See the [Model Selection Guide](model-selection.md) for details.
+> **Gemma 4 (optional):** Every role defaults to Anthropic. To run execution roles (Junior, Intermediate) on Google AI Studio's free tier, get a free API key from [Google AI Studio](https://aistudio.google.com/apikey) and set those roles to `provider: google` in `vxd.yaml`. See the [Model Selection Guide](model-selection.md) for details.
 
 ### MemPalace (Optional — Semantic Memory)
 

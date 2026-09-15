@@ -342,9 +342,9 @@ func resolveRequirement(cmd *cobra.Command, args []string) (string, error) {
 	}
 }
 
-// planningFallbackClient wraps an API client and falls back to a CLI client
-// when the API fails. If the CLI also fails (e.g. prompt too long), it returns
-// a helpful error suggesting the user shorten their requirement.
+// planningFallbackClient tries the CLI client first (subscription, no per-token
+// cost) and falls back to the API client when the CLI fails or returns an empty
+// response. If neither succeeds, it returns an error with a hint for the user.
 type planningFallbackClient struct {
 	apiClient llm.Client
 	cliClient llm.Client
@@ -401,8 +401,8 @@ func (p *planningFallbackClient) Complete(ctx context.Context, req llm.Completio
 	return llm.CompletionResponse{}, fmt.Errorf("no LLM client available for planning — set ANTHROPIC_API_KEY or install claude CLI")
 }
 
-// buildPlanningClient creates a client that tries API first, then falls back
-// to CLI. Planning prompts can be large, so the API is preferred.
+// buildPlanningClient builds whichever of the CLI and API clients the provider
+// supports and wraps them in planningFallbackClient (CLI first, API second).
 func buildPlanningClient(provider string, godmode bool) (llm.Client, error) {
 	var apiClient llm.Client
 	var cliClient llm.Client

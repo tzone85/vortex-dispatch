@@ -135,7 +135,7 @@ func (m *Monitor) checkSLA(ag ActiveAgent) {
 			// Bound the teardown so a hung devdb provider can't block the
 			// polling goroutine or survive monitor shutdown indefinitely.
 			rctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			if releaseErr := m.lifecycle.Release(rctx, ag.DB, outcome); releaseErr != nil {
+			if releaseErr := m.lifecycle.Release(rctx, storyID, ag.DB, outcome); releaseErr != nil {
 				log.Printf("[monitor] SLA-breach devdb release failed for %s: %v (will GC later)", storyID, releaseErr)
 			}
 			cancel()

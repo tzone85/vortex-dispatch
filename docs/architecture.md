@@ -29,12 +29,14 @@ internal/
     executor.go       Agent lifecycle: worktree creation, prompt injection, spawn
     watchdog.go       Session monitoring (fingerprinting)
     monitor.go        Polling loop with auto-resume, checkpoint writes, review gates
-    supervisor.go     Drift detection (LLM)
+    supervisor.go     Drift detection (LLM); defined, not wired into the pipeline yet
     reviewer.go       Code review (LLM)
     review_gate.go    Human review gate: mode resolution + approval checks
     qa.go             Lint/build/test execution with declarative criteria
+    security_gate.go  Per-story pre-merge security review (scanners + LLM)
+    premerge.go       Re-runs QA checks on the rebased branch before merge
     merger.go         PR creation and auto-merge (gh CLI)
-    reaper.go         Worktree/branch cleanup
+    reaper.go         Branch garbage collection for vxd gc (merge cleanup is inline in the monitor)
     escalation.go     5-tier escalation machine (retry → senior → manager → tech_lead → pause)
     smart_retry.go    Error analysis with 8 categories and fix suggestions
     manager.go        Manager diagnosis: LLM failure analysis, story rewriting
@@ -85,7 +87,7 @@ internal/
     envfile.go        .vxd-db/connect.env + README.md + psql.sh renderer
     naming.go         vxd-<project>-<story-id-short> DB naming convention
     recovery.go       Orphan-recovery on vxd resume
-migrations/           SQLite schema (7 tables)
+migrations/           Reference SQL schema (the live schema is initSQL in internal/state/sqlite.go)
 test/                 E2E tests
 ```
 
@@ -134,24 +136,26 @@ Events are grouped by lifecycle:
 | Request | `REQ_SUBMITTED`, `REQ_ANALYZED`, `REQ_PLANNED`, `REQ_PAUSED`, `REQ_RESUMED`, `REQ_COMPLETED`, `REQ_ESTIMATED` |
 | Story | `STORY_CREATED`, `STORY_ESTIMATED`, `STORY_ASSIGNED`, `STORY_STARTED`, `STORY_PROGRESS`, `STORY_COMPLETED`, `STORY_REVIEW_REQUESTED`, `STORY_REVIEW_PASSED`, `STORY_REVIEW_FAILED`, `STORY_QA_STARTED`, `STORY_QA_PASSED`, `STORY_QA_FAILED`, `STORY_PR_CREATED`, `STORY_MERGED`, `STORY_ESCALATED`, `STORY_REWRITTEN`, `STORY_SPLIT`, `STORY_RESET` |
 | Agent | `AGENT_SPAWNED`, `AGENT_CHECKPOINT`, `AGENT_RESUMED`, `AGENT_STUCK`, `AGENT_TERMINATED` |
-| Supervisor | `SUPERVISOR_CHECK`, `SUPERVISOR_REPRIORITIZE`, `SUPERVISOR_DRIFT_DETECTED` |
+| Supervisor | `SUPERVISOR_CHECK`, `SUPERVISOR_DRIFT_DETECTED` (defined but not emitted: the Supervisor is not wired in) |
+| Security | `STORY_SECURITY_PASSED`, `STORY_SECURITY_FAILED`, `SECURITY_SCAN_COMPLETED`, `SECURITY_RULE_LEARNED` |
 | Review Gates | `REVIEW_MODE_SET`, `PLAN_APPROVED`, `PLAN_REJECTED`, `STORY_AWAITING_APPROVAL`, `STORY_APPROVED`, `STORY_REJECTED` |
 | Recovery | `RECOVERY_COMPLETED` |
 | Cleanup | `WORKTREE_PRUNED`, `BRANCH_DELETED`, `GC_COMPLETED` |
 
 ### Projection Store (SQLite)
 
-7 tables materialized from events:
+8 tables, created by `initSQL` in `internal/state/sqlite.go`:
 
 | Table | Primary Key | Updated By |
 |-------|-------------|------------|
 | `requirements` | `id` | `REQ_*` events |
 | `stories` | `id` | `STORY_*` events |
 | `agents` | `id` | `AGENT_*` events |
-| `story_deps` | `story_id, depends_on` | `STORY_CREATED` |
-| `escalations` | `id` | `ESCALATION_*` events |
-| `agent_scores` | `agent_id, story_id` | Score computation |
-| `projections` | `event_id` | All events (tracking) |
+| `story_deps` | `story_id, depends_on_id` | `STORY_CREATED` |
+| `escalations` | `id` | `STORY_ESCALATED` |
+| `agent_scores` | `id` | Nothing writes to it today |
+| `story_databases` | `story_id, db_id` | `STORY_DB_CREATED`, `STORY_DB_FAILED`, `STORY_DB_DELETED` |
+| `story_costs` | `id` | `STORY_COST_RECORDED` |
 
 The `Project(event)` method on `SQLiteStore` contains a switch statement that maps each event type to the appropriate SQL mutations.
 
@@ -185,7 +189,7 @@ type Client interface {
 Seven implementations:
 - **AnthropicClient** — calls the Anthropic Messages API
 - **OpenAIClient** — calls the OpenAI Chat Completions API
-- **GoogleAIClient** — calls Google AI Studio (Gemma 4, free tier for execution roles)
+- **GoogleAIClient** — calls Google AI Studio (Gemma 4 free tier) for roles configured with `provider: google`
 - **ClaudeCLIClient** — invokes the Claude Code CLI as a subprocess
 - **FallbackClient** — wraps a primary + secondary client with automatic failover on rate limits or quota exhaustion
 - **RetryClient** — wraps any client with configurable retry logic
@@ -272,7 +276,8 @@ Each engine component depends on interfaces, not concrete implementations. This 
    │
    ├─ CLI parses args
    ├─ loadStores() opens FileStore + SQLiteStore
-   ├─ buildLLMClient() creates Anthropic/OpenAI client
+   ├─ buildPlanningClient() creates the Tech Lead client
+   │    (anthropic: Claude CLI first, Anthropic API as fallback)
    │
    ▼
 2. Planner.Plan(requirement, repoDir)
@@ -287,17 +292,18 @@ Each engine component depends on interfaces, not concrete implementations. This 
    │
    ├─ graph.ReadyNodes(completed) → wave
    ├─ RouteByComplexity(story.Complexity) → role
-   ├─ git.CreateWorktree() + git.CreateBranch()
-   ├─ runtime.Spawn(sessionConfig)
    ├─ Emits: AGENT_SPAWNED, STORY_ASSIGNED (per story in wave)
+   ├─ Executor: git worktree + branch, then runtime.Spawn(sessionConfig)
+   │    (Spawn writes CLAUDE.md + AGENTS.md into the worktree)
+   ├─ Executor emits: STORY_STARTED
    │
    ▼
-4. Watchdog.Monitor(sessions)
+4. Monitor poll loop (pollOnce, every poll_interval_ms)
    │
-   ├─ Loop: ReadOutput → Fingerprint → Compare
-   ├─ Auto-actions: approve permissions, escape plan mode
-   ├─ Detect completion → Emits: STORY_COMPLETED
-   ├─ Detect stuck → Emits: AGENT_STUCK
+   ├─ Watchdog.Check(): fingerprint output, approve permissions,
+   │    escape plan mode, emit AGENT_STUCK
+   ├─ runtime.DetectStatus() done/terminated → Monitor emits STORY_COMPLETED
+   ├─ Starts postExecutionPipeline() for the story
    │
    ▼
 5. Reviewer.Review(storyID, diff)
@@ -314,23 +320,36 @@ Each engine component depends on interfaces, not concrete implementations. This 
    ├─ Emits: STORY_QA_STARTED, STORY_QA_PASSED or STORY_QA_FAILED
    │
    ▼
-7. Merger.Merge(storyID, repoDir, branch)
+6.5 SecurityGate.ReviewStory(storyID, diff, worktreePath)
    │
+   ├─ Scanners + LLM threat-model review (off with security.disable_gate)
+   ├─ Emits: STORY_SECURITY_PASSED or STORY_SECURITY_FAILED
+   ├─ Finding at/above security.gate_severity → REQ_PAUSED
+   │
+   ▼
+7. Monitor.rebaseAndMerge() → Merger.Merge(storyID, repoDir, branch)
+   │
+   ├─ git fetch + rebase onto origin/<base>
+   ├─ verifyRebasedQA(): re-run QA checks on the rebased branch
    ├─ git.PushBranch()
    ├─ github.CreatePR() → PR URL
    ├─ github.MergePR() (if auto_merge)
    ├─ Emits: STORY_PR_CREATED, STORY_MERGED
    │
    ▼
-8. Reaper.Reap(storyID, repoDir, worktreePath, branch)
+8. Monitor inline cleanup (after a successful merge)
    │
-   ├─ git.DeleteWorktree() (if immediate)
-   ├─ git.DeleteBranch() (if past retention)
-   ├─ Emits: WORKTREE_PRUNED, BRANCH_DELETED
+   ├─ git worktree remove --force + git branch -D
+   ├─ Delete remote branch
+   ├─ Integration build, budget check (no cleanup events emitted)
    │
    ▼
-9. Back to step 3 for next wave (if stories remain)
+9. Monitor.dispatchNextWave() → back to step 3 (if stories remain)
+
+Reaper.GarbageCollect() runs only from `vxd gc` (BRANCH_DELETED, GC_COMPLETED).
 ```
+
+Any failure in steps 5 to 7 goes through `Monitor.resetStoryToDraft`: the story returns to `draft` and the reset is recorded as `STORY_REVIEW_FAILED`, preceded by `STORY_ESCALATED` when a tier limit is reached. See Story Status Transitions in [Pipeline Workflows](workflows.md).
 
 ## Main Pipeline Sequence
 
@@ -358,6 +377,7 @@ User                VXD CLI          TechLead LLM     Dispatcher       Executor 
  |                    |                  |                |               |         |      |
  |                    |                  |                |               |  <-- Review ---|
  |                    |                  |                |               |  <-- QA -------|
+ |                    |                  |                |               |  <-- Security -|
  |                    |                  |                |               |  <-- Merge ----|
  |                    |                  |                |               |         |      |
  |                    |                  |                |  <-- Next wave -----------------|
@@ -378,16 +398,17 @@ Tier 0: Same-role retry with smart error analysis
 Tier 1: Senior developer (more capable model)
         - Same error context, higher-tier agent
 
-Tier 2: Manager diagnosis (Sonnet-class LLM)
+Tier 2: Manager diagnosis (LLM)
         - Analyzes full failure pattern across all attempts
-        - May rewrite the story description (STORY_REWRITTEN)
+        - Picks one action: retry, rewrite (STORY_REWRITTEN),
+          split (STORY_SPLIT), or escalate to the Tech Lead
 
 Tier 3: Tech Lead re-planning
         - Decomposes the failing story into smaller sub-stories (STORY_SPLIT)
         - Updates the dependency DAG with new nodes
 
 Tier 4: Pause (human intervention required)
-        - Story marked as paused, requires manual action
+        - Requirement paused (REQ_PAUSED); story status is left unchanged
 ```
 
 Events: `STORY_ESCALATED` (with `from_tier` and `to_tier`), `STORY_REWRITTEN`, `STORY_SPLIT`

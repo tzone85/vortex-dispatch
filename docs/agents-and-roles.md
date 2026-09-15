@@ -14,23 +14,25 @@ VXD models a full agile development team with specialized AI agent roles. Each r
               ▼            ▼            ▼
        ┌──────────┐ ┌────────────┐ ┌────────┐
        │  Senior  │ │Intermediate│ │ Junior │  Implementation
-       │ (Sonnet) │ │  (Haiku)   │ │(Gemma) │  by complexity
+       │  (Opus)  │ │  (Haiku)   │ │(Haiku) │  by complexity
        └────┬─────┘ └─────┬──────┘ └───┬────┘
             │             │             │
             ▼             ▼             ▼
        ┌──────────────────────────────────────┐
-       │             QA (Sonnet)              │  Lint + Build + Test
+       │              QA (Opus)               │  Lint + Build + Test
        └──────────────────┬───────────────────┘
                           │
               ┌───────────┴───────────┐
               ▼                       ▼
        ┌──────────┐           ┌───────────────┐
-       │ Manager  │           │  Supervisor   │  Drift detection
-       │ (Sonnet) │           │   (Sonnet)    │  Reprioritization
+       │ Manager  │           │  Supervisor   │  Defined, not yet
+       │  (Opus)  │           │   (Haiku)     │  wired into the pipeline
        │ Tier 2   │           └───────────────┘
        │diagnosis │
        └──────────┘
 ```
+
+Model names in the diagram are the default bindings: every role defaults to the `anthropic` provider, with Opus for Tech Lead, Senior, QA and Manager and Haiku for Intermediate, Junior and Supervisor. The exact model IDs are in the models section of the [Configuration Reference](configuration.md#models). The *Model recommendation* lines below are guidance, not defaults.
 
 ## Roles in Detail
 
@@ -108,7 +110,7 @@ VXD models a full agile development team with specialized AI agent roles. Each r
 
 **Responsibility:** Periodic oversight — detects drift from the original requirement, identifies concerns, and may reprioritize stories.
 
-**When active:** Periodically during execution
+**Status:** not active. The `Supervisor` type exists, but nothing in the pipeline constructs it, so these checks do not run today (see the Supervisor section in [Monitoring and Intervention](monitoring.md#supervisor-not-active)).
 
 **Supervisor checks:**
 1. Are stories progressing toward the original requirement?
@@ -169,7 +171,7 @@ VXD tracks agent performance across assignments using a weighted scoring system:
 
 **Overall Score** = (Quality × 0.5) + (Reliability × 0.3) + (Speed × 0.2)
 
-Scores are stored per-agent in the `agent_scores` SQLite table. Over time, this data can inform routing decisions — agents with higher reputation scores may be preferred for critical stories.
+The schema has an `agent_scores` SQLite table, but nothing writes to it yet. Over time, reputation data can inform routing decisions — agents with higher reputation scores may be preferred for critical stories.
 
 ## Escalation Flow
 

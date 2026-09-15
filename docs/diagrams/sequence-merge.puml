@@ -1,38 +1,60 @@
 @startuml sequence-merge
-title QA Pass → PR → Merge → Cleanup
+title QA Pass → Security Gate → Rebase → PR → Merge → Cleanup
 
+participant "Monitor" as MON
 participant "QA" as QA
-participant "ReviewGate" as RG
-participant "Merger" as MR
+participant "SecurityGate" as SG
 participant "Git Worktree" as WT
+participant "Merger" as MR
 participant "GitHub (gh)" as GH
 participant "Main Repo" as MN
 database "events.jsonl" as EV
 
+note over MON : VXD artifacts (CLAUDE.md, AGENTS.md, .vxd-prompts, .serena)\nare stripped from the branch before review, not at merge time
+
 QA -> EV : STORY_QA_PASSED
 
+MON -> SG : ReviewStory(diff, worktree)
+alt finding >= security.gate_severity
+    SG -> EV : STORY_SECURITY_FAILED
+    MON -> EV : REQ_PAUSED
+    note right : story is not reset;\na human decides
+else pass
+    SG -> EV : STORY_SECURITY_PASSED
+end
+
+MON -> MON : acquire merge lock
+
 alt review_mode = manual
-    QA -> RG : await approval
-    RG --> QA : approved
+    MON -> WT : git fetch + rebase onto origin/<base>
+    MON -> MR : CreatePROnly
+    MR -> GH : git push + gh pr create
+    MR -> EV : STORY_PR_CREATED
+    MON -> EV : STORY_AWAITING_APPROVAL
+    note right : pipeline stops here;\nvxd approve merges later
+else auto / plan_only
+    MON -> WT : git fetch + rebase onto origin/<base>\n(LLM conflict resolution if configured)
+    MON -> QA : re-run command checks on rebased branch
+    alt story turns a green base red
+        MON -> EV : STORY_REVIEW_FAILED (reset to draft)
+    else checks pass
+        MON -> MR : Merge
+        MR -> GH : git push + gh pr create
+        MR -> EV : STORY_PR_CREATED
+        opt merge.auto_merge
+            MR -> GH : gh pr merge
+            MR -> EV : STORY_MERGED
+        end
+    end
 end
 
-QA -> MR : merge(story)
-MR -> WT : stripVXDArtifactsFromBranch\n(CLAUDE.md, .vxd-prompts, .serena)
-MR -> WT : git rebase origin/<base>
-MR -> WT : git push -u origin <branch>
-MR -> GH : gh pr create
-GH --> MR : PR URL (parse number)
-MR -> EV : PR_CREATED
-
-alt auto_merge && review_mode != manual
-    MR -> GH : gh pr merge --squash
-    GH --> MR : merged
-    MR -> EV : STORY_MERGED
+opt merged
+    MON -> MN : capture story into wave context
+    MON -> MN : git worktree remove --force\ngit branch -D <branch>
+    MON -> GH : delete remote branch
+    MON -> MN : integration build (if tech-lead fixer set)
+    note right of MON : no WORKTREE_PRUNED / BRANCH_DELETED;\nthe Reaper only runs from vxd gc
 end
-
-MR -> MN : pullMainAfterMerge
-MN -> MN : git pull --ff-only
-MN -> MN : remove WAVE_CONTEXT.md, REQUIREMENT.md
-MR -> EV : STORY_COMPLETED
+MON -> MON : budget check, then next wave
 
 @enduml

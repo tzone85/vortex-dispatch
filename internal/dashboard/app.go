@@ -342,7 +342,17 @@ func tickCmd() tea.Cmd {
 }
 
 // truncateStr shortens a string, appending "..." if it exceeds maxLen.
+//
+// maxLen <= 0 returns "" — a column with no room renders nothing. This guard is
+// load-bearing: renderStories calls truncateStr(s.Title, width-65) with the raw
+// terminal width, so any terminal narrower than 65 columns (a common vertical
+// tmux split or a small SSH window) passes a negative maxLen. Without the guard,
+// the subsequent s[:maxLen] slice panics ("slice bounds out of range [:-N]"),
+// crashing the Bubbletea View() and taking down `vxd dashboard`.
 func truncateStr(s string, maxLen int) string {
+	if maxLen <= 0 {
+		return ""
+	}
 	if len(s) <= maxLen {
 		return s
 	}

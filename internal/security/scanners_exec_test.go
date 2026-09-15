@@ -142,6 +142,69 @@ func TestRunScanners_FailedToolIsReportedNotSwallowed(t *testing.T) {
 	}
 }
 
+// TestRunScanners_FailedRunNoFindingsIsReported pins the fail-closed fix for a
+// scanner that exits non-zero but produces NO parseable findings — the shape a
+// tool takes when it could not analyze the code at all (govulncheck failing to
+// load/typecheck the module, npm audit with no lockfile, a crash, a timeout). It
+// must land in `failed` (coverage lost), never in `ran` (scanned clean), because
+// a zero-finding output from a tool that never inspected the code is otherwise
+// indistinguishable from a genuinely clean scan.
+func TestRunScanners_FailedRunNoFindingsIsReported(t *testing.T) {
+	bin := installAllFakeScanners(t)
+	// govulncheck fails to load the packages: non-zero exit, diagnostic text, and
+	// crucially no "Vulnerability #" line for parseGovulncheck to key on.
+	fakeTool(t, bin, "govulncheck", "govulncheck: loading packages: build failed", 1)
+	// npm audit fails with its JSON error envelope: valid JSON, zero vulns parsed.
+	fakeTool(t, bin, "npm", `{"error":{"code":"ENOLOCK","summary":"no lockfile"}}`, 1)
+	repo := seedRepo(t, map[string]string{
+		"go.mod":       "module example.com/x\n",
+		"package.json": "{}",
+	})
+
+	findings, ran, _, failed := RunScanners(context.Background(), repo)
+
+	failedSet := map[ScannerKind]bool{}
+	for _, k := range failed {
+		failedSet[k] = true
+	}
+	if !failedSet[ScannerGovulncheck] {
+		t.Errorf("govulncheck failed to load — must be reported failed, got failed=%v", failed)
+	}
+	if !failedSet[ScannerNpmAudit] {
+		t.Errorf("npm audit error envelope — must be reported failed, got failed=%v", failed)
+	}
+	for _, k := range ran {
+		if k == ScannerGovulncheck || k == ScannerNpmAudit {
+			t.Errorf("a scanner that failed to run must not be counted as ran: %v", k)
+		}
+	}
+	// Healthy tools still contribute (graceful degradation); none of the failed
+	// tools' phantom "zero findings" leak in as a clean result.
+	for _, f := range findings {
+		if f.Tool == "govulncheck" || f.Tool == "npm-audit" {
+			t.Errorf("failed scanner must not contribute findings: %+v", f)
+		}
+	}
+}
+
+// TestScannerRun_NonZeroExitWithFindingsStillParses guards the other direction:
+// a scanner exiting non-zero BECAUSE it found issues (the common case) must
+// still return those findings, not be misclassified as a failed run.
+func TestScannerRun_NonZeroExitWithFindingsStillParses(t *testing.T) {
+	bin := t.TempDir()
+	fakeTool(t, bin, "govulncheck", fakeGovulncheckOut, 3) // exit 3 = vulns found
+	t.Setenv("PATH", bin+":/bin:/usr/bin")
+	repo := seedRepo(t, map[string]string{"go.mod": "module example.com/x\n"})
+
+	fs, err := Scanner{Kind: ScannerGovulncheck, Bin: "govulncheck"}.Run(context.Background(), repo)
+	if err != nil {
+		t.Fatalf("non-zero exit with findings must not be an error: %v", err)
+	}
+	if len(fs) != 1 || fs[0].RuleID != "GO-2024-1234" {
+		t.Fatalf("expected the parsed vulnerability, got %+v", fs)
+	}
+}
+
 func TestRunScanners_MissingToolsSkippedVisibly(t *testing.T) {
 	bin := t.TempDir()
 	fakeTool(t, bin, "gitleaks", fakeGitleaksOut, 1) // only gitleaks installed

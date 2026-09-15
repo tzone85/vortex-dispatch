@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os/exec"
 	"path/filepath"
@@ -342,10 +343,19 @@ func parseGovulncheck(out []byte) ([]Finding, error) {
 }
 
 // Run executes the scanner against repoDir and returns parsed findings. A
-// non-zero exit is expected (most scanners exit non-zero when they find issues),
-// so output is parsed regardless of exit code; a parse error is returned so the
-// caller can log and continue (graceful degradation — one tool failing never
-// aborts the scan).
+// non-zero exit is expected WHEN A SCANNER FOUND ISSUES (most exit non-zero in
+// that case), so output is parsed regardless of exit code and those findings are
+// returned. But a non-zero exit is also how a scanner reports that it could not
+// run to a clean conclusion — a timeout, a load/typecheck error (e.g.
+// govulncheck failing to build the module), a crash, or a JSON error envelope
+// (e.g. npm audit with no lockfile). None of these tools exit non-zero while
+// legitimately reporting ZERO findings, so a non-zero exit that yields no
+// parseable findings is treated as a failed scan, not a clean one. Returning
+// that as an error lets RunScanners route it into `failed` (coverage lost)
+// instead of `ran` (scanned clean) — otherwise the security gate would report a
+// build the scanner never actually inspected as having no vulnerabilities. A
+// parse error is likewise returned so the caller can log and continue (graceful
+// degradation — one tool failing never aborts the whole scan).
 func (s Scanner) Run(ctx context.Context, repoDir string) ([]Finding, error) {
 	ctx, cancel := context.WithTimeout(ctx, scannerTimeout)
 	defer cancel()
@@ -366,20 +376,37 @@ func (s Scanner) Run(ctx context.Context, repoDir string) ([]Finding, error) {
 		return nil, nil
 	}
 	cmd.Dir = repoDir
-	out, _ := cmd.CombinedOutput() // exit code intentionally ignored; parse output
+	out, runErr := cmd.CombinedOutput()
 
+	var (
+		findings []Finding
+		parseErr error
+	)
 	switch s.Kind {
 	case ScannerGosec:
-		return parseGosec(out, repoDir)
+		findings, parseErr = parseGosec(out, repoDir)
 	case ScannerGovulncheck:
-		return parseGovulncheck(out)
+		findings, parseErr = parseGovulncheck(out)
 	case ScannerGitleaks:
-		return parseGitleaks(out, repoDir)
+		findings, parseErr = parseGitleaks(out, repoDir)
 	case ScannerSemgrep:
-		return parseSemgrep(out, repoDir)
+		findings, parseErr = parseSemgrep(out, repoDir)
 	case ScannerNpmAudit:
-		return parseNpmAudit(out)
+		findings, parseErr = parseNpmAudit(out)
 	default:
 		return nil, nil
 	}
+	if parseErr != nil {
+		return findings, parseErr
+	}
+	// Fail-closed: a scanner that exited non-zero but produced no parseable
+	// findings did not run to a clean conclusion (timeout / load error / crash /
+	// error envelope). Surface it as a failure so coverage loss is visible.
+	if runErr != nil && len(findings) == 0 {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("%s scan did not complete: %w", s.Kind, ctx.Err())
+		}
+		return nil, fmt.Errorf("%s exited non-zero with no parseable findings (likely a load or exec failure): %w", s.Kind, runErr)
+	}
+	return findings, nil
 }

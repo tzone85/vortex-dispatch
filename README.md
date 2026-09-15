@@ -207,6 +207,17 @@ vxd replay --dry-run
 
 The web and terminal dashboards are views over persisted state, not the only place that state exists.
 
+### Troubleshooting
+
+When a pipeline misbehaves, start with `vxd doctor` — it mechanizes the common
+diagnostics in one pass: binary PATH shadowing (stale build being executed),
+invalid or retired model IDs in config, stuck in-progress stories, stale lock
+files from dead processes, orphaned worktrees and `vxd-*` tmux sessions,
+merge-base sanity (`main` vs `master`), and a dirty repo root that would block
+the post-merge fast-forward pull. Each finding carries a severity and a fix
+hint; `--json` emits machine-readable output and the command exits non-zero on
+any critical finding, so it also works as a CI/cron health probe.
+
 ## Open source and the Vortex Dispatch factory
 
 VXD is Apache-2.0 software. You may use, modify and redistribute it under the terms of that license.

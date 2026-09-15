@@ -154,11 +154,13 @@ func checkTests(repoDir string) (passing, failing, total int) {
 	}
 
 	cmd.Dir = repoDir
-	out, _ := cmd.CombinedOutput()
+	out, runErr := cmd.CombinedOutput()
 	output := string(out)
 
 	if fileExists(filepath.Join(repoDir, "go.mod")) {
-		return parseGoTestJSON(output)
+		passing, failing, _ = parseGoTestJSON(output)
+		passing, failing = escalateTestRunFailure(passing, failing, runErr)
+		return passing, failing, passing + failing
 	}
 
 	// Parse test results (simplified — count PASS/FAIL lines)
@@ -182,9 +184,30 @@ func checkTests(repoDir string) (passing, failing, total int) {
 		}
 	}
 
+	passing, failing = escalateTestRunFailure(passing, failing, runErr)
 	total = passing + failing
 	log.Printf("[verify] tests: %d passing, %d failing, %d total", passing, failing, total)
 	return passing, failing, total
+}
+
+// escalateTestRunFailure treats a non-zero test-command exit that produced no
+// parsed test failures as a failure. That combination means the test binaries
+// did not compile / the runner crashed / the test setup failed (e.g. one story
+// removes a symbol another story's test still references, a jest/vitest config
+// error, or a *.test.ts that does not type-check). checkBuild only compiles
+// non-test sources (`go build ./...`, `tsc --noEmit`/`npm build`), so it cannot
+// see a test-only compile failure, and the per-test result parsers only count
+// events/lines that name an individual test — so a run that never reached any
+// test reads as a clean 0/0/0. Without this the completion gate green-lights
+// REQ_COMPLETED on code whose test suite does not even run. A run that already
+// counted at least one failure, or that exited zero, is left untouched (no
+// false positives on healthy or genuinely-failing suites).
+func escalateTestRunFailure(passing, failing int, runErr error) (int, int) {
+	if runErr != nil && failing == 0 {
+		log.Printf("[verify] test command exited non-zero with no parsed test failures (compile/setup/runner failure); recording as a failing test")
+		failing++
+	}
+	return passing, failing
 }
 
 func parseGoTestJSON(output string) (passing, failing, total int) {

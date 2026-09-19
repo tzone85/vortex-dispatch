@@ -207,6 +207,30 @@ vxd replay --dry-run
 
 The web and terminal dashboards are views over persisted state, not the only place that state exists.
 
+### Recovering from a failed replay
+
+`vxd replay` moves the old `vxd.db` aside to `vxd.db.bak-<timestamp>` before it
+rebuilds. If the rebuild fails, it removes what it created and the error names
+the backup to move back, by absolute path. To do that by hand, in the
+project's state directory (`<workspace.state_dir>/projects/<project>`,
+`~/.vxd/projects/<project>` by default):
+
+```bash
+cd ~/.vxd/projects/<project> || exit
+rm -f vxd.db vxd.db-wal vxd.db-shm
+mv vxd.db.bak-<ts> vxd.db
+[ -f vxd.db.bak-<ts>-wal ] && mv vxd.db.bak-<ts>-wal vxd.db-wal
+[ -f vxd.db.bak-<ts>-shm ] && mv vxd.db.bak-<ts>-shm vxd.db-shm
+```
+
+The `|| exit` is not decoration: without it, a path that does not exist on
+your machine leaves the `rm -f` to run in whatever directory you were in.
+
+Any command re-creates an empty `vxd.db` when none exists, so after a failed
+replay the newest backup is not always the one you want — compare the UTC
+timestamps before moving one back. Rebuilding from `events.jsonl` with
+`vxd replay` is usually the better answer: the log is the source of truth.
+
 ### Troubleshooting
 
 When a pipeline misbehaves, start with `vxd doctor` — it mechanizes the common

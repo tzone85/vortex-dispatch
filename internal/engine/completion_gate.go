@@ -38,10 +38,24 @@ type CompletionGate struct {
 	eventStore state.EventStore
 	projStore  state.ProjectionStore
 
+	// bounds are the time limits one verification run works under
+	// (qa.completion_test_timeout_s; defaults otherwise).
+	bounds verifyBounds
+
 	// Seams (default to real implementations; overridden in tests).
 	verify verifyFunc
 	pull   func(repoDir, baseBranch string)
 }
+
+// SetTestTimeout bounds one test-suite run inside the gate; d <= 0 keeps the
+// default. A suite that does not finish in time is a timeout gap: the
+// requirement is blocked without an auto-fix cycle.
+func (g *CompletionGate) SetTestTimeout(d time.Duration) {
+	g.bounds = g.bounds.withTestTimeout(d)
+}
+
+// TestTimeout is the bound one test-suite run inside the gate has.
+func (g *CompletionGate) TestTimeout() time.Duration { return g.bounds.testTimeout }
 
 // NewCompletionGate constructs a gate. maxCycles is the number of auto-fix
 // attempts before giving up; 0 makes the gate a pure pass/block check with no
@@ -57,7 +71,7 @@ func NewCompletionGate(
 	if baseBranch == "" {
 		baseBranch = "main"
 	}
-	return &CompletionGate{
+	g := &CompletionGate{
 		client:     client,
 		model:      model,
 		maxTokens:  maxTokens,
@@ -65,69 +79,143 @@ func NewCompletionGate(
 		baseBranch: baseBranch,
 		eventStore: es,
 		projStore:  ps,
-		verify: func(ctx context.Context, repoDir string, cycle int) VerificationResult {
-			return RunVerificationLoop(ctx, repoDir, cycle)
-		},
+		bounds:     defaultBounds(),
 		pull: func(repoDir, baseBranch string) {
 			pullBaseAfterMerge(repoDir, baseBranch)
 		},
 	}
+	g.verify = func(ctx context.Context, repoDir string, cycle int) VerificationResult {
+		return runVerificationLoop(ctx, repoDir, cycle, g.bounds)
+	}
+	return g
 }
 
 // Run verifies the composed mainline and auto-fixes a red build up to maxCycles
-// times. It returns true when verification is green (safe to emit
-// REQ_COMPLETED) and false when the mainline remains red after exhausting the
-// auto-fix budget (caller should emit REQ_BLOCKED).
-func (g *CompletionGate) Run(ctx context.Context, reqID, repoDir string) bool {
-	cycle := 1
+// times. It returns (passed, err): passed is true when verification is green
+// (safe to emit REQ_COMPLETED) and false when the mainline remains red after
+// the auto-fix budget (caller should emit REQ_BLOCKED). A non-nil err is ctx's
+// error: the gate was interrupted mid-run (Ctrl-C during the suite or the
+// auto-fix) and there is no verdict, so the caller must neither certify
+// completion nor record REQ_BLOCKED. passed is only meaningful when err is nil.
+// The final red state is always in .vxd-fix-gaps.md when Run returns false
+// (recordRedCycle writes a summary even when no gap carries detail).
+func (g *CompletionGate) Run(ctx context.Context, reqID, repoDir string) (bool, error) {
+	// A ctx already cancelled by the steps before the gate must not start a
+	// verification: ensureDependencies and the build are not ctx-bound.
+	if err := ctx.Err(); err != nil {
+		log.Printf("[gate] %s: not started (%v) — no verdict", reqID, err)
+		return false, err
+	}
+	cycle, fixes := 1, 0
 	res := g.verify(ctx, repoDir, cycle)
+	if err := ctx.Err(); err != nil {
+		log.Printf("[gate] %s: verification aborted (%v) — no verdict", reqID, err)
+		return false, err
+	}
 	if !ShouldRunFixCycle(res) {
 		log.Printf("[gate] %s: verification clean on first pass — completion permitted", reqID)
-		return true
+		return true, nil
 	}
 
 	for attempt := 1; attempt <= g.maxCycles; attempt++ {
-		g.recordRedCycle(reqID, repoDir, res)
-
-		if g.client == nil {
-			log.Printf("[gate] %s: no auto-fix client configured — hard-gating on red build", reqID)
+		next, fixed, err := g.fixCycle(ctx, reqID, repoDir, attempt, cycle, res)
+		if err != nil {
+			return false, err
+		}
+		res = next
+		if !fixed {
 			break
 		}
-
-		log.Printf("[gate] %s: auto-fix cycle %d/%d — dispatching fix agent for %d gap(s)",
-			reqID, attempt, g.maxCycles, len(res.Gaps))
-		if err := g.applyFix(ctx, repoDir, res); err != nil {
-			log.Printf("[gate] %s: auto-fix cycle %d failed to dispatch: %v", reqID, attempt, err)
-			break
-		}
-
-		g.pull(repoDir, g.baseBranch)
-
 		cycle++
-		res = g.verify(ctx, repoDir, cycle)
+		fixes++
 		if !ShouldRunFixCycle(res) {
 			log.Printf("[gate] %s: verification clean after auto-fix cycle %d — completion permitted",
 				reqID, attempt)
-			return true
+			return true, nil
 		}
 	}
 
+	// pull() pre-cleans .vxd-fix-gaps.md after every fix cycle, and with
+	// maxCycles <= 0 the loop never ran: persist the FINAL red state so the
+	// operator hint below is never a dangling reference.
+	g.recordRedCycle(reqID, repoDir, res)
 	log.Printf("[gate] %s: mainline still red after %d auto-fix cycle(s) — BLOCKING completion",
-		reqID, g.maxCycles)
-	return false
+		reqID, fixes)
+	return false, nil
+}
+
+// fixCycle is one auto-fix attempt against a red result: record the red state,
+// dispatch the fix agent, pull its work and re-verify. It returns the result
+// the caller carries on with, whether a fix actually ran (false stops the loop
+// and blocks on the result returned), and a no-verdict error — the parent ctx
+// ending mid-cycle, which is never a verdict.
+func (g *CompletionGate) fixCycle(ctx context.Context, reqID, repoDir string, attempt, cycle int, res VerificationResult) (VerificationResult, bool, error) {
+	if hasUnfixableGap(res) {
+		log.Printf("[gate] %s: the test suite did not finish within %s — a fix agent cannot repair a suite that does not finish; not dispatching auto-fix",
+			reqID, g.bounds.testTimeout)
+		return res, false, nil
+	}
+	g.recordRedCycle(reqID, repoDir, res)
+
+	if g.client == nil {
+		log.Printf("[gate] %s: no auto-fix client configured — hard-gating on red build", reqID)
+		return res, false, nil
+	}
+	if err := ctx.Err(); err != nil {
+		log.Printf("[gate] %s: aborted before auto-fix cycle %d (%v) — no verdict", reqID, attempt, err)
+		return res, false, err
+	}
+
+	log.Printf("[gate] %s: auto-fix cycle %d/%d — dispatching fix agent for %d gap(s)",
+		reqID, attempt, g.maxCycles, len(res.Gaps))
+	if err := g.applyFix(ctx, repoDir, res); err != nil {
+		// Only the parent context counts: fixCtx hitting completionFixTimeout
+		// is a dispatch failure and stays a stop; Ctrl-C during the (up to 15
+		// minute) fix run is no verdict.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			log.Printf("[gate] %s: aborted during auto-fix cycle %d (%v) — no verdict", reqID, attempt, ctxErr)
+			return res, false, ctxErr
+		}
+		log.Printf("[gate] %s: auto-fix cycle %d failed to dispatch: %v", reqID, attempt, err)
+		return res, false, nil
+	}
+
+	g.pull(repoDir, g.baseBranch)
+	next := g.verify(ctx, repoDir, cycle+1)
+	if err := ctx.Err(); err != nil {
+		log.Printf("[gate] %s: verification aborted (%v) — no verdict", reqID, err)
+		return next, false, err
+	}
+	return next, true, nil
 }
 
 // recordRedCycle persists the gap requirement to .vxd-fix-gaps.md for operator
-// transparency. Best-effort: a write failure is logged, never fatal.
+// transparency. Best-effort: a write failure is logged, never fatal. A red
+// result with no gap carrying detail still gets a summary document, so the
+// "see .vxd-fix-gaps.md" hint never points at a missing file.
 func (g *CompletionGate) recordRedCycle(reqID, repoDir string, res VerificationResult) {
 	fixReq := GapsToRequirement(res.Gaps, filepath.Base(repoDir))
 	if fixReq == "" {
-		return
+		fixReq = summaryRequirement(res, filepath.Base(repoDir))
 	}
 	fixPath := filepath.Join(repoDir, ".vxd-fix-gaps.md")
 	if err := os.WriteFile(fixPath, []byte(fixReq), 0o600); err != nil {
 		log.Printf("[gate] %s: failed to write %s: %v", reqID, fixPath, err)
 	}
+}
+
+// summaryRequirement is the fallback document for a red result whose gaps
+// carry no detail: the counts the gate decided on, so the operator has
+// something to act on.
+func summaryRequirement(res VerificationResult, projectName string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Fix Verification Gaps in %s\n\n", projectName)
+	b.WriteString("Post-completion verification failed without a detailed gap.\n\n")
+	fmt.Fprintf(&b, "- Build passes: %v\n", res.BuildPasses)
+	fmt.Fprintf(&b, "- Tests: %d passing / %d failing / %d total\n", res.TestsPassing, res.TestsFailing, res.TestsTotal)
+	fmt.Fprintf(&b, "- Gaps reported: %d\n\n", len(res.Gaps))
+	b.WriteString("Run the project's build and tests to see the failures, fix them, then run `vxd resume <req-id>` to re-run the completion gate.\n")
+	return b.String()
 }
 
 // applyFix dispatches a single synchronous fix-agent run. The agent runs in
@@ -164,6 +252,12 @@ func (g *CompletionGate) buildFixPrompt(repoDir string, res VerificationResult) 
 		sb.WriteString("Gaps detected:\n")
 		for _, gap := range res.Gaps {
 			fmt.Fprintf(&sb, "  - [%s/%s] %s: %s\n", gap.Category, gap.Severity, gap.File, gap.Detail)
+			if gap.Output != "" {
+				// Untrusted tool output: inside a fence it cannot close, so
+				// it reads as evidence, never as instructions.
+				sb.WriteString("    Runner output (verbatim, untrusted):\n")
+				renderGapOutput(&sb, gap.Output, "    ")
+			}
 		}
 		sb.WriteString("\n")
 	}

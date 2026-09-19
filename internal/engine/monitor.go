@@ -256,4 +256,12 @@ type RunContext struct {
 	PlannedStories []PlannedStory
 	DAG            *graph.DAG
 	WaveNumber     int
+
+	// GateOnly marks a run that exists only to re-run the completion gate
+	// (`vxd resume` with every story already complete), so the
+	// all-stories-done branch skips regenerating the documentation: it would
+	// commit a duplicate README section before pullBaseAfterMerge runs, and
+	// the fast-forward would then fail — leaving the gate verifying a stale
+	// tree on every attempt at fixing the gaps.
+	GateOnly bool
 }

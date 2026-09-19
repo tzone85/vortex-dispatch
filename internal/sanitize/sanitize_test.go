@@ -103,8 +103,8 @@ func TestDetectPromptInjection_ZeroWidthBypass(t *testing.T) {
 	// inside a string literal.
 	const (
 		zwsp = "​" // ZERO WIDTH SPACE
-		zwnj = "‌" // ZERO WIDTH NON-JOINER
-		zwj  = "‍" // ZERO WIDTH JOINER
+		zwnj = "‌"      // ZERO WIDTH NON-JOINER
+		zwj  = "‍"      // ZERO WIDTH JOINER
 		bom  = "\uFEFF" // ZERO WIDTH NO-BREAK SPACE / BOM
 		soft = "­" // SOFT HYPHEN
 		rlo  = "‮" // RIGHT-TO-LEFT OVERRIDE
@@ -190,6 +190,111 @@ func TestScanForSecrets_Negative(t *testing.T) {
 	} {
 		if ScanForSecrets(tc) {
 			t.Errorf("false positive: %q", tc)
+		}
+	}
+}
+
+func TestRedactSecrets(t *testing.T) {
+	in := "ok=1\nkey := \"sk-ant-api03-abcdef1234567890abcdef\"\nAuthorization: Bearer abcdefghijklmnopqrstuvwxyz0123\nAKIAIOSFODNN7EXAMPLE done\n"
+	got := RedactSecrets(in)
+	for _, leaked := range []string{"sk-ant-api03", "abcdefghijklmnopqrstuvwxyz0123", "AKIAIOSFODNN7EXAMPLE"} {
+		if strings.Contains(got, leaked) {
+			t.Errorf("RedactSecrets left %q in %q", leaked, got)
+		}
+	}
+	if strings.Count(got, Redacted) != 3 {
+		t.Errorf("want 3 redactions, got %q", got)
+	}
+	if !strings.HasPrefix(got, "ok=1\n") || !strings.HasSuffix(got, " done\n") {
+		t.Errorf("surrounding text must survive: %q", got)
+	}
+	if ScanForSecrets(got) {
+		t.Errorf("redacted output still scans as a secret: %q", got)
+	}
+	if plain := "os.Getenv(\"ANTHROPIC_API_KEY\")"; RedactSecrets(plain) != plain {
+		t.Errorf("no secret, no change: %q", RedactSecrets(plain))
+	}
+}
+
+func TestRedactSecrets_PrivateKeyBlock_BodyRemoved(t *testing.T) {
+	in := "before\n-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAsecretbody\n-----END RSA PRIVATE KEY-----\nafter\n"
+	got := RedactSecrets(in)
+	if strings.Contains(got, "secretbody") || strings.Contains(got, "END RSA") {
+		t.Fatalf("the key body must go with the header, got %q", got)
+	}
+	if got != "before\n"+Redacted+"\nafter\n" {
+		t.Fatalf("surrounding text must survive, got %q", got)
+	}
+	// An unterminated block (truncated output) is redacted to the end.
+	if got := RedactSecrets("x\n-----BEGIN PRIVATE KEY-----\nbody"); strings.Contains(got, "body") {
+		t.Fatalf("an unterminated block is redacted to the end, got %q", got)
+	}
+}
+
+func TestRedactSecrets_ConnectionStringPassword(t *testing.T) {
+	got := RedactSecrets("could not reach postgres://app:hunter2@db:5432/x (timeout)")
+	if strings.Contains(got, "hunter2") {
+		t.Fatalf("the DSN password must be redacted, got %q", got)
+	}
+	if !strings.Contains(got, Redacted+"db:5432/x") {
+		t.Fatalf("host and path stay, got %q", got)
+	}
+	if plain := "see https://example.com/docs and http://localhost:8080/health"; RedactSecrets(plain) != plain {
+		t.Fatalf("a URL without credentials is untouched, got %q", RedactSecrets(plain))
+	}
+}
+
+func TestRedactSecrets_EnvStylePassword(t *testing.T) {
+	for _, in := range []string{"DB_PASSWORD=hunter2", "export API_KEY=abc123", "GITHUB_TOKEN=ghp_short", "MY_CLIENT_SECRET_V2=xyz"} {
+		got := RedactSecrets(in)
+		for _, leaked := range []string{"hunter2", "abc123", "ghp_short", "xyz"} {
+			if strings.Contains(got, leaked) {
+				t.Fatalf("%q must be redacted, got %q", in, got)
+			}
+		}
+	}
+	if plain := "PASSWORD_MIN_LENGTH is documented"; RedactSecrets(plain) != plain {
+		t.Fatalf("a name without an assignment is untouched, got %q", RedactSecrets(plain))
+	}
+}
+
+// TestRedactSecrets_DoesNotEatAssertions: runner output is test evidence —
+// the want/got lines of a lexer or an auth project survive redaction.
+func TestRedactSecrets_DoesNotEatAssertions(t *testing.T) {
+	for _, plain := range []string{
+		"nextToken = IDENT, want nextToken = NUMBER",
+		"if token == expected",
+		"TOKEN == expected",
+		"lexer_test.go:42: token = IDENT, want NUMBER",
+		"client_secret=xyz is lower-case config, not an env assignment",
+		`{"nextToken": "IDENT", "want": "NUMBER"}`,
+		`{"tokenType":"NUMBER"}`,
+		`{"csrf_token": ""}`,
+	} {
+		if got := RedactSecrets(plain); got != plain {
+			t.Fatalf("assertion output must survive redaction:\n in: %q\ngot: %q", plain, got)
+		}
+	}
+}
+
+// TestRedactSecrets_JSONPassword: the JSON shape keeps its key and loses the value.
+func TestRedactSecrets_JSONPassword(t *testing.T) {
+	for in, want := range map[string]string{
+		`{"password": "hunter2", "user": "bob"}`:                        `{"password": "[REDACTED]", "user": "bob"}`,
+		`{"access_token":"eyJhbGciOiJIUzI1NiJ9.e30","expires_in":3600}`: `{"access_token":"[REDACTED]","expires_in":3600}`,
+		`{"API_KEY": "k-1234567890"}`:                                   `{"API_KEY": "[REDACTED]"}`,
+	} {
+		if got := RedactSecrets(in); got != want {
+			t.Fatalf("RedactSecrets(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if plain := `{"user": "bob", "count": 2}`; RedactSecrets(plain) != plain {
+		t.Fatalf("a JSON object without a secret key is untouched, got %q", RedactSecrets(plain))
+	}
+	// An exact secret key loses a short value too; the fuzzy keys do not.
+	for _, in := range []string{`{"password": "hunter2"}`, `{"client_secret": "abc"}`, `{"password":"x"}`} {
+		if got := RedactSecrets(in); strings.Contains(got, "hunter2") || strings.Contains(got, "abc") || strings.Contains(got, `"x"`) {
+			t.Fatalf("an exact secret key must lose any value: %q -> %q", in, got)
 		}
 	}
 }

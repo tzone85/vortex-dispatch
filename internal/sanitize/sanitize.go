@@ -177,3 +177,51 @@ func ScanForSecrets(content string) bool {
 	}
 	return false
 }
+
+// Redacted replaces every secret RedactSecrets finds.
+const Redacted = "[REDACTED]"
+
+// redactOnlyPatterns are shapes worth redacting from kept output but too
+// broad to refuse content on (ScanForSecrets does not use them): a whole
+// private-key block (the header pattern above would leave the body), the
+// password of a connection string, and an env-style assignment of a secret
+// (an UPPER_CASE name, no spaces around the `=`, no `==`: the output is test
+// evidence, and `nextToken = IDENT, want nextToken = NUMBER` or
+// `if token == expected` must survive it — a lexer's or an auth project's
+// fix agent would otherwise get blanked want/got lines). They run before
+// secretPatterns so the header-only match cannot pre-empt the block match.
+var redactOnlyPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(-----END [A-Z ]*PRIVATE KEY-----|\z)`),
+	regexp.MustCompile(`\b[a-z][a-z0-9+.\-]*://[^\s/:@]+:[^\s/@]+@`),
+	regexp.MustCompile(`\b[A-Z0-9_]*(PASSWORD|SECRET|TOKEN|API_KEY)[A-Z0-9_]*=[^=\s]\S*`),
+}
+
+// The JSON shapes a secret leaks in, in two strengths. An exact secret key
+// ("password", "client_secret", "api_key") loses any non-empty value, however
+// short: {"password": "hunter2"} is a password. A key that merely CONTAINS
+// one of those words is the fuzzy case — a lexer's {"nextToken": "IDENT"} and
+// {"tokenType": "NUMBER"} are ordinary test evidence, and blanking them is
+// what the env-style pattern above was narrowed to avoid — so it only fires
+// on a value that looks like a secret: 8 characters or more, no whitespace.
+var (
+	jsonExactSecretPattern = regexp.MustCompile(`(?i)("(?:password|passwd|pwd|secret|client_secret|api_key|apikey|access_key)"\s*:\s*)"[^"]+"`)
+	jsonFuzzySecretPattern = regexp.MustCompile(`(?i)("[a-z0-9_.-]*(?:password|secret|token|api_key)[a-z0-9_.-]*"\s*:\s*)"[^"\s]{8,}"`)
+)
+
+// RedactSecrets replaces every match of the secret patterns ScanForSecrets
+// uses, of redactOnlyPatterns and of the JSON patterns, with Redacted, for
+// output that is kept or shown rather than refused (test-runner and compiler
+// output in a verification gap, say). It is a best-effort shape match, not a
+// guarantee: a secret in an unknown shape passes through.
+func RedactSecrets(content string) string {
+	for _, re := range []*regexp.Regexp{jsonExactSecretPattern, jsonFuzzySecretPattern} {
+		content = re.ReplaceAllString(content, `${1}"`+Redacted+`"`)
+	}
+	for _, re := range redactOnlyPatterns {
+		content = re.ReplaceAllLiteralString(content, Redacted)
+	}
+	for _, re := range secretPatterns {
+		content = re.ReplaceAllLiteralString(content, Redacted)
+	}
+	return content
+}

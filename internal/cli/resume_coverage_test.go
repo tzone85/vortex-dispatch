@@ -56,6 +56,13 @@ func TestRunResume_SplitAndPRSubmittedCountAsComplete(t *testing.T) {
 	s.Events.Append(splitEvt)
 	s.Proj.Project(splitEvt)
 
+	// The requirement already has its verdict: with every story merged there
+	// is nothing left for resume to do. (An unsettled one — interrupted or
+	// blocked gate — would re-run the completion gate instead, #138.)
+	doneEvt := state.NewEvent(state.EventReqCompleted, "monitor", "", map[string]any{"id": "REQ-COMPL1"})
+	s.Events.Append(doneEvt)
+	s.Proj.Project(doneEvt)
+
 	s.Close()
 
 	orig, _ := os.Getwd()
@@ -171,6 +178,13 @@ func TestRunResume_AllStoriesMergedOrSplit(t *testing.T) {
 	splitEvt := state.NewEvent(state.EventStorySplit, "", "STR-W3", nil)
 	s.Events.Append(splitEvt)
 	s.Proj.Project(splitEvt)
+
+	// The requirement already has its verdict: with every story merged there
+	// is nothing left for resume to do. (An unsettled one — interrupted or
+	// blocked gate — would re-run the completion gate instead, #138.)
+	doneEvt := state.NewEvent(state.EventReqCompleted, "monitor", "", map[string]any{"id": "REQ-WAVE1"})
+	s.Events.Append(doneEvt)
+	s.Proj.Project(doneEvt)
 
 	s.Close()
 

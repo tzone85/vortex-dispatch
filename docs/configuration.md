@@ -192,6 +192,27 @@ merge:
 
 **Tuning tip:** Set `auto_merge: false` when getting started so you can manually review the first few PRs. Once you trust the pipeline, enable it.
 
+### qa (completion gate)
+
+Once every story of a requirement is complete (merged, PR submitted, awaiting approval or split), the completion gate verifies the composed mainline before `REQ_COMPLETED` is emitted — architecture.md, step 10, has the verify / auto-fix / `REQ_BLOCKED` flow. `vxd resume <req>` re-runs the gate after an interruption or after fixing a blocked requirement (a blocked requirement is unblocked first with `REQ_RESUMED`, so `vxd status` shows it as `planned` while the gate re-runs). It exits 1 when the requirement is blocked, when the gate reached no verdict — including a signal that interrupts the gate once every story is complete — and when stories remain unfinished with nothing left running (escalated, failed, or waiting on a dependency; see `vxd status`). Detaching from agents that are still running stays exit 0. A gate-only re-run does not regenerate the project documentation; that happened on the pass that completed the stories. With `auto_merge: false` an open PR counts as complete, so the mainline verified is the one without it.
+
+```yaml
+qa:
+  disable_completion_gate: false   # true = legacy advisory verification; the requirement always completes
+  completion_fix_cycles: 2         # auto-fix agent runs on a red mainline before REQ_BLOCKED
+  completion_test_timeout_s: 1200  # one test-suite run inside the gate; 0 = the 20-minute default
+```
+
+| Key | Default | Notes |
+|-----|---------|-------|
+| `disable_completion_gate` | `false` | `true` turns the gate off: verification still runs and writes `.vxd-fix-gaps.md`, but the requirement completes regardless |
+| `completion_fix_cycles` | `2` (when `0`) | Fix-agent runs before blocking; a negative value verifies once and blocks on red with no auto-fix |
+| `completion_test_timeout_s` | `1200` (when `0` or negative) | Bound on one test-suite run inside the gate, in seconds |
+
+A suite that does not finish within `completion_test_timeout_s` is recorded as a critical gap and blocks the requirement **without** dispatching a fix agent (an agent cannot repair a suite that does not finish): make the suite finish, or raise the bound, then `vxd resume <req>` re-runs the gate.
+
+`.vxd-fix-gaps.md` and the fix agent's prompt carry the runner's and compiler's output (truncated; API keys, tokens, private-key blocks, connection-string passwords and env-style secret assignments in known shapes are redacted). The file is added to `.gitignore` automatically — treat it as a local artefact.
+
 ### runtimes
 
 Defines the AI CLI tools VXD can use to run agents.

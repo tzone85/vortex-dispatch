@@ -133,7 +133,7 @@ Events are grouped by lifecycle:
 
 | Group | Events |
 |-------|--------|
-| Request | `REQ_SUBMITTED`, `REQ_ANALYZED`, `REQ_PLANNED`, `REQ_PAUSED`, `REQ_RESUMED`, `REQ_COMPLETED`, `REQ_ESTIMATED` |
+| Request | `REQ_SUBMITTED`, `REQ_ANALYZED`, `REQ_PLANNED`, `REQ_PAUSED`, `REQ_RESUMED`, `REQ_COMPLETED`, `REQ_BLOCKED`, `REQ_ESTIMATED` |
 | Story | `STORY_CREATED`, `STORY_ESTIMATED`, `STORY_ASSIGNED`, `STORY_STARTED`, `STORY_PROGRESS`, `STORY_COMPLETED`, `STORY_REVIEW_REQUESTED`, `STORY_REVIEW_PASSED`, `STORY_REVIEW_FAILED`, `STORY_QA_STARTED`, `STORY_QA_PASSED`, `STORY_QA_FAILED`, `STORY_PR_CREATED`, `STORY_MERGED`, `STORY_ESCALATED`, `STORY_REWRITTEN`, `STORY_SPLIT`, `STORY_RESET` |
 | Agent | `AGENT_SPAWNED`, `AGENT_CHECKPOINT`, `AGENT_RESUMED`, `AGENT_STUCK`, `AGENT_TERMINATED` |
 | Supervisor | `SUPERVISOR_CHECK`, `SUPERVISOR_DRIFT_DETECTED` (defined but not emitted: the Supervisor is not wired in) |
@@ -344,7 +344,26 @@ Each engine component depends on interfaces, not concrete implementations. This 
    ├─ Integration build, budget check (no cleanup events emitted)
    │
    ▼
-9. Monitor.dispatchNextWave() → back to step 3 (if stories remain)
+9. Monitor.dispatchNextWave() → back to step 3 while stories remain
+   │
+   ▼
+10. Completion gate (from the same dispatchNextWave call, once every story
+    is complete — merged, PR submitted, awaiting approval or split;
+    engine/completion_gate.go)
+   │
+   ├─ Pulls the base branch, then verifies the composed mainline: build +
+   │  test suite. The suite runs in its own process group, bounded by
+   │  qa.completion_test_timeout_s (20 min by default). In a repo with both
+   │  go.mod and package.json the Go suite is run.
+   ├─ Red → up to qa.completion_fix_cycles auto-fix agent runs, re-verifying
+   │  after each. Still red → REQ_BLOCKED; the final red state is in
+   │  .vxd-fix-gaps.md in the project directory.
+   ├─ Green → REQ_COMPLETED.
+   ├─ Interrupted (Ctrl-C, SIGTERM, SIGHUP) → no verdict, no event: the
+   │  requirement stays in progress. `vxd resume <req>` re-runs the gate
+   │  (every story complete, no agents to track → straight to the gate); the
+   │  same after fixing the gaps of a blocked requirement, which resume
+   │  unblocks first (REQ_RESUMED).
 
 Reaper.GarbageCollect() runs only from `vxd gc` (BRANCH_DELETED, GC_COMPLETED).
 ```

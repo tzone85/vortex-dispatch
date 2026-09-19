@@ -41,8 +41,9 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 	if allDone {
 		log.Printf("[auto-resume] all %d stories complete for requirement %s", len(stories), rc.ReqID)
 
-		// Generate/update README documentation as the final step.
-		if m.docClient != nil {
+		// Generate/update README documentation as the final step. Not on a
+		// gate-only re-run: that pass already happened (RunContext.GateOnly).
+		if m.docClient != nil && !rc.GateOnly {
 			storyTitles := make([]string, len(stories))
 			for i, s := range stories {
 				storyTitles[i] = fmt.Sprintf("- %s", s.Title)
@@ -80,35 +81,21 @@ func (m *Monitor) dispatchNextWave(ctx context.Context, rc *RunContext, repoDir 
 		// compile. Falls back to the legacy advisory verification when no gate
 		// is wired (e.g. dry-run or no LLM client).
 		if m.completionGate != nil {
-			if m.completionGate.Run(ctx, rc.ReqID, repoDir) {
-				m.emitRequirementOutcome(rc.ReqID, state.EventReqCompleted, "REQ_COMPLETED")
-			} else {
-				log.Printf("[gate] %s: completion blocked — see .vxd-fix-gaps.md; run 'vxd resume %s --godmode' after addressing the gaps", rc.ReqID, rc.ReqID)
-				m.emitRequirementOutcome(rc.ReqID, state.EventReqBlocked, "REQ_BLOCKED")
-			}
+			passed, gateErr := m.completionGate.Run(ctx, rc.ReqID, repoDir)
+			m.recordGateOutcome(rc.ReqID, repoDir, passed, gateErr)
 			return nil
 		}
 
 		// Legacy advisory verification (no gate wired): check build/tests and
-		// write a fix-gaps file, but complete the requirement regardless.
-		verifyResult := RunVerificationLoop(ctx, repoDir, 1)
-		if ShouldRunFixCycle(verifyResult) {
-			log.Printf("[verify] cycle 1 found %d gaps — generating fix requirement", len(verifyResult.Gaps))
-			fixReq := GapsToRequirement(verifyResult.Gaps, filepath.Base(repoDir))
-			if fixReq != "" {
-				fixPath := filepath.Join(repoDir, ".vxd-fix-gaps.md")
-				if err := os.WriteFile(fixPath, []byte(fixReq), 0o600); err != nil {
-					log.Printf("[verify] failed to write fix requirement to %s: %v", fixPath, err)
-				} else {
-					log.Printf("[verify] fix requirement written to %s", fixPath)
-					log.Printf("[verify] run 'vxd req --file .vxd-fix-gaps.md --godmode' to auto-fix gaps")
-				}
-			}
-		} else {
-			log.Printf("[verify] cycle 1 clean — no critical gaps found")
+		// write a fix-gaps file, but complete the requirement regardless. A ctx
+		// already cancelled by the steps above must not start a verification
+		// (ensureDependencies and the build are not ctx-bound).
+		if err := ctx.Err(); err != nil {
+			log.Printf("[verify] %s: not started (%v) — no completion verdict recorded", rc.ReqID, err)
+			return nil
 		}
-
-		m.emitRequirementOutcome(rc.ReqID, state.EventReqCompleted, "REQ_COMPLETED")
+		res := RunVerificationLoop(ctx, repoDir, 1)
+		m.recordAdvisoryOutcome(rc.ReqID, repoDir, res, ctx.Err())
 		return nil
 	}
 
@@ -297,7 +284,8 @@ func (m *Monitor) emitRequirementOutcome(reqID string, evtType state.EventType, 
 		body := fmt.Sprintf("Requirement %s completed — all stories merged and the composed mainline verified green.", reqID)
 		if evtType == state.EventReqBlocked {
 			severity = "error"
-			body = fmt.Sprintf("Requirement %s is blocked — the composed mainline stayed red after the auto-fix budget.\nSee .vxd-fix-gaps.md, then run: vxd resume %s --godmode", reqID, reqID)
+			// Same instruction as the [gate] log line.
+			body = fmt.Sprintf("Requirement %s is blocked — the composed mainline stayed red after the auto-fix budget.\nSee .vxd-fix-gaps.md in the project directory; fix the gaps, commit and push them, then run: vxd resume %s (re-runs the gate)", reqID, reqID)
 		}
 		nctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -310,6 +298,50 @@ func (m *Monitor) emitRequirementOutcome(reqID string, evtType state.EventType, 
 			log.Printf("[pipeline] notify %s for %s: %v", label, reqID, err)
 		}
 	}
+}
+
+// recordGateOutcome maps a completion-gate result to the terminal event, or
+// to nothing when the run was interrupted: no verdict means no state change,
+// so a Ctrl-C mid-suite never becomes REQ_BLOCKED (nor REQ_COMPLETED). The
+// requirement stays in progress, and `vxd resume <req>` re-runs the gate
+// once every story is complete (the monitor's no-agents path).
+func (m *Monitor) recordGateOutcome(reqID, repoDir string, passed bool, gateErr error) {
+	switch {
+	case gateErr != nil:
+		log.Printf("[gate] %s: verification interrupted (%v) — no completion verdict recorded; requirement stays in progress. "+
+			"Run `vxd resume %s` to re-run the gate (project: %s).", reqID, gateErr, reqID, repoDir)
+	case passed:
+		m.emitRequirementOutcome(reqID, state.EventReqCompleted, "REQ_COMPLETED")
+	default:
+		log.Printf("[gate] %s: completion blocked — see .vxd-fix-gaps.md in %s; fix the gaps, commit and push them, then `vxd resume %s` re-runs the gate", reqID, repoDir, reqID)
+		m.emitRequirementOutcome(reqID, state.EventReqBlocked, "REQ_BLOCKED")
+	}
+}
+
+// recordAdvisoryOutcome is the legacy path (no gate wired): a red result is
+// written to .vxd-fix-gaps.md for the operator, but the requirement completes
+// regardless. An interrupted run is no verdict: the "aborted" gap must not
+// become a fix requirement and REQ_COMPLETED must not be emitted.
+func (m *Monitor) recordAdvisoryOutcome(reqID, repoDir string, res VerificationResult, runErr error) {
+	if runErr != nil {
+		log.Printf("[verify] %s: verification interrupted (%v) — no completion verdict recorded", reqID, runErr)
+		return
+	}
+	if ShouldRunFixCycle(res) {
+		log.Printf("[verify] cycle 1 found %d gaps — generating fix requirement", len(res.Gaps))
+		if fixReq := GapsToRequirement(res.Gaps, filepath.Base(repoDir)); fixReq != "" {
+			fixPath := filepath.Join(repoDir, ".vxd-fix-gaps.md")
+			if err := os.WriteFile(fixPath, []byte(fixReq), 0o600); err != nil {
+				log.Printf("[verify] failed to write fix requirement to %s: %v", fixPath, err)
+			} else {
+				log.Printf("[verify] fix requirement written to %s", fixPath)
+				log.Printf("[verify] run 'vxd req --file .vxd-fix-gaps.md --godmode' to auto-fix gaps")
+			}
+		}
+	} else {
+		log.Printf("[verify] cycle 1 clean — no critical gaps found")
+	}
+	m.emitRequirementOutcome(reqID, state.EventReqCompleted, "REQ_COMPLETED")
 }
 
 // simulateDryRunChanges writes a placeholder file and commits it so the

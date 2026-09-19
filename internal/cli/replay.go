@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -25,8 +26,12 @@ event log (events.jsonl). Use this when the projection database is lost,
 corrupt, or suspected of diverging from the event history.
 
 The existing database is moved aside to vxd.db.bak-<timestamp> (with its
-WAL/SHM sidecars) before a fresh one is created, so a replay can be undone
-by restoring the backup.
+WAL/SHM sidecars) before a fresh one is created, so a replay can be undone:
+delete vxd.db and any vxd.db-wal / vxd.db-shm beside it, then move the
+backup and its sidecars back to those names. A rebuild that fails removes
+vxd.db and its -wal/-shm and the error names the backup to move back. The
+projection is disposable: events.jsonl is the source of truth, and any
+command re-creates an empty vxd.db when none exists.
 
 Use --dry-run to validate the event log (decode every line, reporting
 corrupt lines with line numbers) without touching SQLite.
@@ -97,18 +102,15 @@ func runReplay(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("back up projection db: %w", err)
 	}
 
-	ps, err := state.NewSQLiteStore(dbPath)
+	// The previous database is now at bakPath; every failure below goes
+	// through failedRebuildErr.
+	ps, err := openProjection(dbPath)
 	if err != nil {
-		return fmt.Errorf("create fresh projection store: %w", err)
+		return failedRebuildErr(fmt.Errorf("create fresh projection store: %w", err), dbPath, bakPath)
 	}
-	defer ps.Close()
-
-	applied := 0
-	for _, evt := range events {
-		if err := ps.Project(evt); err != nil {
-			return fmt.Errorf("project event %s (%s) at index %d: %w", evt.ID, evt.Type, applied, err)
-		}
-		applied++
+	applied, err := rebuildAndClose(ps, events)
+	if err != nil {
+		return failedRebuildErr(err, dbPath, bakPath)
 	}
 
 	duration := time.Since(start).Round(time.Millisecond)
@@ -119,6 +121,127 @@ func runReplay(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(out, "Previous database backed up: %s\n", bakPath)
 	}
 	return nil
+}
+
+// failedRebuildErr is the one exit for a failure after the previous database
+// was moved aside. Whatever is at dbPath is removed: left there, a re-run
+// would move it aside as the newest "previous database" — within the same
+// second, over the real one — and its stale -wal would be replayed into a
+// restored database. That includes a rebuild that applied every event and
+// failed only to close, whose checkpoint may never have run.
+func failedRebuildErr(cause error, dbPath, bakPath string) error {
+	hint := restoreHint(dbPath, bakPath)
+	if derr := discardFailedRebuild(dbPath); derr != nil {
+		// errors.Join separates with newlines; the parenthetical is one line.
+		return fmt.Errorf("%w (anything at %s is an untrusted partial rebuild: delete it and its -wal/-shm sidecars first; %s; cleanup failed: %s)",
+			cause, dbPath, hint, strings.ReplaceAll(derr.Error(), "\n", "; "))
+	}
+	return fmt.Errorf("%w (no partial rebuild left at %s; %s)", cause, dbPath, hint)
+}
+
+// latestBackup is the newest vxd.db.bak-<ts> beside dbPath, or "". A -wal or
+// -shm belonging to that backup is not a database, and sorts after it; naming
+// one would have an operator move a WAL file onto vxd.db. The timestamp is
+// fixed-width UTC, so what is left sorts lexically. Reading the directory
+// rather than globbing the path: a project directory containing [, * or ?
+// would make the pattern match nothing.
+func latestBackup(dbPath string) string {
+	dir, prefix := filepath.Dir(dbPath), filepath.Base(dbPath)+".bak-"
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	newest := ""
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasPrefix(name, prefix) || strings.HasSuffix(name, "-wal") || strings.HasSuffix(name, "-shm") {
+			continue
+		}
+		if name > newest {
+			newest = name
+		}
+	}
+	if newest == "" {
+		return ""
+	}
+	return filepath.Join(dir, newest)
+}
+
+// discardFailedRebuild removes whatever is at dbPath and its -wal/-shm
+// sidecars (why: failedRebuildErr) — including an orphaned -wal that
+// backupProjectionDB left, since a -wal without its database is unreadable. A
+// missing file is fine.
+func discardFailedRebuild(dbPath string) error {
+	var errs []error
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if err := os.Remove(dbPath + suffix); err != nil && !errors.Is(err, os.ErrNotExist) {
+			errs = append(errs, err) // a *PathError already reads "remove <path>: <reason>"
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// restoreHint is what both failure paths end with: what is on disk to restore
+// from, and what to do with it. A run that moved nothing aside can only
+// report the newest backup it finds — it may be what an earlier failed run
+// set aside, or a successful replay's from last month, and nothing here can
+// tell them apart.
+func restoreHint(dbPath, bakPath string) string {
+	if bakPath != "" {
+		return fmt.Sprintf("the previous database is at %s: move it and any -wal/-shm beside it back to restore, or re-run vxd replay", bakPath)
+	}
+	if newest := latestBackup(dbPath); newest != "" {
+		return fmt.Sprintf("this run moved nothing aside; the newest backup on disk is %s (check its timestamp before restoring it), or re-run vxd replay", newest)
+	}
+	return "re-run vxd replay"
+}
+
+// projectionSink is the slice of *state.SQLiteStore a rebuild needs. It is
+// narrower than state.ProjectionStore on purpose: the rebuild only projects
+// and closes, and a fake for the wider interface would carry dead methods.
+type projectionSink interface {
+	Project(state.Event) error
+	Close() error
+}
+
+// openProjection opens the fresh projection store; tests swap it (like
+// startBrowser in review_cmd.go) to drive runReplay's failure paths, which
+// a real store cannot reach cheaply. On error the interface is nil, not a
+// typed nil *SQLiteStore.
+var openProjection = func(dbPath string) (projectionSink, error) {
+	ps, err := state.NewSQLiteStore(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	return ps, nil
+}
+
+// rebuildAndClose applies events in order and closes ps exactly once, so
+// "Projection rebuilt" is never printed before the close has succeeded (the
+// named-return idiom of engine.CreateBackup). A close failure is a failed
+// recovery command even though each Project has already committed; a
+// projection error explains the failure better, so it wins and the close
+// error rides along.
+func rebuildAndClose(ps projectionSink, events []state.Event) (applied int, retErr error) {
+	defer func() {
+		cerr := ps.Close()
+		switch {
+		case cerr == nil:
+		case retErr == nil:
+			retErr = fmt.Errorf("close rebuilt projection db: %w", cerr)
+		default:
+			// The projection error explains the failure; the close error is
+			// still evidence about the file that is about to be removed.
+			retErr = fmt.Errorf("%w (close also failed: %v)", retErr, cerr)
+		}
+	}()
+	for _, evt := range events {
+		if err := ps.Project(evt); err != nil {
+			return applied, fmt.Errorf("project event %s (%s) at index %d: %w", evt.ID, evt.Type, applied, err)
+		}
+		applied++
+	}
+	return applied, nil
 }
 
 // replayBadLine records a corrupt events.jsonl row with its 1-based line

@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -25,8 +26,12 @@ event log (events.jsonl). Use this when the projection database is lost,
 corrupt, or suspected of diverging from the event history.
 
 The existing database is moved aside to vxd.db.bak-<timestamp> (with its
-WAL/SHM sidecars) before a fresh one is created, so a replay can be undone
-by restoring the backup.
+WAL/SHM sidecars) before a fresh one is created. A rebuild that fails removes
+what it created at vxd.db and the error names the backup to move back.
+
+The projection is disposable: events.jsonl is the source of truth. To undo a
+replay by hand, see "Recovering from a failed replay":
+https://github.com/tzone85/vortex-dispatch#recovering-from-a-failed-replay
 
 Use --dry-run to validate the event log (decode every line, reporting
 corrupt lines with line numbers) without touching SQLite.
@@ -97,13 +102,15 @@ func runReplay(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("back up projection db: %w", err)
 	}
 
+	// The previous database is now at bakPath; every failure below goes
+	// through failedRebuildErr.
 	ps, err := openProjection(dbPath)
 	if err != nil {
-		return fmt.Errorf("create fresh projection store: %w", err)
+		return failedRebuildErr(fmt.Errorf("create fresh projection store: %w", err), dbPath, bakPath)
 	}
 	applied, err := rebuildAndClose(ps, events)
 	if err != nil {
-		return err
+		return failedRebuildErr(err, dbPath, bakPath)
 	}
 
 	duration := time.Since(start).Round(time.Millisecond)
@@ -114,6 +121,93 @@ func runReplay(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(out, "Previous database backed up: %s\n", bakPath)
 	}
 	return nil
+}
+
+// failedRebuildErr is the one exit for a failure after the previous database
+// was moved aside. Whatever is at dbPath is removed: left there, a re-run
+// would move it aside as the newest "previous database", and its stale -wal
+// would be replayed into a restored database. That includes a rebuild that
+// applied every event and failed only to close, whose checkpoint may never
+// have run.
+func failedRebuildErr(cause error, dbPath, bakPath string) error {
+	hint := restoreHint(dbPath, bakPath)
+	if derr := discardFailedRebuild(dbPath); derr != nil {
+		// errors.Join separates with newlines; the whole message is one line.
+		return fmt.Errorf("%w; anything at %s is an untrusted partial rebuild: delete it and its -wal/-shm sidecars first; %s; cleanup failed: %s",
+			cause, dbPath, hint, strings.ReplaceAll(derr.Error(), "\n", "; "))
+	}
+	return fmt.Errorf("%w; no partial rebuild left at %s; %s", cause, dbPath, hint)
+}
+
+// backupsBeside lists the backups beside dbPath, newest first. Only a name
+// this command wrote counts, which is what parsing the stamp decides: a -wal
+// or -shm sidecar is not a database and sorts after the one it belongs to
+// (naming it would have an operator move a WAL file onto vxd.db), a
+// hand-named vxd.db.bak-keep sorts after every digit and would otherwise win,
+// and a directory is not a file to move back. Reading the directory rather
+// than globbing the path: a project directory containing [, * or ? would make
+// the pattern match nothing.
+func backupsBeside(dbPath string) ([]string, error) {
+	dir, prefix := filepath.Dir(dbPath), filepath.Base(dbPath)+".bak-"
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		if _, perr := time.Parse(backupStampLayout, strings.TrimPrefix(name, prefix)); perr != nil {
+			continue
+		}
+		names = append(names, filepath.Join(dir, name))
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(names)))
+	return names, nil
+}
+
+// discardFailedRebuild removes whatever is at dbPath and its -wal/-shm
+// sidecars (why: failedRebuildErr) — including an orphaned -wal that
+// backupProjectionDB left, since a -wal without its database is unreadable. A
+// missing file is fine.
+func discardFailedRebuild(dbPath string) error {
+	var errs []error
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if err := os.Remove(dbPath + suffix); err != nil && !errors.Is(err, os.ErrNotExist) {
+			errs = append(errs, err) // a *PathError already reads "remove <path>: <reason>"
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// restoreHint is what both failure paths end with: what is on disk to restore
+// from, and what to do with it. It reports; it does not decide. A run that
+// moved something aside names it, and a run that did not can only report the
+// newest backup it finds — either may be an earlier failure's, or a
+// successful replay's from last month, and nothing on disk tells them apart.
+// Where that ambiguity is real, the sentence says so rather than picking:
+// "any command re-creates an empty vxd.db", so after one failed replay the
+// newest backup can be that empty file and an older one the database.
+func restoreHint(dbPath, bakPath string) string {
+	if bakPath != "" {
+		hint := fmt.Sprintf("the previous database is at %s: move it and any -wal/-shm beside it back to restore, or re-run vxd replay", bakPath)
+		// A directory this run cannot list is not worth a second clause: the
+		// backup it took is already named above, which is the answer.
+		if baks, err := backupsBeside(dbPath); err == nil && len(baks) > 1 {
+			hint += fmt.Sprintf("; %d backups are on disk, so if a replay already failed here, %s may be a database re-created since: compare their UTC timestamps first", len(baks), filepath.Base(bakPath))
+		}
+		return hint
+	}
+	baks, err := backupsBeside(dbPath)
+	if err != nil {
+		return fmt.Sprintf("this run moved nothing aside and the backups beside %s could not be listed (%v): look in that directory by hand, or re-run vxd replay", dbPath, err)
+	}
+	if len(baks) > 0 {
+		return fmt.Sprintf("this run moved nothing aside; the newest backup on disk is %s (check its UTC timestamp before restoring it), or re-run vxd replay", baks[0])
+	}
+	return "re-run vxd replay"
 }
 
 // projectionSink is the slice of *state.SQLiteStore a rebuild needs. It is
@@ -212,6 +306,15 @@ func readEventsFile(path string) ([]state.Event, []replayBadLine, error) {
 	return events, badLines, nil
 }
 
+// backupStampLayout is the fixed-width UTC stamp in vxd.db.bak-<ts>. Because
+// it is fixed-width, those names sort lexically by age.
+const backupStampLayout = "20060102-150405"
+
+// backupNow stamps a backup's name. It is a package seam so a test can make
+// two runs in the same second produce distinct backups — or collide on
+// purpose — without sleeping.
+var backupNow = func() time.Time { return time.Now().UTC() }
+
 // backupProjectionDB moves the existing SQLite database (plus its WAL/SHM
 // sidecars, kept together so the backup trio stays consistent) aside to
 // *.bak-<timestamp>. Returns the main backup path, or "" when no database
@@ -224,13 +327,34 @@ func backupProjectionDB(dbPath string) (string, error) {
 		return "", fmt.Errorf("stat %s: %w", dbPath, err)
 	}
 
-	mainBak := dbPath + ".bak-" + time.Now().UTC().Format("20060102-150405")
+	mainBak := dbPath + ".bak-" + backupNow().Format(backupStampLayout)
+	// The stamp is one-second resolution, so a second replay inside the same
+	// second would rename over the first one's backup — os.Rename replaces
+	// silently, and the backup is the only copy. The project lock keeps
+	// pipelines out; this keeps a fast finger out.
+	// Each of the trio is checked, not only the main file: a stray
+	// vxd.db.bak-<ts>-wal (a hand-restore that moved only the database, or a
+	// half-move from the branch below) would be renamed over in silence. A
+	// DIRECTORY at one of those names is not a backup this command wrote —
+	// backupsBeside ignores directories for the same reason — and rename
+	// fails on it with an error that names it.
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if fi, err := os.Lstat(mainBak + suffix); err == nil && !fi.IsDir() {
+			return "", fmt.Errorf("a backup from this second already exists at %s: wait a second and re-run vxd replay", mainBak+suffix)
+		}
+	}
 	for _, suffix := range []string{"", "-wal", "-shm"} {
 		src := dbPath + suffix
 		if _, err := os.Stat(src); err != nil {
 			continue // sidecar may not exist
 		}
 		if err := os.Rename(src, mainBak+suffix); err != nil {
+			if suffix != "" {
+				// The database itself has already moved. Saying only that a
+				// sidecar failed would leave the operator with no vxd.db and
+				// nothing naming where it went.
+				return "", fmt.Errorf("move %s aside (the database is already at %s: move it back before retrying): %w", src, mainBak, err)
+			}
 			return "", fmt.Errorf("move %s aside: %w", src, err)
 		}
 	}

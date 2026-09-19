@@ -36,9 +36,15 @@ func newResumeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "resume [req-id]",
 		Short: "Resume a paused requirement pipeline",
-		Long:  "Loads existing state for a requirement, dispatches the next wave of ready stories, spawns agents in tmux sessions, and monitors progress through review, QA, and merge.\n\nIf req-id is omitted and only one active (non-archived, non-completed) requirement exists, it is selected automatically.",
-		Args:  cobra.MaximumNArgs(1),
-		RunE:  runResume,
+		Long: `Loads existing state for a requirement, dispatches the next wave of ready stories, spawns agents in tmux sessions, and monitors progress through review, QA, and merge.
+
+With every story merged or split and no verdict — or a blocked one whose gaps have been fixed — resume skips dispatch and re-runs the completion gate; a blocked requirement is unblocked (REQ_RESUMED) first. With a story still awaiting its pull request the mainline does not carry its work, so the gate does not run: resume says so and still exits 1 if the requirement is blocked or has no verdict.
+
+Exit status: 1 when the requirement is blocked (see .vxd-fix-gaps.md), when the completion gate reached no verdict — including a run that a signal interrupted once every story was complete — and when stories remain unfinished with nothing left running (escalated, failed, or waiting on a dependency — see vxd status), so "vxd resume <req> && <next step>" never proceeds on a mainline the gate did not pass. 0 when the requirement completed, and 0 when the run detached from agents that are still working (they keep running in tmux; resume picks them up again).
+
+If req-id is omitted and only one active (non-archived, non-completed) requirement exists, it is selected automatically.`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: runResume,
 	}
 	cmd.Flags().Bool("godmode", false, "skip per-tool permission prompts during agent execution (does NOT bypass review_mode plan gate or auto_merge PR gate — use review_mode=auto and auto_merge=true for fully unattended operation)")
 	cmd.Flags().Bool("review", false, "Force manual review mode for this run")
@@ -46,6 +52,9 @@ func newResumeCmd() *cobra.Command {
 	cmd.Flags().Bool("force", false, "Force override of lock file if another instance appears stuck")
 	cmd.Flags().Bool("dry-run", false, "Simulate LLM responses for pipeline testing (no API calls)")
 	cmd.SilenceUsage = true
+	// main prints the error; without this cobra prints it too, and a blocked
+	// gate is now an ordinary way for this command to end.
+	cmd.SilenceErrors = true
 	return cmd
 }
 
@@ -62,6 +71,18 @@ func runResume(cmd *cobra.Command, args []string) error {
 
 	out := cmd.OutOrStdout()
 
+	// Detect repo path (the gate-only decision below names it).
+	repoDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get working directory: %w", err)
+	}
+
+	// Read here, not where the LLM client is built: the gate-only decision
+	// below needs it, because without a real gate there is nothing to re-run
+	// and the advisory fallback would certify the requirement regardless of
+	// what the verification found.
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+
 	// Auto-select the requirement if only one active exists.
 	var reqID string
 	if len(args) > 0 {
@@ -73,7 +94,9 @@ func runResume(cmd *cobra.Command, args []string) error {
 		}
 		var active []state.Requirement
 		for _, r := range reqs {
-			if r.Status != "completed" && r.Status != "archived" {
+			// The same rule the gate-only decision uses, so auto-select and
+			// prepareGateOnly cannot disagree about what "settled" means.
+			if !requirementSettled(r.Status) {
 				active = append(active, r)
 			}
 		}
@@ -154,14 +177,8 @@ func runResume(cmd *cobra.Command, args []string) error {
 
 	// If paused, emit REQ_RESUMED event to transition back to planned
 	if req.Status == "paused" {
-		resumeEvt := state.NewEvent(state.EventReqResumed, "", "", map[string]any{
-			"id": reqID,
-		})
-		if err := s.Events.Append(resumeEvt); err != nil {
-			return fmt.Errorf("append resume event: %w", err)
-		}
-		if err := s.Proj.Project(resumeEvt); err != nil {
-			return fmt.Errorf("project resume event: %w", err)
+		if err := emitReqResumed(s, reqID); err != nil {
+			return err
 		}
 		fmt.Fprintf(out, "Unpaused requirement: %s\n", req.Title)
 	}
@@ -197,9 +214,20 @@ func runResume(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Fprintf(out, "Stories: %d total, %d completed\n", len(stories), len(completed))
 
-	if len(completed) == len(stories) {
-		fmt.Fprintf(out, "All stories are complete.\n")
-		return nil
+	// One rule for "a real completion gate runs in this process", read here
+	// and again where the gate is built: if the two expressions drifted, a
+	// run could take the gate-only path with no gate to run.
+	gateWired := !dryRun && !s.Config.QA.DisableCompletionGate
+	gateOnly, done, err := prepareGateOnly(out, s, gateOnlyInput{
+		reqID:            reqID,
+		repoDir:          repoDir,
+		allComplete:      len(completed) == len(stories),
+		mainlineComposed: gateOnlyReady(stories),
+		gateWired:        gateWired,
+		dryRun:           dryRun,
+	})
+	if done || err != nil {
+		return err
 	}
 
 	// Recover orphaned in-progress stories whose agent sessions have ended
@@ -250,12 +278,6 @@ func runResume(cmd *cobra.Command, args []string) error {
 	reg, err := runtime.NewRegistry(s.Config.Runtimes)
 	if err != nil {
 		return fmt.Errorf("init runtime registry: %w", err)
-	}
-
-	// Detect repo path
-	repoDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("get working directory: %w", err)
 	}
 
 	// Verify the repo has at least one commit (worktrees require a base commit)
@@ -320,7 +342,7 @@ func runResume(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(out, "  [ORPHAN] %s (branch: %s)\n", oa.Assignment.StoryID, oa.Assignment.Branch)
 		}
 		activeAgents = orphanAgents
-	} else {
+	} else if !gateOnly {
 		// Normal path: dispatch next wave of ready stories.
 		waveNumber := maxWave + 1
 		assignments, err := dispatcher.DispatchWave(dag, completed, reqID, plannedStories, waveNumber)
@@ -352,13 +374,17 @@ func runResume(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if len(activeAgents) == 0 {
+	if len(activeAgents) == 0 && !gateOnly {
 		return fmt.Errorf("no agents to process")
 	}
 
-	fmt.Fprintf(out, "\n%d agents working. Monitoring progress...\n", len(activeAgents))
-	fmt.Fprintf(out, "Use 'vxd dashboard' in another terminal to watch progress.\n")
-	fmt.Fprintf(out, "Press Ctrl+C to detach (agents continue in tmux).\n\n")
+	if gateOnly {
+		fmt.Fprintf(out, "\nNo agents to track — running the completion gate. Ctrl+C aborts it (no verdict).\n\n")
+	} else {
+		fmt.Fprintf(out, "\n%d agents working. Monitoring progress...\n", len(activeAgents))
+		fmt.Fprintf(out, "Use 'vxd dashboard' in another terminal to watch progress.\n")
+		fmt.Fprintf(out, "Press Ctrl+C to detach (agents continue in tmux).\n\n")
+	}
 
 	// Build pipeline components for post-execution
 	godmode, _ := cmd.Flags().GetBool("godmode")
@@ -368,7 +394,6 @@ func runResume(cmd *cobra.Command, args []string) error {
 
 	var reviewer *engine.Reviewer
 	llmClient, llmErr := buildLLMClient(s.Config.Models.Senior.Provider, nil, godmode)
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	if dryRun {
 		llmClient = llm.NewDryRunClient(200 * time.Millisecond)
 		llmErr = nil
@@ -412,9 +437,21 @@ func runResume(cmd *cobra.Command, args []string) error {
 		StuckThresholdS: s.Config.Monitor.StuckThresholdS,
 	}, s.Events)
 
-	// Start monitoring loop (Ctrl+C detaches cleanly, agents keep running)
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	// Start the monitoring loop. Ctrl+C, SIGTERM and SIGHUP (tmux
+	// kill-session, terminal hangup) all cancel it cleanly — agents keep
+	// running, but the completion gate's test runner lives in its own process
+	// group and is only killed through this context, so every signal that can
+	// end resume must end the context (guarded by TestResume_WiresResumeSignals).
+	ctx, cancel := signal.NotifyContext(context.Background(), resumeSignals()...)
 	defer cancel()
+	// A second signal takes the default action, at any point in the run: the
+	// steps before the suite are not ctx-bound, so one signal alone cannot
+	// always stop the process. The event log survives the kill — see
+	// FileStore.Append for why its last line cannot tear.
+	go func() {
+		<-ctx.Done()
+		cancel()
+	}()
 
 	monitor := engine.NewMonitor(reg, watchdog, reviewer, qaRunner, merger, runtimeCfg, s.Events, s.Proj)
 	monitor.SetCheckpointPath(checkpointPath)
@@ -534,14 +571,18 @@ func runResume(cmd *cobra.Command, args []string) error {
 	// REQ_BLOCKED. This closes the gap where a requirement was reported complete
 	// on code that does not compile. Skipped in dry-run (no real toolchain) and
 	// when explicitly disabled via qa.disable_completion_gate.
-	if !dryRun && !s.Config.QA.DisableCompletionGate {
+	if gateWired {
 		fixCycles := completionFixCycles(s.Config.QA.CompletionFixCycles)
 		senior := s.Config.Models.Senior
-		monitor.SetCompletionGate(engine.NewCompletionGate(
+		gate := engine.NewCompletionGate(
 			llmClient, senior.Model, senior.MaxTokens, fixCycles,
 			s.Config.Merge.BaseBranch, s.Events, s.Proj,
-		))
-		log.Printf("[resume] completion gate enabled (auto-fix cycles=%d)", fixCycles)
+		)
+		if secs := s.Config.QA.CompletionTestTimeoutS; secs > 0 {
+			gate.SetTestTimeout(time.Duration(secs) * time.Second)
+		}
+		monitor.SetCompletionGate(gate)
+		log.Printf("[resume] completion gate enabled (auto-fix cycles=%d, test timeout=%s)", fixCycles, gate.TestTimeout())
 	}
 
 	// Enable the per-story security gate: after QA and before merge, run the
@@ -567,22 +608,21 @@ func runResume(cmd *cobra.Command, args []string) error {
 		PlannedStories: plannedStories,
 		DAG:            dag,
 		WaveNumber:     maxWave + 1,
+		GateOnly:       gateOnly,
+	}
+
+	// The gate is about to run, and everything that could fail before it has
+	// not: only now is a blocked requirement unblocked, so a setup failure
+	// leaves the red verdict and its gaps file exactly where they were.
+	if err := unblockForGate(out, s, reqID, gateOnly); err != nil {
+		return err
 	}
 
 	if err := monitor.RunWithContext(ctx, activeAgents, repoDir, rc); err != nil {
 		return err
 	}
 
-	// Print completion summary if the requirement finished.
-	req, reqErr := s.Proj.GetRequirement(reqID)
-	if reqErr == nil && req.Status == "completed" {
-		summary, sumErr := engine.GenerateSummary(s.Events, s.Proj, reqID)
-		if sumErr == nil {
-			fmt.Fprint(out, summary)
-		}
-	}
-
-	return nil
+	return finishResume(ctx, out, s, reqID, repoDir)
 }
 
 // newDevDBLifecycle constructs a Lifecycle from the resolved config and event

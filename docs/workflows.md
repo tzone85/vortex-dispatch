@@ -156,7 +156,7 @@ Set the mode via:
 
 **Trigger:** `vxd resume <req-id>` (or automatic after planning/approval)
 
-On resume, VXD first acquires a lock file (prevents concurrent runs), runs a consistency check for crash recovery, then dispatches the next wave. `vxd resume` dispatches the first wave; the monitor's poll loop dispatches every later wave itself (`Monitor.dispatchNextWave`) once no agents are active.
+On resume, VXD first acquires a lock file (prevents concurrent runs), runs a consistency check for crash recovery, then dispatches the next wave. `vxd resume` dispatches the first wave; the monitor's poll loop dispatches every later wave itself (`Monitor.dispatchNextWave`) once no agents are active. With every story complete and no verdict (or a blocked one), resume skips dispatch and re-runs the completion gate — without regenerating the documentation, which the earlier pass already did — and exits 1 if the requirement stays blocked or the gate reaches no verdict.
 
 The Dispatcher performs topological sort on the DAG and identifies the next **wave** — the set of stories whose dependencies are all satisfied.
 

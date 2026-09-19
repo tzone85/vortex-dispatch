@@ -327,3 +327,4 @@ VXD is designed to run autonomously, but some situations require human attention
 | No progress after `vxd resume` | Run `vxd preflight` to verify environment, check API keys and CLIs |
 | Stories awaiting approval | Use `vxd review`, `vxd approve`, or `vxd reject` to advance the pipeline |
 | Lock file blocking resume | Another VXD may be running; use `--force` if it is stale |
+| Requirement `blocked` (completion gate red) | Read `.vxd-fix-gaps.md` in the project directory, fix the gaps, commit and push them, then `vxd resume <req>` re-runs the gate (the gate verifies the working tree, so uncommitted fixes go green without reaching the base branch) |

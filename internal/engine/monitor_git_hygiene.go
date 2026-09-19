@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -251,11 +252,7 @@ func pullBaseAfterMerge(repoDir, baseBranch string) {
 	//   git clean -f <file>  — removes untracked files
 	//   git checkout -- <f>  — discards tracked modifications (restores HEAD)
 	// Both commands are best-effort; errors are intentionally ignored.
-	for _, artifact := range []string{
-		"WAVE_CONTEXT.md",
-		"REQUIREMENT.md",
-		".vxd-fix-gaps.md",
-	} {
+	for _, artifact := range vxdScratchFiles {
 		// Discard tracked modifications first (no-op if file is untracked).
 		checkoutCmd := exec.Command("git", "-C", repoDir, "checkout", "--", artifact)
 		_ = checkoutCmd.Run()
@@ -291,9 +288,24 @@ func pullBaseAfterMerge(repoDir, baseBranch string) {
 	log.Printf("[auto-resume] could not detect base branch for pull")
 }
 
-// ensureGitignorePatterns appends VXD artifact patterns to .gitignore if
-// they are not already present, preventing CLAUDE.md, .vxd-prompts/,
-// .serena/, and other tool artifacts from being committed by agents.
+// vxdScratchFiles are the files VXD writes into the repo root and owns
+// outright. pullBaseAfterMerge DELETES each of them before fast-forwarding,
+// so nothing the operator authors may be listed here: .gitignore in
+// particular is tracked, user-owned and only ever appended to.
+var vxdScratchFiles = []string{
+	"WAVE_CONTEXT.md",
+	"REQUIREMENT.md",
+	".vxd-fix-gaps.md",
+}
+
+// DirtyTreeExclusions is what a dirty-tree check ignores: VXD's own scratch
+// files, plus .gitignore, which the pull appends to. It is a function
+// returning a copy rather than a second exported slice, so a caller cannot
+// reach back into the list the pull deletes from.
+func DirtyTreeExclusions() []string {
+	return append(slices.Clone(vxdScratchFiles), ".gitignore")
+}
+
 // gitPullWithStash performs a fast-forward pull of the given branch.
 // If the working tree is dirty it stashes first, pulls, then pops.
 // If the stash itself fails it skips the pull cleanly rather than logging
@@ -343,6 +355,10 @@ func gitPullWithStash(repoDir, branch string) {
 	}
 }
 
+// ensureGitignorePatterns appends VXD artifact patterns to .gitignore if
+// they are not already present, preventing CLAUDE.md, .vxd-prompts/,
+// .serena/, and other tool artifacts from being committed by agents. It only
+// ever appends: whatever the operator put in the file stays there.
 func ensureGitignorePatterns(worktreePath string) {
 	vxdPatterns := []string{
 		"CLAUDE.md",
@@ -354,6 +370,7 @@ func ensureGitignorePatterns(worktreePath string) {
 		".vxd-design/",
 		".serena/",
 		"firebase-debug.log",
+		".vxd-fix-gaps.md", // raw runner output; written right before a godmode agent is told to commit
 	}
 
 	giPath := worktreePath + "/.gitignore"

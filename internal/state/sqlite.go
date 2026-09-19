@@ -124,7 +124,7 @@ func NewSQLiteStore(dsn string) (*SQLiteStore, error) {
 	}
 
 	if _, err := db.Exec(initSQL); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("apply migration: %w", err)
 	}
 
@@ -182,6 +182,7 @@ func NewSQLiteStore(dsn string) (*SQLiteStore, error) {
 	}
 	for _, stmt := range indexStatements {
 		if _, err := db.Exec(stmt); err != nil {
+			_ = db.Close() // the caller gets no handle to close
 			return nil, fmt.Errorf("create index: %w", err)
 		}
 	}

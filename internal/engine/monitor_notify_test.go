@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -75,7 +76,8 @@ func TestEmitRequirementOutcome_NotifiesCompleted(t *testing.T) {
 }
 
 // TestEmitRequirementOutcome_NotifiesBlocked pins that a blocked requirement
-// notifies at error severity with the resume hint in the body.
+// notifies at error severity with the gaps-file hint and the re-run command
+// in the body (the same instruction as the [gate] log line).
 func TestEmitRequirementOutcome_NotifiesBlocked(t *testing.T) {
 	m, n := newNotifyTestMonitor(t)
 
@@ -84,6 +86,9 @@ func TestEmitRequirementOutcome_NotifiesBlocked(t *testing.T) {
 	msgs := n.all()
 	if len(msgs) != 1 {
 		t.Fatalf("expected 1 notification, got %d", len(msgs))
+	}
+	if !strings.Contains(msgs[0].Body, ".vxd-fix-gaps.md") || !strings.Contains(msgs[0].Body, "vxd resume r-002") {
+		t.Errorf("body must point at .vxd-fix-gaps.md and at `vxd resume r-002`, got %q", msgs[0].Body)
 	}
 	if msgs[0].EventType != string(state.EventReqBlocked) {
 		t.Errorf("EventType = %q, want %q", msgs[0].EventType, state.EventReqBlocked)

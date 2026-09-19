@@ -97,18 +97,13 @@ func runReplay(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("back up projection db: %w", err)
 	}
 
-	ps, err := state.NewSQLiteStore(dbPath)
+	ps, err := openProjection(dbPath)
 	if err != nil {
 		return fmt.Errorf("create fresh projection store: %w", err)
 	}
-	defer ps.Close()
-
-	applied := 0
-	for _, evt := range events {
-		if err := ps.Project(evt); err != nil {
-			return fmt.Errorf("project event %s (%s) at index %d: %w", evt.ID, evt.Type, applied, err)
-		}
-		applied++
+	applied, err := rebuildAndClose(ps, events)
+	if err != nil {
+		return err
 	}
 
 	duration := time.Since(start).Round(time.Millisecond)
@@ -119,6 +114,54 @@ func runReplay(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(out, "Previous database backed up: %s\n", bakPath)
 	}
 	return nil
+}
+
+// projectionSink is the slice of *state.SQLiteStore a rebuild needs. It is
+// narrower than state.ProjectionStore on purpose: the rebuild only projects
+// and closes, and a fake for the wider interface would carry dead methods.
+type projectionSink interface {
+	Project(state.Event) error
+	Close() error
+}
+
+// openProjection opens the fresh projection store; tests swap it (like
+// startBrowser in review_cmd.go) to drive runReplay's failure paths, which
+// a real store cannot reach cheaply. On error the interface is nil, not a
+// typed nil *SQLiteStore.
+var openProjection = func(dbPath string) (projectionSink, error) {
+	ps, err := state.NewSQLiteStore(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	return ps, nil
+}
+
+// rebuildAndClose applies events in order and closes ps exactly once, so
+// "Projection rebuilt" is never printed before the close has succeeded (the
+// named-return idiom of engine.CreateBackup). A close failure is a failed
+// recovery command even though each Project has already committed; a
+// projection error explains the failure better, so it wins and the close
+// error rides along.
+func rebuildAndClose(ps projectionSink, events []state.Event) (applied int, retErr error) {
+	defer func() {
+		cerr := ps.Close()
+		switch {
+		case cerr == nil:
+		case retErr == nil:
+			retErr = fmt.Errorf("close rebuilt projection db: %w", cerr)
+		default:
+			// The projection error explains the failure; the close error is
+			// still evidence about the file that is about to be removed.
+			retErr = fmt.Errorf("%w (close also failed: %v)", retErr, cerr)
+		}
+	}()
+	for _, evt := range events {
+		if err := ps.Project(evt); err != nil {
+			return applied, fmt.Errorf("project event %s (%s) at index %d: %w", evt.ID, evt.Type, applied, err)
+		}
+		applied++
+	}
+	return applied, nil
 }
 
 // replayBadLine records a corrupt events.jsonl row with its 1-based line

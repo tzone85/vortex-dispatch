@@ -2,7 +2,9 @@ package cli
 
 import (
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -75,6 +77,70 @@ func TestResume_WiresCostMeter(t *testing.T) {
 	for _, want := range []string{"NewMeteredClient(", "costRecorder{"} {
 		if !strings.Contains(code, want) {
 			t.Errorf("resume.go must wire LLM cost metering: missing %q", want)
+		}
+	}
+}
+
+// TestResumeSignals_RespectsNohup: tmux kill-session (SIGTERM) and a
+// terminal hangup (SIGHUP) cancel the monitor like Ctrl-C — unless the
+// process started with SIGHUP ignored (nohup), in which case a hangup must
+// keep being ignored rather than stop the run.
+func TestResumeSignals_RespectsNohup(t *testing.T) {
+	// The first half asserts what resumeSignals does when SIGHUP is NOT
+	// ignored, which a test binary started under nohup cannot observe. Skip
+	// rather than fail: the assertion below also relies on signal.Reset
+	// restoring the default disposition, which is only the right one to
+	// restore when the process did not start with SIGHUP ignored.
+	if signal.Ignored(syscall.SIGHUP) {
+		t.Skip("this process already ignores SIGHUP (nohup); resumeSignals' not-ignored branch is unreachable here")
+	}
+	has := func(sigs []os.Signal, want os.Signal) bool {
+		for _, s := range sigs {
+			if s == want {
+				return true
+			}
+		}
+		return false
+	}
+	sigs := resumeSignals()
+	if !has(sigs, os.Interrupt) || !has(sigs, syscall.SIGTERM) || !has(sigs, syscall.SIGHUP) {
+		t.Fatalf("with SIGHUP not ignored, want Interrupt, SIGTERM and SIGHUP, got %v", sigs)
+	}
+
+	signal.Ignore(syscall.SIGHUP)
+	t.Cleanup(func() { signal.Reset(syscall.SIGHUP) })
+	sigs = resumeSignals()
+	if has(sigs, syscall.SIGHUP) {
+		t.Fatalf("under nohup SIGHUP must stay ignored, got %v", sigs)
+	}
+	if !has(sigs, os.Interrupt) || !has(sigs, syscall.SIGTERM) {
+		t.Fatalf("Interrupt and SIGTERM must remain, got %v", sigs)
+	}
+}
+
+// TestResume_WiresResumeSignals guards the signal wiring the same way: the
+// completion gate's test runner is only killed through the monitor ctx, so
+// runResume must build that ctx from resumeSignals() — reverting it to
+// signal.NotifyContext(ctx, os.Interrupt) passes every behavioural test
+// (TestResumeSignals_RespectsNohup tests the helper alone).
+func TestResume_WiresResumeSignals(t *testing.T) {
+	src, err := os.ReadFile("resume.go")
+	if err != nil {
+		t.Fatalf("read resume.go: %v", err)
+	}
+	if want := "signal.NotifyContext(context.Background(), resumeSignals()...)"; !strings.Contains(string(src), want) {
+		t.Errorf("resume.go must build the monitor ctx from resumeSignals(): missing %q", want)
+	}
+}
+
+// TestRequirementSettled: with every story complete, resume stops only for a
+// requirement that already has its verdict. A blocked one, and one the gate
+// never reached a verdict on (the projection leaves it "planned"), re-run
+// the completion gate (#138) — see TestRunResume_AllMergedUnsettled_RunsGate.
+func TestRequirementSettled(t *testing.T) {
+	for status, want := range map[string]bool{"completed": true, "archived": true, "blocked": false, "planned": false, "": false} {
+		if got := requirementSettled(status); got != want {
+			t.Errorf("requirementSettled(%q) = %v, want %v", status, got, want)
 		}
 	}
 }

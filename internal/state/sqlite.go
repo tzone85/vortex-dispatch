@@ -926,12 +926,27 @@ func (s *SQLiteStore) projectStoryDBDeleted(evt Event, payload map[string]any) e
 	}
 	dur := payloadFloat(payload, "duration_seconds")
 	bytes := payloadInt(payload, "bytes_used")
+	dbID := payloadStr(payload, "db_id")
+	// db_id is provider-unique per story, so it alone identifies the row. Match
+	// on story_id too when the event carries it, but fall back to db_id-only for
+	// STORY_DB_DELETED events emitted before Release threaded the story ID
+	// through — otherwise the release would silently update 0 rows and the DB
+	// would replay as stuck at status="created" forever.
+	if evt.StoryID != "" {
+		_, err := s.db.Exec(
+			`UPDATE story_databases
+			 SET status = ?, deleted_at = ?, duration_seconds = ?, bytes_used = ?
+			 WHERE story_id = ? AND db_id = ?`,
+			status, evt.Timestamp, dur, bytes,
+			evt.StoryID, dbID,
+		)
+		return err
+	}
 	_, err := s.db.Exec(
 		`UPDATE story_databases
 		 SET status = ?, deleted_at = ?, duration_seconds = ?, bytes_used = ?
-		 WHERE story_id = ? AND db_id = ?`,
-		status, evt.Timestamp, dur, bytes,
-		evt.StoryID, payloadStr(payload, "db_id"),
+		 WHERE db_id = ?`,
+		status, evt.Timestamp, dur, bytes, dbID,
 	)
 	return err
 }

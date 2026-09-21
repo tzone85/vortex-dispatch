@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os/exec"
 	"path/filepath"
@@ -309,7 +310,7 @@ func parseNpmAudit(out []byte) ([]Finding, error) {
 	return findings, nil
 }
 
-func parseGovulncheck(out []byte) ([]Finding, error) {
+func parseGovulncheck(out []byte, runErr error) ([]Finding, error) {
 	var findings []Finding
 	sc := bufio.NewScanner(bytes.NewReader(out))
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -338,7 +339,23 @@ func parseGovulncheck(out []byte) ([]Finding, error) {
 			Source:   "scanner",
 		})
 	}
-	return findings, sc.Err()
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	// Unlike the JSON scanners, govulncheck's text output carries no parse-error
+	// signal when the tool itself fails: it just prints a diagnostic and no
+	// "Vulnerability #" lines. govulncheck exits 0 (no vulns) or 3 (vulns found)
+	// on a completed scan, and non-zero-non-3 (e.g. 1 when it can't reach the
+	// vuln DB in an offline/proxied CI, a module-load failure, or a timeout) when
+	// it did NOT run. If it produced no findings AND the process failed, the scan
+	// did not complete — surface it as an error so RunScanners routes govulncheck
+	// to `failed` rather than reporting a false clean pass (the module invariant:
+	// a failed scan must never masquerade as a clean one). When findings were
+	// parsed, the tool clearly ran (exit 3), so the non-zero exit is expected.
+	if len(findings) == 0 && runErr != nil {
+		return nil, fmt.Errorf("govulncheck did not complete: %w", runErr)
+	}
+	return findings, nil
 }
 
 // Run executes the scanner against repoDir and returns parsed findings. A
@@ -366,13 +383,18 @@ func (s Scanner) Run(ctx context.Context, repoDir string) ([]Finding, error) {
 		return nil, nil
 	}
 	cmd.Dir = repoDir
-	out, _ := cmd.CombinedOutput() // exit code intentionally ignored; parse output
+	// Most scanners exit non-zero when they FIND issues, so the exit code is not
+	// a failure signal for the JSON tools (a crashed tool is caught by their
+	// json.Unmarshal returning an error). govulncheck is the exception: its text
+	// output carries no parse-error signal on failure, so parseGovulncheck needs
+	// the run error to distinguish "did not complete" from "clean".
+	out, runErr := cmd.CombinedOutput()
 
 	switch s.Kind {
 	case ScannerGosec:
 		return parseGosec(out, repoDir)
 	case ScannerGovulncheck:
-		return parseGovulncheck(out)
+		return parseGovulncheck(out, runErr)
 	case ScannerGitleaks:
 		return parseGitleaks(out, repoDir)
 	case ScannerSemgrep:

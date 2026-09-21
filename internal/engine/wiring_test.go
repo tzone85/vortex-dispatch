@@ -2190,7 +2190,7 @@ func TestWiring_PostExecution_ReleaseOutcomeIsFailed_OnDraftReset(t *testing.T) 
 	rp := &recordingDeleteProvider{Provider: null.New()}
 	lc := devdb.NewLifecycle(rp, &fakeEventAppender{}, devdb.Config{Provider: "null"})
 	db := devdb.DB{ID: "vxd-test-failed", Name: "vxd-test-failed"}
-	if err := lc.Release(context.Background(), db, devdb.OutcomeFailed); err != nil {
+	if err := lc.Release(context.Background(), "story-wiring", db, devdb.OutcomeFailed); err != nil {
 		t.Fatal(err)
 	}
 	if len(rp.deleted) != 1 {
@@ -2208,7 +2208,7 @@ func TestWiring_PostExecution_ReleaseOutcomeIsPaused_KeepsDB(t *testing.T) {
 		KeepDBOnFail: true,
 	})
 	db := devdb.DB{ID: "vxd-test-paused", Name: "vxd-test-paused"}
-	if err := lc.Release(context.Background(), db, devdb.OutcomePaused); err != nil {
+	if err := lc.Release(context.Background(), "story-wiring", db, devdb.OutcomePaused); err != nil {
 		t.Fatal(err)
 	}
 	if len(rp.deleted) != 0 {
@@ -2281,7 +2281,7 @@ func TestWiring_SLABreach_ReleasesDB(t *testing.T) {
 	rp := &recordingDeleteProvider{Provider: null.New()}
 	lc := devdb.NewLifecycle(rp, &fakeEventAppender{}, devdb.Config{Provider: "null"})
 	db := devdb.DB{ID: "vxd-test-sla", Name: "vxd-test-sla"}
-	if err := lc.Release(context.Background(), db, devdb.OutcomeFailed); err != nil {
+	if err := lc.Release(context.Background(), "story-wiring", db, devdb.OutcomeFailed); err != nil {
 		t.Fatal(err)
 	}
 	if len(rp.deleted) != 1 {

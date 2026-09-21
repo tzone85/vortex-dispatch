@@ -101,7 +101,7 @@ func runReplay(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("create fresh projection store: %w", err)
 	}
-	defer ps.Close()
+	defer ps.Close() //nolint:errcheck // best-effort cleanup of the fresh projection store; a real close failure surfaces on the next open/replay
 
 	applied := 0
 	for _, evt := range events {

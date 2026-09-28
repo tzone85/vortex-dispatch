@@ -1,7 +1,6 @@
 package state
 
 import (
-	"crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -9,7 +8,6 @@ import (
 	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/oklog/ulid/v2"
 )
 
 // initSQL is the schema migration applied on store creation.
@@ -809,11 +807,15 @@ func (s *SQLiteStore) projectStoryEscalated(evt Event, payload map[string]any) e
 		return fmt.Errorf("update story escalation_tier: %w", err)
 	}
 
-	id := ulid.MustNew(ulid.Timestamp(evt.Timestamp), rand.Reader)
+	// Key the row on the event's own ULID (stable, persisted in the event
+	// log) rather than a freshly minted random ULID. This keeps replay
+	// deterministic — two replays of the same events.jsonl produce identical
+	// rows — and makes re-projecting an already-applied event a no-op instead
+	// of inserting a duplicate escalation.
 	_, err := s.db.Exec(
-		`INSERT INTO escalations (id, story_id, from_agent, reason, status, from_tier, to_tier, created_at)
+		`INSERT OR IGNORE INTO escalations (id, story_id, from_agent, reason, status, from_tier, to_tier, created_at)
 		 VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)`,
-		id.String(), evt.StoryID, evt.AgentID, reason, fromTier, toTier, evt.Timestamp,
+		evt.ID, evt.StoryID, evt.AgentID, reason, fromTier, toTier, evt.Timestamp,
 	)
 	return err
 }
@@ -1053,15 +1055,18 @@ type StoryCostSummary struct {
 	ByStage           map[string]StageCost
 }
 
-// projectStoryCostRecorded inserts one measured LLM-call cost row. Each event
-// carries its own ULID primary key, so replays are naturally idempotent.
+// projectStoryCostRecorded inserts one measured LLM-call cost row. The row is
+// keyed on the event's own ULID (evt.ID) — stable and persisted in the event
+// log — so replays are byte-identical and the INSERT OR IGNORE genuinely
+// deduplicates a re-projected event. Keying on a freshly minted random ULID
+// would defeat both: replays would differ, and re-projection would double-count
+// cost (which feeds the billing.max_usd_per_req budget cap).
 func (s *SQLiteStore) projectStoryCostRecorded(evt Event, payload map[string]any) error {
-	id := ulid.MustNew(ulid.Timestamp(evt.Timestamp), rand.Reader)
 	_, err := s.db.Exec(
 		`INSERT OR IGNORE INTO story_costs
 		 (id, story_id, req_id, stage, model, input_tokens, output_tokens, est_usd, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id.String(),
+		evt.ID,
 		payloadStr(payload, "story_id"),
 		payloadStr(payload, "req_id"),
 		payloadStr(payload, "stage"),

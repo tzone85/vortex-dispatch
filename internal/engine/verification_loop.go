@@ -154,11 +154,22 @@ func checkTests(repoDir string) (passing, failing, total int) {
 	}
 
 	cmd.Dir = repoDir
-	out, _ := cmd.CombinedOutput()
+	out, runErr := cmd.CombinedOutput()
 	output := string(out)
 
 	if fileExists(filepath.Join(repoDir, "go.mod")) {
-		return parseGoTestJSON(output)
+		passing, failing, total = parseGoTestJSON(output)
+		// `go test` exiting non-zero while the parser attributed zero failures
+		// means the toolchain failed before emitting per-test/per-package
+		// results (e.g. it could not be invoked at all). Treat "errored but
+		// nothing parsed" as a failure rather than a false-green 0/0/0 — a
+		// project with no tests exits zero, so runErr is nil there.
+		if runErr != nil && failing == 0 {
+			log.Printf("[verify] go test errored with no parsed failures (%v) — treating as failing", runErr)
+			failing = 1
+			total = passing + failing
+		}
+		return passing, failing, total
 	}
 
 	// Parse test results (simplified — count PASS/FAIL lines)
@@ -188,6 +199,7 @@ func checkTests(repoDir string) (passing, failing, total int) {
 }
 
 func parseGoTestJSON(output string) (passing, failing, total int) {
+	pkgFailed := false
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -197,15 +209,41 @@ func parseGoTestJSON(output string) (passing, failing, total int) {
 			Action string `json:"Action"`
 			Test   string `json:"Test"`
 		}
-		if err := json.Unmarshal([]byte(line), &evt); err != nil || evt.Test == "" {
+		if err := json.Unmarshal([]byte(line), &evt); err != nil {
 			continue
 		}
 		switch evt.Action {
 		case "pass":
-			passing++
+			// Per-test pass. Package-level "pass" events (empty Test) are the
+			// end-of-package summary and must not be counted as a test.
+			if evt.Test != "" {
+				passing++
+			}
 		case "fail":
-			failing++
+			if evt.Test != "" {
+				failing++
+			} else {
+				// Package-level failure with no per-test detail. The dominant
+				// cause is a test binary that FAILED TO COMPILE
+				// ("FAIL pkg [build failed]"): `go build ./...` in checkBuild
+				// does not compile _test.go files, so this event is the only
+				// signal that cross-story drift broke a test package. Left
+				// uncounted, the completion gate would see 0/0/0 and report the
+				// suite green — the exact false-complete this gate exists to
+				// prevent.
+				pkgFailed = true
+			}
+		case "build-fail":
+			// Emitted before the package-level "fail" when the test binary
+			// does not compile.
+			pkgFailed = true
 		}
+	}
+	// Only synthesise a failure when no per-test failure was recorded; a run
+	// with real failing tests already reports failing > 0 and must not be
+	// inflated by the accompanying package-level fail event.
+	if failing == 0 && pkgFailed {
+		failing = 1
 	}
 	total = passing + failing
 	log.Printf("[verify] tests: %d passing, %d failing, %d total", passing, failing, total)

@@ -121,12 +121,19 @@ func TestAudit_NotifyOnCompleteWired(t *testing.T) {
 	}
 }
 
-// TestAudit_AutoresearchBaseline documents v1 neutral baseline (improved from
-// hardcoded 0 per audit E-02 for better delta behavior).
+// TestAudit_AutoresearchBaseline guards against restoring the old fixed 0.5
+// baseline. Live autoresearch must measure and cache the selected Git revision
+// through the event-backed provider.
 func TestAudit_AutoresearchBaseline(t *testing.T) {
 	src := readRepoFile(t, "internal/cli/autoresearch.go")
-	if !strings.Contains(src, "return func() float64 { return 0.5 }") {
-		t.Error("baselineFromConfig should return neutral 0.5 for v1")
+	if !strings.Contains(src, "&autoresearch.EventBaselineProvider{") {
+		t.Error("live coordinator must use EventBaselineProvider")
+	}
+	if !strings.Contains(src, "baseline-source=event-backed") {
+		t.Error("runtime diagnostics must identify the event-backed baseline")
+	}
+	if strings.Contains(src, "return func() float64 { return 0.5 }") {
+		t.Error("fixed neutral baseline must not be restored")
 	}
 }
 

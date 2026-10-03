@@ -141,10 +141,12 @@ func TestClaudeCLIClient_Integration(t *testing.T) {
 	})
 	if err != nil {
 		// Skip if the CLI is installed but not authenticated or has no credits.
-		errMsg := err.Error()
+		errMsg := strings.ToLower(err.Error())
 		if strings.Contains(errMsg, "authentication") ||
+			strings.Contains(errMsg, "authenticate") ||
+			strings.Contains(errMsg, "oauth session expired") ||
 			strings.Contains(errMsg, "unauthorized") ||
-			strings.Contains(errMsg, "API key") ||
+			strings.Contains(errMsg, "api key") ||
 			strings.Contains(errMsg, "credit") ||
 			strings.Contains(errMsg, "billing") {
 			t.Skipf("claude CLI not authenticated, skipping integration test: %v", err)

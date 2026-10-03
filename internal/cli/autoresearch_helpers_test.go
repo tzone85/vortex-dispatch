@@ -38,9 +38,9 @@ func TestParseBudget_NonPositive(t *testing.T) {
 
 func TestParseBudget_ValidValues(t *testing.T) {
 	cases := map[string]time.Duration{
-		"1m":   time.Minute,
-		"45s":  45 * time.Second,
-		"2h":   2 * time.Hour,
+		"1m":    time.Minute,
+		"45s":   45 * time.Second,
+		"2h":    2 * time.Hour,
 		"500ms": 500 * time.Millisecond,
 	}
 	for in, want := range cases {
@@ -153,18 +153,6 @@ func TestDefaultStateDir_RespectsEnv(t *testing.T) {
 	}
 }
 
-func TestBaselineFromConfig_Neutral(t *testing.T) {
-	src := baselineFromConfig(emptyConfig())
-	if src == nil {
-		t.Fatal("baselineFromConfig should return non-nil source")
-	}
-	for i := 0; i < 3; i++ {
-		if got := src(); got != 0.5 {
-			t.Errorf("baseline call %d returned %.4f, want 0.5", i, got)
-		}
-	}
-}
-
 func TestPickAutoresearchRuntime_EmptyConfig(t *testing.T) {
 	_, _, err := pickAutoresearchRuntime(nil)
 	if err == nil {
@@ -197,34 +185,36 @@ func TestPickAutoresearchRuntime_PicksAlphabeticallyFirst(t *testing.T) {
 	}
 }
 
-func TestBuildAutoresearchLLMClient_NoCredsNoCLI(t *testing.T) {
-	// Save + restore API key + PATH so we don't surprise other tests.
-	prev := os.Getenv("ANTHROPIC_API_KEY")
+func TestBuildAutoresearchLLMClient_NoCodexCLI(t *testing.T) {
 	prevPath := os.Getenv("PATH")
-	t.Cleanup(func() {
-		_ = os.Setenv("ANTHROPIC_API_KEY", prev)
-		_ = os.Setenv("PATH", prevPath)
-	})
-	_ = os.Unsetenv("ANTHROPIC_API_KEY")
-	_ = os.Setenv("PATH", "/no/such/dir") // ensure `claude` lookup fails
+	t.Cleanup(func() { _ = os.Setenv("PATH", prevPath) })
+	_ = os.Setenv("PATH", "/no/such/dir")
 
 	_, err := buildAutoresearchLLMClient(emptyConfig())
 	if err == nil {
-		t.Error("expected error when no API key and no claude CLI")
+		t.Error("expected error when the codex CLI is unavailable")
+	}
+	if !strings.Contains(err.Error(), "codex") {
+		t.Fatalf("error should explain the required GPT path, got %v", err)
 	}
 }
 
-func TestBuildAutoresearchLLMClient_WithAPIKey(t *testing.T) {
-	prev := os.Getenv("ANTHROPIC_API_KEY")
-	t.Cleanup(func() { _ = os.Setenv("ANTHROPIC_API_KEY", prev) })
-	_ = os.Setenv("ANTHROPIC_API_KEY", "sk-test-abc-xyz")
+func TestBuildAutoresearchLLMClient_WithCodexCLI(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "codex")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatalf("write fake codex: %v", err)
+	}
+	prevPath := os.Getenv("PATH")
+	t.Cleanup(func() { _ = os.Setenv("PATH", prevPath) })
+	_ = os.Setenv("PATH", dir)
 
 	client, err := buildAutoresearchLLMClient(emptyConfig())
 	if err != nil {
-		t.Fatalf("build with API key: %v", err)
+		t.Fatalf("build with Codex CLI: %v", err)
 	}
 	if client == nil {
-		t.Error("expected non-nil client when API key present")
+		t.Error("expected non-nil GPT client when Codex CLI is present")
 	}
 }
 

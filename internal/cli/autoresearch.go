@@ -236,18 +236,28 @@ func buildLiveCoordinator(repoDir string, cfg config.Config) (*autoresearch.Coor
 		parallel = 1
 	}
 
+	baseline := &autoresearch.EventBaselineProvider{
+		Repo:          repoDir,
+		BaseRef:       gate.BaseBranch,
+		Metric:        metric,
+		EvaluatorHash: autoresearch.EvaluatorConfigHash(model + "\n" + tripwireModel),
+		Events:        store,
+		Logf: func(format string, args ...any) {
+			fmt.Fprintf(os.Stderr, "autoresearch: "+format+"\n", args...)
+		},
+	}
 	coord := autoresearch.NewCoordinator(
 		repoDir,
 		bank,
 		sampler,
 		runner,
-		baselineFromConfig(cfg),
+		baseline,
 		parallel,
 		budget,
 	)
 
 	// One last log line so operators can confirm the runtime selection.
-	fmt.Fprintf(os.Stderr, "autoresearch: runtime=%s model=%s baseline-source=fixed\n", runtimeName, model)
+	fmt.Fprintf(os.Stderr, "autoresearch: runtime=%s model=%s baseline-source=event-backed\n", runtimeName, model)
 	return coord, runner, cleanup, nil
 }
 
@@ -271,24 +281,16 @@ func pickAutoresearchRuntime(cfg map[string]config.RuntimeConfig) (runtime.Runti
 	return rt, names[0], nil
 }
 
-// buildAutoresearchLLMClient picks the best available LLM client for
-// tripwire and tiebreak calls. Prefers the Anthropic API (when an API
-// key is set), falls back to the Claude CLI subscription path.
+// buildAutoresearchLLMClient builds the GPT client used for tripwire and
+// tiebreak calls. Autoresearch deliberately uses the Codex CLI so requests are
+// authenticated through the operator's ChatGPT subscription rather than API
+// credits.
 func buildAutoresearchLLMClient(cfg config.Config) (llm.Client, error) {
-	if apiKey := resolveAPIKey("ANTHROPIC_API_KEY"); apiKey != "" {
-		return llm.NewRetryClient(llm.NewAnthropicClient(apiKey), 2), nil
+	codexPath, err := lookPath("codex")
+	if err != nil {
+		return nil, fmt.Errorf("no autoresearch LLM client available — install and authenticate the codex CLI for GPT subscription access")
 	}
-	if _, err := lookPath("claude"); err == nil {
-		return llm.NewClaudeCLIClient(), nil
-	}
-	return nil, fmt.Errorf("no LLM client available — set ANTHROPIC_API_KEY or install the claude CLI")
-}
-
-// baselineFromConfig returns a baseline source. v1 uses a neutral 0.5
-// (real main-head re-measure is v2). Callers and bank adjust deltas from
-// kept experiments; the fixed neutral avoids all-zero skew in early runs.
-func baselineFromConfig(_ config.Config) func() float64 {
-	return func() float64 { return 0.5 }
+	return llm.NewCodexCLIClientWithPath(codexPath), nil
 }
 
 func parseBudget(s string) time.Duration {

@@ -2,6 +2,7 @@ package autoresearch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -69,7 +70,7 @@ type Coordinator struct {
 	Runner        *ExperimentRunner
 	PromptBuilder PromptBuilder
 	ProgramMD     string
-	Baseline      func() float64
+	Baseline      BaselineProvider
 	Parallel      int
 	Budget        time.Duration
 
@@ -78,7 +79,7 @@ type Coordinator struct {
 }
 
 // NewCoordinator constructs a coordinator with sensible defaults.
-func NewCoordinator(repo string, bank *HypothesisBank, sampler *BayesSampler, runner *ExperimentRunner, baseline func() float64, parallel int, budget time.Duration) *Coordinator {
+func NewCoordinator(repo string, bank *HypothesisBank, sampler *BayesSampler, runner *ExperimentRunner, baseline BaselineProvider, parallel int, budget time.Duration) *Coordinator {
 	if parallel < 1 {
 		parallel = 1
 	}
@@ -117,6 +118,7 @@ func (c *Coordinator) Run(ctx context.Context) error {
 
 		// Run one wave of Parallel experiments concurrently.
 		var wg sync.WaitGroup
+		errCh := make(chan error, c.Parallel)
 		for i := 0; i < c.Parallel; i++ {
 			wg.Add(1)
 			go func() {
@@ -127,17 +129,42 @@ func (c *Coordinator) Run(ctx context.Context) error {
 					}
 				}()
 				if err := c.tick(ctx); err != nil {
-					// One bad tick should not stop the whole loop.
+					errCh <- err
 					return
 				}
 			}()
 		}
 		wg.Wait()
+		close(errCh)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		for err := range errCh {
+			var baselineErr *baselineLoadError
+			if errors.As(err, &baselineErr) {
+				return err
+			}
+		}
 	}
 }
 
+type baselineLoadError struct {
+	err error
+}
+
+func (e *baselineLoadError) Error() string { return fmt.Sprintf("load baseline: %v", e.err) }
+func (e *baselineLoadError) Unwrap() error { return e.err }
+
 // tick dispatches one experiment.
 func (c *Coordinator) tick(ctx context.Context) error {
+	if c.Baseline == nil {
+		return &baselineLoadError{err: fmt.Errorf("baseline provider is nil")}
+	}
+	baseline, err := c.Baseline.Current(ctx)
+	if err != nil {
+		return &baselineLoadError{err: err}
+	}
+
 	class := c.Sampler.Next(c.Repo)
 	wins, _ := c.Bank.TopWins(c.Repo, 5)
 	losses, _ := c.Bank.TopLosses(c.Repo, 5)
@@ -159,7 +186,7 @@ func (c *Coordinator) tick(ctx context.Context) error {
 		"parent_win_hashes":  p.ParentWinHashes,
 		"parent_loss_hashes": p.ParentLossHashes,
 	})
-	_, err := c.Runner.Run(ctx, p, c.Baseline(), c.Budget)
+	_, err = c.Runner.Run(ctx, p, baseline.Score.Final, c.Budget)
 	return err
 }
 

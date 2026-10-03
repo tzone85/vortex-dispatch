@@ -3,10 +3,13 @@ package autoresearch
 import (
 	cryptorand "crypto/rand"
 	"encoding/binary"
+	"errors"
 	"log"
 	"math"
 	"math/rand" // nosemgrep: go.lang.security.audit.crypto.math_random.math-random-used -- statistical sampling only; seeded from crypto/rand
 	"sync"
+
+	"github.com/tzone85/vortex-dispatch/internal/state"
 )
 
 // BayesSampler maintains per-class Beta priors and Thompson-samples the next
@@ -54,6 +57,57 @@ func NewBayesSampler(classes []ExperimentClass, priorAlpha, priorBeta float64) *
 		priorBeta:  priorBeta,
 		rng:        rand.New(rand.NewSource(secureSeed())), // #nosec G404 -- Thompson sampling needs statistical, not cryptographic, randomness; the seed itself comes from crypto/rand (secureSeed)
 	}
+}
+
+// NewBayesSamplerFromStore reconstructs the default sampler by replaying
+// persisted terminal experiment outcomes.
+func NewBayesSamplerFromStore(store state.EventStore) (*BayesSampler, error) {
+	if store == nil {
+		return nil, errors.New("event store is nil")
+	}
+	events, err := store.List(state.EventFilter{AgentID: "autoresearch"})
+	if err != nil {
+		return nil, err
+	}
+
+	sampler := NewBayesSampler(nil, 0, 0)
+	for _, event := range events {
+		payload := state.DecodePayload(event.Payload)
+		var kept bool
+		switch event.Type {
+		case state.EventExperimentKept:
+			kept = true
+		case state.EventExperimentDiscarded, state.EventExperimentTripwired:
+			kept = false
+		case state.EventExperimentFailed:
+			if value, exists := payload["infra_caused"]; exists {
+				infraCaused, valid := value.(bool)
+				if !valid || infraCaused {
+					continue
+				}
+			}
+			kept = false
+		default:
+			continue
+		}
+		repo, repoOK := payload["repo"].(string)
+		className, classOK := payload["class"].(string)
+		class := ExperimentClass(className)
+		if !repoOK || repo == "" || !classOK || !isDefaultClass(class) {
+			continue
+		}
+		sampler.Update(repo, class, kept)
+	}
+	return sampler, nil
+}
+
+func isDefaultClass(class ExperimentClass) bool {
+	for _, candidate := range DefaultClasses {
+		if class == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 // secureSeed draws 8 bytes from crypto/rand and returns them as int64.

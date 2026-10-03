@@ -1,7 +1,11 @@
 package autoresearch
 
 import (
+	"errors"
+	"path/filepath"
 	"testing"
+
+	"github.com/tzone85/vortex-dispatch/internal/state"
 )
 
 func TestBayesSampler_DefaultClasses(t *testing.T) {
@@ -120,3 +124,140 @@ func TestBayesSampler_NextDeterministicWithSeed(t *testing.T) {
 		}
 	}
 }
+
+func TestNewBayesSamplerFromStore_RestoresKeptAndDiscardedAfterRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	store, err := state.NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range []state.Event{
+		state.NewEvent(state.EventExperimentKept, "autoresearch", "", map[string]any{
+			"repo": "repo-a", "class": string(ClassPerf),
+		}),
+		state.NewEvent(state.EventExperimentDiscarded, "autoresearch", "", map[string]any{
+			"repo": "repo-a", "class": string(ClassPerf),
+		}),
+		state.NewEvent(state.EventExperimentKept, "autoresearch", "", map[string]any{
+			"repo": "repo-b", "class": string(ClassRefactor),
+		}),
+	} {
+		if err := store.Append(event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := state.NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+
+	sampler, err := NewBayesSamplerFromStore(reopened)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alpha, beta := sampler.Posterior("repo-a", ClassPerf); alpha != 2 || beta != 2 {
+		t.Fatalf("repo-a/perf posterior = (%v, %v), want (2, 2)", alpha, beta)
+	}
+	if alpha, beta := sampler.Posterior("repo-b", ClassRefactor); alpha != 2 || beta != 1 {
+		t.Fatalf("repo-b/refactor posterior = (%v, %v), want (2, 1)", alpha, beta)
+	}
+}
+
+func TestNewBayesSamplerFromStore_RestoresAgentFailuresAndTripwires(t *testing.T) {
+	store := newMemStore(t)
+	for _, event := range []state.Event{
+		state.NewEvent(state.EventExperimentFailed, "autoresearch", "", map[string]any{
+			"repo": "repo", "class": string(ClassTest), "infra_caused": false,
+		}),
+		state.NewEvent(state.EventExperimentTripwired, "autoresearch", "", map[string]any{
+			"repo": "repo", "class": string(ClassTest), "reason": "scope",
+		}),
+		// The runner also emits a non-terminal tripwire observation without a
+		// class before a kept/discarded terminal event. It must not be counted.
+		state.NewEvent(state.EventExperimentTripwired, "autoresearch", "", map[string]any{
+			"repo": "repo", "verdict": string(VerdictOK),
+		}),
+	} {
+		if err := store.Append(event); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	sampler, err := NewBayesSamplerFromStore(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alpha, beta := sampler.Posterior("repo", ClassTest); alpha != 1 || beta != 3 {
+		t.Fatalf("repo/test posterior = (%v, %v), want (1, 3)", alpha, beta)
+	}
+}
+
+func TestNewBayesSamplerFromStore_SkipsInfraMalformedAndIrrelevantEvents(t *testing.T) {
+	store := newMemStore(t)
+	for _, event := range []state.Event{
+		state.NewEvent(state.EventExperimentFailed, "autoresearch", "", map[string]any{
+			"repo": "repo", "class": string(ClassPerf), "infra_caused": true,
+		}),
+		state.NewEvent(state.EventExperimentFailed, "autoresearch", "", map[string]any{
+			"repo": "repo", "class": string(ClassPerf), "infra_caused": "true",
+		}),
+		state.NewEvent(state.EventExperimentKept, "other-subsystem", "", map[string]any{
+			"repo": "repo", "class": string(ClassPerf),
+		}),
+		state.NewEvent(state.EventExperimentRunning, "autoresearch", "", map[string]any{
+			"repo": "repo", "class": string(ClassPerf),
+		}),
+		{Type: state.EventExperimentDiscarded, Payload: []byte("not-json")},
+		state.NewEvent(state.EventExperimentKept, "autoresearch", "", map[string]any{
+			"repo": "", "class": string(ClassPerf),
+		}),
+		state.NewEvent(state.EventExperimentDiscarded, "autoresearch", "", map[string]any{
+			"repo": "repo", "class": "not-a-class",
+		}),
+	} {
+		if err := store.Append(event); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	sampler, err := NewBayesSamplerFromStore(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alpha, beta := sampler.Posterior("repo", ClassPerf); alpha != 1 || beta != 1 {
+		t.Fatalf("repo/perf posterior = (%v, %v), want unchanged (1, 1)", alpha, beta)
+	}
+	if alpha, beta := sampler.Posterior("repo", ExperimentClass("not-a-class")); alpha != 1 || beta != 1 {
+		t.Fatalf("unknown class posterior = (%v, %v), want unchanged (1, 1)", alpha, beta)
+	}
+}
+
+func TestNewBayesSamplerFromStore_ReturnsListError(t *testing.T) {
+	want := errors.New("list failed")
+	sampler, err := NewBayesSamplerFromStore(errorEventStore{err: want})
+	if sampler != nil {
+		t.Fatal("sampler should be nil when replay fails")
+	}
+	if !errors.Is(err, want) {
+		t.Fatalf("error = %v, want %v", err, want)
+	}
+}
+
+func TestNewBayesSamplerFromStore_RejectsNilStore(t *testing.T) {
+	sampler, err := NewBayesSamplerFromStore(nil)
+	if sampler != nil || err == nil {
+		t.Fatalf("got sampler=%v error=%v, want nil sampler and error", sampler, err)
+	}
+}
+
+type errorEventStore struct{ err error }
+
+func (s errorEventStore) Append(state.Event) error                      { return nil }
+func (s errorEventStore) List(state.EventFilter) ([]state.Event, error) { return nil, s.err }
+func (s errorEventStore) Count(state.EventFilter) (int, error)          { return 0, nil }
+func (s errorEventStore) Close() error                                  { return nil }

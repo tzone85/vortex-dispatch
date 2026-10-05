@@ -39,7 +39,7 @@ Refuses to run while a live pipeline holds the project lock file.`,
 	return cmd
 }
 
-func runReplay(cmd *cobra.Command, _ []string) error {
+func runReplay(cmd *cobra.Command, _ []string) (err error) {
 	out := cmd.OutOrStdout()
 
 	// Resolve config + project WITHOUT opening stores: loadStores would
@@ -101,7 +101,16 @@ func runReplay(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("create fresh projection store: %w", err)
 	}
-	defer ps.Close()
+	// Surface a Close failure instead of swallowing it: replay is a recovery
+	// operation, so a projection store that fails to flush/close means the
+	// rebuilt vxd.db may not be durable — the operator must know rather than
+	// see a false "Projection rebuilt" success. A real error already in flight
+	// (projection failure below) takes precedence over the close error.
+	defer func() {
+		if cerr := ps.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close projection store: %w", cerr)
+		}
+	}()
 
 	applied := 0
 	for _, evt := range events {

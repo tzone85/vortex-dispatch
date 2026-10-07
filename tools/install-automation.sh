@@ -7,8 +7,6 @@
 #   2. Rebuilds candidate F: retires the broken com.vxd.self-improve launchd
 #      job and installs com.vxd.audit-loop (candidate A + G) in its place.
 #
-# it fails condition 3 (prod fintech / POPIA — can't afford wasted runs).
-#
 # Usage:
 #   tools/install-automation.sh           # install everything
 #   tools/install-automation.sh --hooks   # just the git hooks
@@ -44,7 +42,32 @@ retire_self_improve() {
 install_audit_loop() {
 	echo "== installing ${NEW_LABEL} (A + G, weekly Mon 06:00) =="
 	mkdir -p "${HOME}/.vxd/audit-loop" "$LA_DIR"
-	cp "$NEW_PLIST_SRC" "$NEW_PLIST_DST"
+	# Render paths as plist values, not shell commands. This works with spaces,
+	# quotes and XML characters in a user's home or repository directory.
+	python3 - "$NEW_PLIST_SRC" "$NEW_PLIST_DST" "$HOME" "$REPO_DIR" <<'PY'
+import os
+import plistlib
+import sys
+import tempfile
+
+source, destination, home, repo = sys.argv[1:]
+with open(source, "rb") as stream:
+    template = plistlib.load(stream)
+
+def render(value):
+    if isinstance(value, str):
+        return value.replace("__VXD_HOME__", home).replace("__VXD_REPO__", repo)
+    if isinstance(value, list):
+        return [render(item) for item in value]
+    if isinstance(value, dict):
+        return {key: render(item) for key, item in value.items()}
+    return value
+
+with tempfile.NamedTemporaryFile(dir=os.path.dirname(destination), delete=False) as stream:
+    temporary = stream.name
+    plistlib.dump(render(template), stream)
+os.replace(temporary, destination)
+PY
 	launchctl unload "$NEW_PLIST_DST" 2>/dev/null || true
 	launchctl load "$NEW_PLIST_DST"
 	echo "   loaded. Verify:  launchctl list | grep ${NEW_LABEL}"
@@ -62,7 +85,7 @@ uninstall() {
 case "${1:-all}" in
 	--hooks)     install_hooks ;;
 	--uninstall) uninstall ;;
-	all)         install_hooks; retire_self_improve; install_audit_loop ;;
+	all)         command -v python3 >/dev/null; install_hooks; install_audit_loop; retire_self_improve ;;
 	*) echo "usage: $0 [--hooks|--uninstall]" >&2; exit 2 ;;
 esac
 echo "done."

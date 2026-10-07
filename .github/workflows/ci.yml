@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
 
       - name: Setup Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
@@ -39,7 +41,10 @@ jobs:
         run: go vet ./...
 
       - name: Check public publication boundary
-        run: make public-boundary
+        run: make public-boundary public-history
+
+      - name: Check automation installer wiring
+        run: python3 tools/test_install_automation.py
 
       - name: Run tests
         # -v emits per-test PASS/FAIL lines so the failing test name surfaces

@@ -8,7 +8,7 @@ import (
 )
 
 // TestDispatchSafetyFeatures is an integration test that exercises all three
-// Other cross-port features together:
+// dispatch safety features together:
 // 1. Pipeline timeout context creation
 // 2. AnalyzeFailure returns hints for known patterns
 // 3. DispatchWave rejects unsafe story IDs
@@ -194,7 +194,7 @@ func TestDispatchSafetyFeatures(t *testing.T) {
 
 		// 3. Verify that all three features are implemented
 		// (The individual tests above verify the detailed functionality)
-		t.Log("All three Other cross-port features are implemented and tested:")
+		t.Log("All three dispatch safety features are implemented and tested:")
 		t.Log("✓ Pipeline timeout context creation")
 		t.Log("✓ AnalyzeFailure provides diagnostic hints")
 		t.Log("✓ DispatchWave validates story IDs")

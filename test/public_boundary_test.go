@@ -16,8 +16,14 @@ func publicBoundaryViolation(path, content string) string {
 			return "operator artifacts must remain outside the published tree"
 		}
 	}
-	if strings.HasSuffix(path, "_CROSSPORT_REQUIREMENTS.md") {
+	name := strings.ToLower(filepath.Base(path))
+	if strings.HasSuffix(name, ".md") && strings.Contains(name, "crossport") {
 		return "cross-product porting plans are not public contributor documentation"
+	}
+	for _, privateDesign := range []string{"commercialization-strategy", "revenue-engine", "self-improvement-engine"} {
+		if strings.HasSuffix(name, ".md") && strings.Contains(name, privateDesign) {
+			return "operator strategy and plans must remain outside the published tree"
+		}
 	}
 	if !strings.HasSuffix(strings.ToLower(path), ".md") {
 		return ""
@@ -47,6 +53,8 @@ func TestPublicBoundaryRules(t *testing.T) {
 		{".claude/plans/draft.md", "plan", true},
 		{"docs/opportunities/customer.json", "{}", true},
 		{"OTHER_CROSSPORT_REQUIREMENTS.md", "plan", true},
+		{"REQUIREMENT_OTHER_CROSSPORT.md", "plan", true},
+		{"docs/specs/2026-01-01-commercialization-strategy.md", "plan", true},
 		{"docs/guide.md", "cd /Users/operator/project", true},
 		{"docs/guide.md", "cd /home/operator/project", true},
 		{"docs/guide.md", "## 10. Revenue Projections\nforecast", true},

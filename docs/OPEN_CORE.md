@@ -129,6 +129,17 @@ porting plans, personal home paths and recognizable business-strategy sections.
 The check is deliberately generic so it does not publish private product names
 in a denylist. Human review must still assess new code, prompts and data.
 
+`make public-history` applies the document rules to every commit reachable from
+HEAD, including deleted files and renamed copies. CI fetches full history and
+runs this gate; `make verify` and the installed pre-push hook also run it. The
+hook checks each commit being pushed, even when its branch is not checked out.
+Shallow clones must fetch the complete history before running the gate.
+This guards the known document boundary; it is not a general secret scanner.
+
+After a coordinated history rewrite, use a fresh clone. To carry unpublished
+work forward, review and apply its patch onto the new history. Do not merge an
+old branch or push an old tag: that can restore removed material.
+
 Removing a document from the current tree does not remove it from old commits,
 branches, tags, pull requests or existing clones. History remediation is a
 separate operation requiring a backup, an inventory of affected refs and a

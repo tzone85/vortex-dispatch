@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os/exec"
 	"path/filepath"
@@ -279,6 +280,10 @@ func parseSemgrep(out []byte, repoDir string) ([]Finding, error) {
 
 func parseNpmAudit(out []byte) ([]Finding, error) {
 	var doc struct {
+		Error struct {
+			Code    string `json:"code"`
+			Summary string `json:"summary"`
+		} `json:"error"`
 		Vulnerabilities map[string]struct {
 			Name     string `json:"name"`
 			Severity string `json:"severity"`
@@ -288,6 +293,23 @@ func parseNpmAudit(out []byte) ([]Finding, error) {
 	}
 	if err := json.Unmarshal(out, &doc); err != nil {
 		return nil, err
+	}
+	// `npm audit --json` reports its own inability to audit as a top-level
+	// {"error":{...}} object (e.g. ENOLOCK when there is no package-lock.json, or
+	// a registry/network failure) INSTEAD of a vulnerabilities report — and it
+	// still exits non-zero, which Scanner.Run intentionally ignores (these tools
+	// also exit non-zero merely for finding issues). Without this check the
+	// absent vulnerabilities map unmarshals cleanly to zero findings, so
+	// RunScanners would count npm-audit as a clean run: a lost-coverage scan
+	// masquerading as clean, which silently defeats security.require_scanners
+	// (npm-audit is the only JS/TS dependency-CVE scanner). Surface it as an
+	// error so RunScanners routes npm-audit to `failed`.
+	if doc.Error.Code != "" || doc.Error.Summary != "" {
+		msg := doc.Error.Summary
+		if msg == "" {
+			msg = doc.Error.Code
+		}
+		return nil, fmt.Errorf("npm audit could not audit dependencies (%s): %s", doc.Error.Code, msg)
 	}
 	findings := make([]Finding, 0, len(doc.Vulnerabilities))
 	for pkg, v := range doc.Vulnerabilities {

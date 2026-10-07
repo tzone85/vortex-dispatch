@@ -168,14 +168,14 @@ func TestParseURLs_HyphenatedFileKey(t *testing.T) {
 func TestResolveToken_UnreadableFileIsDistinguished(t *testing.T) {
 	t.Setenv(TokenEnvVar, "")
 	dir := t.TempDir()
-	path, err := SaveToken(dir, "tok")
-	if err != nil {
+	// A chmod(0o000) file is still readable by root (DAC is bypassed), so a
+	// permission-based assertion silently flips when the suite runs as root
+	// (e.g. in a rootful CI container). Placing a directory at the token path
+	// yields a non-ENOENT read error (EISDIR) for every euid, exercising the
+	// same "exists but cannot be read as a token" branch of ResolveToken.
+	if err := os.MkdirAll(TokenPath(dir), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(path, 0o000); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
 	_, _, rerr := ResolveToken(dir)
 	if rerr == nil || !strings.Contains(rerr.Error(), "unreadable") {
 		t.Errorf("permission failure must be named, got %v", rerr)

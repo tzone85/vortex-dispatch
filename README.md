@@ -37,7 +37,7 @@ See the [tutorial](docs/tutorial.md) for a full walkthrough.
 
 ### Prerequisites
 
-- Go 1.23+
+- Go 1.26.6+
 - git and GitHub CLI (`gh`)
 - tmux for the full macOS/Linux agent pipeline
 - at least one supported coding-agent CLI configured for your environment

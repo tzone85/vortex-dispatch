@@ -20,7 +20,7 @@ Before installing VXD, ensure you have the following tools available:
 
 | Tool | Purpose | Install |
 |------|---------|---------|
-| **Go 1.23+** | Build and install VXD | [go.dev/dl](https://go.dev/dl/) |
+| **Go 1.26.6+** | Build and install VXD | [go.dev/dl](https://go.dev/dl/) |
 | **tmux** | Agent session management | `brew install tmux` / `apt install tmux` |
 | **GitHub CLI (gh)** | PR creation and auto-merge | `brew install gh` / [cli.github.com](https://cli.github.com) |
 | **SQLite3** | State projection storage | Usually pre-installed on macOS/Linux |

@@ -1,4 +1,4 @@
-.PHONY: build test lint clean install verify vuln doc-coverage hooks
+.PHONY: build test lint clean install verify vuln doc-coverage public-boundary hooks
 
 BINARY=vxd
 VERSION?=0.1.0
@@ -28,6 +28,9 @@ lint:
 doc-coverage:
 	go test ./internal/engine/ -run TestDocCoverage -count=1
 
+public-boundary:
+	go test ./test -run '^TestPublicBoundary' -count=1
+
 # vuln scans the module + its dependencies for known CVEs. Non-fatal advisories
 # still exit non-zero, so this is also the weekly-scheduled security gate (G).
 vuln:
@@ -39,6 +42,7 @@ vuln:
 # golangci-lint still gets full build+test signal before the gate fails with
 # an install hint (audit finding E-01). Lint remains required — CI blocks on it.
 verify:
+	$(MAKE) public-boundary
 	go build $(LDFLAGS) -o $(BINARY) ./cmd/vxd/
 	go vet ./...
 	go test ./... -count=1

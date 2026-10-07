@@ -491,7 +491,7 @@ cat > ~/Library/LaunchAgents/com.vxd.self-improve.plist << 'PLISTEOF'
 PLISTEOF
 
 # IMPORTANT: Edit the plist and replace ~ with your actual home directory path
-# e.g., /Users/yourusername
+# e.g., /Users/<you>
 sed -i '' "s|~|$HOME|g" ~/Library/LaunchAgents/com.vxd.self-improve.plist
 
 # Load the schedule

@@ -271,6 +271,33 @@ func TestReplay_DryRunReportsCorruptLines(t *testing.T) {
 	}
 }
 
+// TestReplay_CleanRebuildReleasesStore pins the projection-store close
+// contract of rebuildAndClose: on a successful rebuild runReplay must return
+// nil (closing a healthy store must NOT fabricate an error), and the store
+// must be fully closed so a subsequent open — here a second replay in the same
+// process — succeeds without a stale handle or lock.
+func TestReplay_CleanRebuildReleasesStore(t *testing.T) {
+	dir, projectDir := setupReplayEnv(t)
+	preStory, preReq := seedReplayEvents(t, projectDir)
+	removeDBFiles(t, projectDir)
+
+	cmd, buf := newReplayTestCmd(t, dir)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("first replay returned error on a healthy store close: %v", err)
+	}
+	if !strings.Contains(buf.String(), "Projection rebuilt") {
+		t.Fatalf("expected success output, got: %s", buf.String())
+	}
+
+	// Second replay in the same process: only possible if the first replay's
+	// rebuildAndClose actually closed and released the vxd.db handle/lock.
+	cmd2, _ := newReplayTestCmd(t, dir)
+	if err := cmd2.Execute(); err != nil {
+		t.Fatalf("second replay failed — first replay did not release the store: %v", err)
+	}
+	assertProjectionMatchesPreDelete(t, projectDir, preStory, preReq)
+}
+
 func TestReplay_RefusesWhenLocked(t *testing.T) {
 	dir, projectDir := setupReplayEnv(t)
 

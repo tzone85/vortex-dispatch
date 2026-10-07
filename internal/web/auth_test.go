@@ -100,6 +100,21 @@ func TestNewAuthMiddleware_AllowUnauthenticatedExplicit(t *testing.T) {
 
 // ─── RequireToken — bypass paths + missing/wrong token ───────────────────
 
+// TestRequireToken_PanicsOnEmptyToken pins RequireToken's fail-closed
+// contract: an empty token (a classic misconfiguration — unset env var or
+// blank config field) must PANIC, exactly as NewAuthMiddleware does, and must
+// never silently return pass-through middleware that disables authentication.
+// A function named RequireToken that turned auth OFF when handed no token
+// would be a fail-open security hole.
+func TestRequireToken_PanicsOnEmptyToken(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("RequireToken(\"\") must panic (fail closed), not return unauthenticated pass-through middleware")
+		}
+	}()
+	_ = RequireToken("", http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+}
+
 func TestRequireToken_AllowsBypassPaths(t *testing.T) {
 	h := RequireToken("the-token", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

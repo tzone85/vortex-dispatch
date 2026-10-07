@@ -122,6 +122,18 @@ Public documentation should not contain:
 
 ## Licensing
 
+Run `make public-boundary` before publishing. CI and `make verify` run the
+same check against Git's file inventory, including ignored files that were
+already tracked. It rejects operator artifact directories, cross-product
+porting plans, personal home paths and recognizable business-strategy sections.
+The check is deliberately generic so it does not publish private product names
+in a denylist. Human review must still assess new code, prompts and data.
+
+Removing a document from the current tree does not remove it from old commits,
+branches, tags, pull requests or existing clones. History remediation is a
+separate operation requiring a backup, an inventory of affected refs and a
+coordinated rewrite. Do not claim historical removal based on this check.
+
 VXD remains licensed under Apache License 2.0. Code already released under
 Apache 2.0 remains subject to the rights granted by that licence.
 

@@ -38,6 +38,9 @@ jobs:
       - name: Run vet
         run: go vet ./...
 
+      - name: Check public publication boundary
+        run: make public-boundary
+
       - name: Run tests
         # -v emits per-test PASS/FAIL lines so the failing test name surfaces
         # when go test would otherwise just print "exit status 1\nFAIL pkg".

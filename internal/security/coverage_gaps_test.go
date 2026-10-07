@@ -195,7 +195,7 @@ func TestParseNpmAudit_FallsBackToMapKeyForName(t *testing.T) {
 
 func TestParseGovulncheck_MalformedLinesSkipped(t *testing.T) {
 	out := []byte("Vulnerability #1 without colon\nVulnerability #2:   \nVulnerability #3: GO-2025-999\n")
-	fs, err := parseGovulncheck(out)
+	fs, err := parseGovulncheck(out, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,7 @@
 package security
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -191,7 +192,7 @@ Vulnerability #2: GO-2023-5678
     Another issue.
   More info: https://pkg.go.dev/vuln/GO-2023-5678
 `)
-	got, err := parseGovulncheck(out)
+	got, err := parseGovulncheck(out, nil)
 	if err != nil {
 		t.Fatalf("parseGovulncheck: %v", err)
 	}
@@ -203,5 +204,53 @@ Vulnerability #2: GO-2023-5678
 	}
 	if got[0].Severity != SeverityHigh {
 		t.Errorf("dependency CVE should be high, got %v", got[0].Severity)
+	}
+}
+
+// TestParseGovulncheck_FailedRunIsNotClean guards the security-gate invariant
+// that a failed scan never masquerades as a clean one. When govulncheck itself
+// fails (e.g. can't reach the vuln DB in an offline/proxied CI), it emits a
+// diagnostic with no "Vulnerability #" lines and exits non-zero. That must be
+// reported as an error (→ routed to `failed`), NOT as a clean zero-finding pass.
+func TestParseGovulncheck_FailedRunIsNotClean(t *testing.T) {
+	// govulncheck's real output when it cannot fetch the vulnerability DB.
+	out := []byte(`govulncheck: fetching vulnerabilities: Get "https://vuln.go.dev/index/modules.json.gz": Forbidden`)
+	runErr := errors.New("exit status 1")
+
+	fs, err := parseGovulncheck(out, runErr)
+	if err == nil {
+		t.Fatalf("expected an error for a failed govulncheck run, got nil (findings=%v) — a failed scan must not report clean", fs)
+	}
+	if fs != nil {
+		t.Errorf("expected no findings on a failed run, got %v", fs)
+	}
+}
+
+// TestParseGovulncheck_CleanRunHasNoError confirms a genuine clean run (no
+// vulnerabilities, exit 0 → nil runErr) is NOT misclassified as a failure.
+func TestParseGovulncheck_CleanRunHasNoError(t *testing.T) {
+	out := []byte("No vulnerabilities found.\n")
+	fs, err := parseGovulncheck(out, nil)
+	if err != nil {
+		t.Fatalf("clean run must not error: %v", err)
+	}
+	if len(fs) != 0 {
+		t.Errorf("clean run should have no findings, got %v", fs)
+	}
+}
+
+// TestParseGovulncheck_VulnsFoundWithNonZeroExit confirms that when vulns are
+// found (govulncheck exits 3, a non-nil runErr), the parsed findings are still
+// returned and the non-zero exit is not treated as a scan failure.
+func TestParseGovulncheck_VulnsFoundWithNonZeroExit(t *testing.T) {
+	out := []byte("Vulnerability #1: GO-2024-1234\n")
+	runErr := errors.New("exit status 3") // govulncheck exits 3 when it finds vulns
+
+	fs, err := parseGovulncheck(out, runErr)
+	if err != nil {
+		t.Fatalf("vulns-found run must not error: %v", err)
+	}
+	if len(fs) != 1 || fs[0].RuleID != "GO-2024-1234" {
+		t.Fatalf("expected the parsed vuln finding, got %v", fs)
 	}
 }

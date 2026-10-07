@@ -1,13 +1,16 @@
 package security
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"log"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -309,24 +312,53 @@ func parseNpmAudit(out []byte) ([]Finding, error) {
 	return findings, nil
 }
 
-func parseGovulncheck(out []byte) ([]Finding, error) {
-	var findings []Finding
-	sc := bufio.NewScanner(bytes.NewReader(out))
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		// Lines look like: "Vulnerability #1: GO-2024-1234"
-		if !strings.HasPrefix(line, "Vulnerability #") {
-			continue
+// parseGovulncheckJSON parses the `govulncheck -json` message stream (a sequence
+// of concatenated JSON objects) and extracts CALLED vulnerabilities — those with
+// a symbol-level trace frame (trace[0].function set). Unlike govulncheck's text
+// mode, the JSON stream lets us positively tell "ran clean" from "failed to run":
+// a successful run always emits a leading `config` handshake message. sawConfig
+// reports whether that handshake was seen; a decode error on a non-EOF token
+// (truncated/garbage output, e.g. a plain-text fatal error appended after a
+// network failure) is returned so the caller can route the scan to `failed`
+// instead of reporting a broken dependency scan as clean.
+func parseGovulncheckJSON(out []byte) (findings []Finding, sawConfig bool, err error) {
+	type traceFrame struct {
+		Function string `json:"function"`
+	}
+	var msg struct {
+		Config  json.RawMessage `json:"config"`
+		Finding *struct {
+			OSV   string       `json:"osv"`
+			Trace []traceFrame `json:"trace"`
+		} `json:"finding"`
+	}
+	called := map[string]bool{}
+	dec := json.NewDecoder(bytes.NewReader(out))
+	for {
+		msg.Config = nil
+		msg.Finding = nil
+		if e := dec.Decode(&msg); e != nil {
+			if errors.Is(e, io.EOF) {
+				break
+			}
+			return nil, sawConfig, e
 		}
-		idx := strings.LastIndex(line, ":")
-		if idx < 0 {
-			continue
+		if len(msg.Config) > 0 {
+			sawConfig = true
 		}
-		id := strings.TrimSpace(line[idx+1:])
-		if id == "" {
-			continue
+		// govulncheck emits one finding per OSV per trace granularity
+		// (module, package, symbol). The symbol-level finding — the only one
+		// with a function in its top trace frame — is the "called" signal.
+		if f := msg.Finding; f != nil && f.OSV != "" && len(f.Trace) > 0 && f.Trace[0].Function != "" {
+			called[f.OSV] = true
 		}
+	}
+	ids := make([]string, 0, len(called))
+	for id := range called {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
 		findings = append(findings, Finding{
 			Tool:     "govulncheck",
 			RuleID:   id,
@@ -338,7 +370,51 @@ func parseGovulncheck(out []byte) ([]Finding, error) {
 			Source:   "scanner",
 		})
 	}
-	return findings, sc.Err()
+	return findings, sawConfig, nil
+}
+
+// runGovulncheck runs govulncheck in JSON mode and, crucially, treats a failed
+// run as a failure rather than a clean scan. The four JSON scanners (gosec,
+// gitleaks, semgrep, npm-audit) get failure detection for free — a crash emits
+// non-JSON that fails json.Unmarshal, routing them to `failed`. govulncheck's
+// text mode had no such signal: a network/build/timeout error simply produced
+// output with no "Vulnerability #" line, indistinguishable from a clean scan, so
+// a dependency scan that never ran was reported as scanned-clean (defeating even
+// `require_scanners: true`, which only inspects skipped/failed). In -json mode
+// govulncheck exits non-zero ONLY on a tool error — vulnerabilities found do NOT
+// set a non-zero code — and always emits a `config` handshake on a real run, so
+// both a non-zero exit and a missing/garbled stream are surfaced as errors.
+func runGovulncheck(ctx context.Context, repoDir string) ([]Finding, error) {
+	ctx, cancel := context.WithTimeout(ctx, scannerTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "govulncheck", "-json", "./...")
+	cmd.Dir = repoDir
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	runErr := cmd.Run()
+
+	findings, sawConfig, perr := parseGovulncheckJSON(stdout.Bytes())
+	if perr != nil {
+		return nil, fmt.Errorf("govulncheck: unparseable JSON output (scan did not complete): %w", perr)
+	}
+	if runErr != nil {
+		return nil, fmt.Errorf("govulncheck: %w: %s", runErr, strings.TrimSpace(tailString(stderr.String(), 300)))
+	}
+	if !sawConfig {
+		return nil, fmt.Errorf("govulncheck: no config message on stdout (scan did not run)")
+	}
+	return findings, nil
+}
+
+// tailString returns the last n bytes of s (used to bound scanner stderr in
+// error messages so a large trace can't flood logs).
+func tailString(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[len(s)-n:]
 }
 
 // Run executes the scanner against repoDir and returns parsed findings. A
@@ -347,6 +423,12 @@ func parseGovulncheck(out []byte) ([]Finding, error) {
 // caller can log and continue (graceful degradation — one tool failing never
 // aborts the scan).
 func (s Scanner) Run(ctx context.Context, repoDir string) ([]Finding, error) {
+	// govulncheck runs in JSON mode with its own exit-code handling so a failed
+	// run is reported as failed, never as a clean scan (see runGovulncheck).
+	if s.Kind == ScannerGovulncheck {
+		return runGovulncheck(ctx, repoDir)
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, scannerTimeout)
 	defer cancel()
 
@@ -354,8 +436,6 @@ func (s Scanner) Run(ctx context.Context, repoDir string) ([]Finding, error) {
 	switch s.Kind {
 	case ScannerGosec:
 		cmd = exec.CommandContext(ctx, "gosec", "-fmt=json", "-quiet", "./...")
-	case ScannerGovulncheck:
-		cmd = exec.CommandContext(ctx, "govulncheck", "./...")
 	case ScannerGitleaks:
 		cmd = exec.CommandContext(ctx, "gitleaks", "detect", "--no-banner", "--report-format", "json", "--report-path", "/dev/stdout")
 	case ScannerSemgrep:
@@ -371,8 +451,6 @@ func (s Scanner) Run(ctx context.Context, repoDir string) ([]Finding, error) {
 	switch s.Kind {
 	case ScannerGosec:
 		return parseGosec(out, repoDir)
-	case ScannerGovulncheck:
-		return parseGovulncheck(out)
 	case ScannerGitleaks:
 		return parseGitleaks(out, repoDir)
 	case ScannerSemgrep:

@@ -154,35 +154,48 @@ func checkTests(repoDir string) (passing, failing, total int) {
 	}
 
 	cmd.Dir = repoDir
-	out, _ := cmd.CombinedOutput()
+	out, runErr := cmd.CombinedOutput()
 	output := string(out)
 
 	if fileExists(filepath.Join(repoDir, "go.mod")) {
-		return parseGoTestJSON(output)
-	}
-
-	// Parse test results (simplified — count PASS/FAIL lines)
-	for _, line := range strings.Split(output, "\n") {
-		if strings.Contains(line, "\"numPassedTests\"") || strings.Contains(line, "PASS:") {
-			passing++
-		}
-		if strings.Contains(line, "\"numFailedTests\"") || strings.Contains(line, "FAIL:") {
-			failing++
-		}
-	}
-
-	// Fallback: parse Jest summary line
-	if strings.Contains(output, "Tests:") {
+		passing, failing, total = parseGoTestJSON(output)
+	} else {
+		// Parse test results (simplified — count PASS/FAIL lines)
 		for _, line := range strings.Split(output, "\n") {
-			if strings.Contains(line, "Tests:") && strings.Contains(line, "passed") {
-				// Parse "Tests: X failed, Y passed, Z total"
-				_, _ = fmt.Sscanf(line, "Tests: %d failed, %d passed, %d total", &failing, &passing, &total) // partial parse keeps zero counters
-				break
+			if strings.Contains(line, "\"numPassedTests\"") || strings.Contains(line, "PASS:") {
+				passing++
+			}
+			if strings.Contains(line, "\"numFailedTests\"") || strings.Contains(line, "FAIL:") {
+				failing++
 			}
 		}
+
+		// Fallback: parse Jest summary line
+		if strings.Contains(output, "Tests:") {
+			for _, line := range strings.Split(output, "\n") {
+				if strings.Contains(line, "Tests:") && strings.Contains(line, "passed") {
+					// Parse "Tests: X failed, Y passed, Z total"
+					_, _ = fmt.Sscanf(line, "Tests: %d failed, %d passed, %d total", &failing, &passing, &total) // partial parse keeps zero counters
+					break
+				}
+			}
+		}
+		total = passing + failing
 	}
 
-	total = passing + failing
+	// Fail closed: a non-zero test-runner exit with no attributable per-test
+	// failure means the suite could not be EVALUATED — a compile error (test
+	// files aren't built by `go build ./...`), a panic before any test ran, a
+	// vet failure, or the runner (jest/vitest) failing to launch. The per-test
+	// parsers see nothing to count and would otherwise report (0 failing) =
+	// green, so the completion gate would emit REQ_COMPLETED on a suite that
+	// never ran. Treat it as a failure so the gate blocks instead.
+	if runErr != nil && failing == 0 {
+		log.Printf("[verify] test runner exited non-zero (%v) with 0 per-test failures — treating as compile/infra failure, not a clean run", runErr)
+		failing = 1
+		total = passing + failing
+	}
+
 	log.Printf("[verify] tests: %d passing, %d failing, %d total", passing, failing, total)
 	return passing, failing, total
 }
@@ -197,7 +210,21 @@ func parseGoTestJSON(output string) (passing, failing, total int) {
 			Action string `json:"Action"`
 			Test   string `json:"Test"`
 		}
-		if err := json.Unmarshal([]byte(line), &evt); err != nil || evt.Test == "" {
+		if err := json.Unmarshal([]byte(line), &evt); err != nil {
+			continue
+		}
+		// Package-level events have an empty Test. Almost all are ignorable
+		// (start/output/pass), but "build-fail" is critical: `go test -json`
+		// emits it when a test binary fails to COMPILE — e.g. a merged story's
+		// _test.go references a symbol another story renamed or removed. Because
+		// `go build ./...` (checkBuild) does NOT compile test files, this is the
+		// ONLY signal that cross-story drift broke the test suite. Counting it as
+		// a failure is what stops the completion gate from reporting a suite that
+		// does not even compile as green.
+		if evt.Test == "" {
+			if evt.Action == "build-fail" {
+				failing++
+			}
 			continue
 		}
 		switch evt.Action {

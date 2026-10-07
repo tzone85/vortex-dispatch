@@ -130,6 +130,7 @@ func TestPublicHistoryRejectsDeletedMaterial(t *testing.T) {
 			git("config", "user.email", "test@example.com")
 			git("config", "user.name", "Test")
 			git("commit", "--allow-empty", "-m", "clean")
+			git("tag", "clean")
 			if err := checkPublicHistory(root, []string{"HEAD"}); err != nil {
 				t.Fatal(err)
 			}
@@ -142,13 +143,26 @@ func TestPublicHistoryRejectsDeletedMaterial(t *testing.T) {
 			}
 			git("add", ".")
 			git("commit", "-m", "add")
+			// The same blob can appear under an allowed and a forbidden name.
+			// Preserve an alias to ensure the checker examines every path.
+			if path == "docs/removed.md" {
+				git("mv", path, "docs/alias.txt")
+				git("commit", "-m", "rename")
+				git("mv", "docs/alias.txt", path)
+				git("commit", "-m", "restore name")
+			}
 			git("rm", path)
 			git("commit", "-m", "remove")
 			if err := checkPublicHistory(root, []string{"HEAD"}); err == nil {
 				t.Fatal("deleted publication violation was accepted")
 			}
-			if err := checkPublicHistory(root, []string{"HEAD~2"}); err != nil {
+			if err := checkPublicHistory(root, []string{"clean"}); err != nil {
 				t.Fatalf("explicit clean ref rejected: %v", err)
+			}
+			shallow := filepath.Join(t.TempDir(), "shallow")
+			git("clone", "--quiet", "--depth=1", "file://"+root, shallow)
+			if err := checkPublicHistory(shallow, []string{"HEAD"}); err == nil || !strings.Contains(err.Error(), "full clone") {
+				t.Fatalf("shallow history must fail closed: %v", err)
 			}
 		})
 	}

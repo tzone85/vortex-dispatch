@@ -9,6 +9,26 @@ import unittest
 
 
 class InstallerTest(unittest.TestCase):
+    def test_hook_checks_each_pushed_commit_and_blocks_on_failure(self):
+        source = Path(__file__).resolve().parent.parent / ".githooks/pre-push"
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            fake = base / "make"
+            fake.write_text('#!/bin/bash\nprintf "%s|%s\\n" "$*" "${VXD_PUBLIC_HISTORY_REFS:-}" >> "$VXD_TEST_GATE_LOG"\n'
+                            'if [ "${VXD_PUBLIC_HISTORY_REFS:-}" = "${VXD_TEST_BAD_REF:-none}" ]; then exit 1; fi\n')
+            fake.chmod(0o755)
+            log = base / "gates.log"
+            env = dict(os.environ, VXD_TEST_GATE_LOG=str(log), PATH=str(base) + os.pathsep + os.environ["PATH"])
+            first, second, deleted = "1" * 40, "2" * 40, "0" * 40
+            refs = f"refs/heads/main {first} refs/heads/main {deleted}\nrefs/heads/other {second} refs/heads/other {deleted}\nrefs/heads/removed {deleted} refs/heads/removed {first}\n"
+            subprocess.run(["bash", str(source)], input=refs, text=True, env=env, check=True, capture_output=True)
+            self.assertEqual(log.read_text().splitlines(), [f"public-history|{first}", f"public-history|{second}", "verify|"])
+            log.unlink()
+            env["VXD_TEST_BAD_REF"] = second
+            failed = subprocess.run(["bash", str(source)], input=refs, text=True, env=env, capture_output=True)
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertEqual(log.read_text().splitlines(), [f"public-history|{first}", f"public-history|{second}"])
+
     def test_render_install_reinstall_uninstall(self):
         source = Path(__file__).resolve().parent
         with tempfile.TemporaryDirectory() as temporary:

@@ -20,7 +20,7 @@ Before installing VXD, ensure you have the following tools available:
 
 | Tool | Purpose | Install |
 |------|---------|---------|
-| **Go 1.23+** | Build and install VXD | [go.dev/dl](https://go.dev/dl/) |
+| **Go 1.26.6+** | Build and install VXD | [go.dev/dl](https://go.dev/dl/) |
 | **tmux** | Agent session management | `brew install tmux` / `apt install tmux` |
 | **GitHub CLI (gh)** | PR creation and auto-merge | `brew install gh` / [cli.github.com](https://cli.github.com) |
 | **SQLite3** | State projection storage | Usually pre-installed on macOS/Linux |
@@ -360,7 +360,7 @@ WSL 2 automatically forwards localhost ports to Windows, so no extra configurati
 | `config not found` | Missing vxd.yaml | Run `vxd init` in your project directory |
 | Agent sessions invisible | Wrong tmux server | Run `tmux list-sessions` to verify sessions exist |
 | Merge fails with conflicts | Parallel agents touched same files | VXD uses LLM-powered conflict resolution; if it fails repeatedly, try reducing parallel stories |
-| `database is locked` (SQLite) | Concurrent writes during pipeline | Fixed in latest version (WAL mode enabled). If upgrading, delete `~/.vxd/vxd.db` and replay events |
+| `database is locked` (SQLite) | Concurrent writes during pipeline | Fixed in latest version (WAL mode enabled). If upgrading, run `vxd replay` to rebuild `~/.vxd/projects/<project>/vxd.db` from the event log |
 | **WSL:** `localhost` not reachable from Windows | WSL 2 networking issue | Run `wsl --shutdown` from PowerShell and restart WSL. Alternatively, check `ip addr show eth0` in WSL and use that IP |
 | **WSL:** `npm: command not found` | Node.js not installed in WSL | Install Node.js inside WSL (not Windows Node.js): `curl -fsSL https://deb.nodesource.com/setup_22.x \| sudo -E bash - && sudo apt install -y nodejs` |
 | **WSL:** file permissions wrong | NTFS mount permissions | Add to `/etc/wsl.conf`: `[automount]\noptions = "metadata"` then restart WSL |
@@ -491,7 +491,7 @@ cat > ~/Library/LaunchAgents/com.vxd.self-improve.plist << 'PLISTEOF'
 PLISTEOF
 
 # IMPORTANT: Edit the plist and replace ~ with your actual home directory path
-# e.g., /Users/yourusername
+# e.g., /Users/<you>
 sed -i '' "s|~|$HOME|g" ~/Library/LaunchAgents/com.vxd.self-improve.plist
 
 # Load the schedule

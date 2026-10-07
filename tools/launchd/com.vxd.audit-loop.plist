@@ -14,12 +14,11 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>-lc</string>
-        <string>/Users/YOURUSER/Sites/misc/vortex-dispatch/tools/audit-loop.sh</string>
+        <string>__VXD_REPO__/tools/audit-loop.sh</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/YOURUSER/Sites/misc/vortex-dispatch</string>
+    <string>__VXD_REPO__</string>
 
     <!-- Weekly: Monday 06:00. Audit cadence matches the observed fix cadence;
          the script also self-skips when main hasn't changed since the last run. -->
@@ -34,16 +33,16 @@
     </dict>
 
     <key>StandardOutPath</key>
-    <string>/Users/YOURUSER/.vxd/audit-loop/launchd.log</string>
+    <string>__VXD_HOME__/.vxd/audit-loop/launchd.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/YOURUSER/.vxd/audit-loop/launchd.log</string>
+    <string>__VXD_HOME__/.vxd/audit-loop/launchd.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/Users/YOURUSER/.local/bin:/Users/YOURUSER/go/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <string>__VXD_HOME__/.local/bin:__VXD_HOME__/go/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
         <key>HOME</key>
-        <string>/Users/YOURUSER</string>
+        <string>__VXD_HOME__</string>
     </dict>
 </dict>
 </plist>

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -99,6 +100,32 @@ func TestParseGosec(t *testing.T) {
 	}
 }
 
+// TestParseGosec_PackageLoadErrorSurfaced pins that a gosec run that could not
+// analyse the code (compile/package-load failure → valid JSON with empty
+// Issues but a populated "Golang errors" map) is surfaced as a failure rather
+// than swallowed as a clean, zero-issue scan. A scan that produced issues
+// alongside a per-file error is NOT flipped to failed.
+func TestParseGosec_PackageLoadErrorSurfaced(t *testing.T) {
+	failed := []byte(`{"Issues":[],"Golang errors":{"/repo/broken.go":[{"line":1,"column":1,"error":"expected declaration"}]},"Stats":{"files":0,"lines":0}}`)
+	got, err := parseGosec(failed, "/repo")
+	if err == nil {
+		t.Fatalf("parseGosec = nil error, want package-load failure surfaced; findings=%+v", got)
+	}
+	if !strings.Contains(err.Error(), "coverage lost") {
+		t.Errorf("error %q does not signal coverage loss", err.Error())
+	}
+
+	// Issues present alongside a Golang error → still a successful scan.
+	withResults := []byte(`{"Issues":[{"severity":"HIGH","cwe":{"id":"798"},"rule_id":"G101","details":"d","file":"/repo/a.go","line":"1"}],"Golang errors":{"/repo/b.go":[{"line":1,"column":1,"error":"x"}]}}`)
+	fs, err := parseGosec(withResults, "/repo")
+	if err != nil {
+		t.Fatalf("parseGosec with issues + error = %v, want nil", err)
+	}
+	if len(fs) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(fs))
+	}
+}
+
 func TestParseGitleaks(t *testing.T) {
 	out := []byte(`[
 	  {"Description":"AWS Access Key","File":"config/prod.env","StartLine":3,"RuleID":"aws-access-token","Secret":"AKIAXXXXXXXX","Match":"AKIA..."},
@@ -142,6 +169,33 @@ func TestParseSemgrep(t *testing.T) {
 	}
 }
 
+// TestParseSemgrep_ScanErrorEnvelope pins that a scan-level failure (valid
+// JSON, empty results, an error-level entry — e.g. rules failed to load on an
+// offline host) is surfaced as a failure, not swallowed as a clean empty scan.
+// Otherwise RunScanners counts it in `ran` (clean) instead of `failed`
+// (coverage lost), and require_scanners strict mode would not block.
+func TestParseSemgrep_ScanErrorEnvelope(t *testing.T) {
+	out := []byte(`{"results":[],"errors":[{"level":"error","message":"unable to load config: registry unreachable"}]}`)
+	got, err := parseSemgrep(out, "/repo")
+	if err == nil {
+		t.Fatalf("parseSemgrep = nil error, want scan failure surfaced; findings=%+v", got)
+	}
+	if !strings.Contains(err.Error(), "unable to load config") {
+		t.Errorf("error %q does not name the scan error", err.Error())
+	}
+
+	// A scan that produced findings is NOT flipped to failed by a coexisting
+	// non-fatal (warn-level) error entry — coverage clearly wasn't lost.
+	okOut := []byte(`{"results":[{"check_id":"r","path":"/repo/x.go","start":{"line":1},"extra":{"message":"m","severity":"ERROR","metadata":{}}}],"errors":[{"level":"warn","message":"partial parse"}]}`)
+	fs, err := parseSemgrep(okOut, "/repo")
+	if err != nil {
+		t.Fatalf("parseSemgrep with results + warn = %v, want nil", err)
+	}
+	if len(fs) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(fs))
+	}
+}
+
 func TestParseNpmAudit(t *testing.T) {
 	out := []byte(`{
 	  "vulnerabilities": {
@@ -176,6 +230,45 @@ func TestParseNpmAudit(t *testing.T) {
 	}
 }
 
+// TestParseNpmAudit_ErrorEnvelope pins that npm's valid-JSON error envelope
+// (emitted when the audit cannot run — e.g. no lockfile) is surfaced as an
+// error rather than swallowed as a clean, empty scan. Otherwise RunScanners
+// counts it in `ran` (clean coverage) instead of `failed` (coverage lost),
+// letting a dependency-CVE scan silently no-op while the security gate — and
+// require_scanners strict mode — believe the tool ran.
+func TestParseNpmAudit_ErrorEnvelope(t *testing.T) {
+	cases := []struct {
+		name string
+		out  string
+		want string
+	}{
+		{
+			name: "ENOLOCK no lockfile",
+			out:  `{"error":{"code":"ENOLOCK","summary":"This command requires an existing lockfile."}}`,
+			want: "This command requires an existing lockfile",
+		},
+		{
+			name: "error with only code",
+			out:  `{"error":{"code":"EAUDITNOPJSON"}}`,
+			want: "EAUDITNOPJSON",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseNpmAudit([]byte(tc.out))
+			if err == nil {
+				t.Fatalf("parseNpmAudit(%s) = nil error, want failure surfaced; findings=%+v", tc.out, got)
+			}
+			if got != nil {
+				t.Errorf("expected no findings on error envelope, got %+v", got)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %q does not mention %q", err.Error(), tc.want)
+			}
+		})
+	}
+}
+
 func TestParseGovulncheck(t *testing.T) {
 	// govulncheck text output (the human format): we extract called vulns.
 	out := []byte(`=== Symbol Results ===
@@ -203,5 +296,31 @@ Vulnerability #2: GO-2023-5678
 	}
 	if got[0].Severity != SeverityHigh {
 		t.Errorf("dependency CVE should be high, got %v", got[0].Severity)
+	}
+}
+
+// TestParseGovulncheck_FatalErrorSurfaced pins that a govulncheck run that
+// could not execute (e.g. the vulnerability DB is unreachable on an offline
+// host) is surfaced as a failure, not swallowed as a clean, zero-finding scan.
+// Text mode has no unmarshal error to route the failure to `failed`, so the
+// "govulncheck: <msg>" fatal line is the signal.
+func TestParseGovulncheck_FatalErrorSurfaced(t *testing.T) {
+	out := []byte("govulncheck: loading vulnerability database: Get \"https://vuln.go.dev/index/db.json\": dial tcp: lookup vuln.go.dev: no such host\n")
+	got, err := parseGovulncheck(out)
+	if err == nil {
+		t.Fatalf("parseGovulncheck = nil error, want fatal surfaced; findings=%+v", got)
+	}
+	if !strings.Contains(err.Error(), "vulnerability database") {
+		t.Errorf("error %q does not name the fatal cause", err.Error())
+	}
+
+	// A clean run (no vulns, no fatal line) is NOT flipped to an error.
+	clean := []byte("=== Symbol Results ===\n\nNo vulnerabilities found.\n")
+	fs, err := parseGovulncheck(clean)
+	if err != nil {
+		t.Fatalf("parseGovulncheck(clean) = %v, want nil", err)
+	}
+	if len(fs) != 0 {
+		t.Errorf("expected 0 findings on a clean scan, got %d", len(fs))
 	}
 }

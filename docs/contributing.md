@@ -195,7 +195,8 @@ rootCmd.AddCommand(newMyCommand())
 Use the existing helpers in `internal/cli/helpers.go`:
 - `loadStores(cmd)` — loads config, event store, and projection store
 - `expandHome(path)` — expands `~` in file paths
-- `buildLLMClient(modelCfg)` — creates an LLM client from config
+
+LLM client factories live in `internal/cli/req.go`: `buildLLMClient(provider, schema, godmode...)` for role clients and `buildPlanningClient(provider, godmode)` for planning.
 
 ## Adding a New LLM Provider
 
@@ -217,26 +218,29 @@ import "context"
 
 type MyProviderClient struct {
     apiKey string
-    model  string
 }
 
-func NewMyProviderClient(apiKey, model string) *MyProviderClient {
-    return &MyProviderClient{apiKey: apiKey, model: model}
+func NewMyProviderClient(apiKey string) *MyProviderClient {
+    return &MyProviderClient{apiKey: apiKey}
 }
 
 func (c *MyProviderClient) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {
-    // Call your provider's API
+    // Call your provider's API with req.Model, req.Messages and req.MaxTokens
     // Return CompletionResponse{Content: "...", TokensUsed: N}
 }
 ```
 
 ### Step 2: Register in the Client Factory
 
-In `internal/cli/helpers.go`, update `buildLLMClient`:
+In `internal/cli/req.go`, add a case to `buildLLMClient`. Add one to `buildPlanningClient` too if the provider should be usable for planning:
 
 ```go
 case "myprovider":
-    return llm.NewMyProviderClient(os.Getenv("MYPROVIDER_API_KEY"), modelCfg.Model), nil
+    apiKey := resolveAPIKey("MYPROVIDER_API_KEY")
+    if apiKey == "" {
+        return nil, fmt.Errorf("MYPROVIDER_API_KEY environment variable is required")
+    }
+    return llm.NewRetryClient(llm.NewMyProviderClient(apiKey), 3), nil
 ```
 
 ### Step 3: Write Tests

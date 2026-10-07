@@ -1,590 +1,290 @@
 # VXD (Vortex Dispatch)
 
-**Hand off a requirement, walk away, come back to merged PRs.**
+**Hand off a software requirement. Let coding agents plan, build, review and test it in isolated worktrees.**
 
 [![Go](https://img.shields.io/badge/Go-1.23+-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![CI](https://github.com/tzone85/vortex-dispatch/actions/workflows/ci.yml/badge.svg)](https://github.com/tzone85/vortex-dispatch/actions/workflows/ci.yml)
 
-## Overview
+VXD is an open-source AI coding-agent orchestrator built by [Vortex Dispatch](https://vortexdispatch.co.za). It coordinates tools such as Claude Code, Codex and Gemini CLI across the lifecycle of a software change: planning, parallel implementation, review, QA and delivery.
 
-VXD is a Go CLI that orchestrates autonomous AI agents through the full software development lifecycle. Submit a natural-language requirement and VXD decomposes it into stories, assigns them to agents based on complexity, executes work in parallel waves, runs code review and QA, creates pull requests, and merges them -- all without human intervention.
+VXD is useful on its own. It is also intentionally the **public core**, not a publication of every private production system, commercial policy or accumulated engineering technique used by Vortex Dispatch. Read the [open-core boundary](docs/OPEN_CORE.md) or the [public explanation](https://vortexdispatch.co.za/open-source).
 
-- **Event-sourced state management** with an append-only event log and SQLite materialized projections
-- **Full agile team hierarchy** -- Tech Lead, Senior, Intermediate, Junior, QA, Supervisor
-- **Pluggable AI runtimes** -- Claude Code, Codex, Gemini CLI (configured via YAML)
-- **Wave-based parallel execution** with topological dependency resolution
+## Why VXD
 
-## Cost Model
+A strong coding model can write code. The harder problem is coordinating many pieces of engineering work without turning the repository into a small electrical fire.
 
-VXD uses your existing Claude Code subscription for ALL operations:
-- **Agent development work** — via Claude Code CLI in tmux sessions
-- **Code review, conflict resolution, and planning** — via Claude Code CLI
+VXD adds the orchestration layer:
 
-No separate API credits needed. If you have Claude Code installed and authenticated, VXD is free to use.
+- **Dependency-aware planning** turns a requirement into stories that can run in parallel where possible.
+- **Isolated git worktrees** keep concurrent agents from trampling each other's changes.
+- **Pluggable agent runtimes** let teams use the coding CLIs they already prefer.
+- **Automated review and QA** validate work before delivery.
+- **Escalation and human gates** give failed or uncertain work somewhere sane to go.
+- **Event-sourced state** makes runs inspectable, resumable and replayable.
+- **TUI and web dashboards** make active requirements observable without living in terminal scrollback.
+- **Optional ephemeral databases** isolate database-touching stories from one another.
 
-For users without Claude Code CLI, VXD falls back to direct API calls using `ANTHROPIC_API_KEY`.
+VXD does not promise that autonomous agents never fail. It is designed around the more useful assumption that they sometimes will, and that failures should be visible, recoverable and governable.
 
-## Quick Start
+## Demo
+
+![VXD Demo](https://vhs.charm.sh/vhs-23AYbABlUZ9ssvssNj9pWX.gif)
+
+See the [tutorial](docs/tutorial.md) for a full walkthrough.
+
+## Quick start
+
+### Prerequisites
+
+- Go 1.26.6+
+- git and GitHub CLI (`gh`)
+- tmux for the full macOS/Linux agent pipeline
+- at least one supported coding-agent CLI configured for your environment
+
+Then:
 
 ```bash
 go install github.com/tzone85/vortex-dispatch/cmd/vxd@latest
 vxd init
-vxd preflight                     # Validate environment
-vxd estimate "Build a REST API"   # Estimate cost before committing
-vxd req "Build a REST API for user management with CRUD endpoints"
-vxd resume <req-id>               # Dispatch agents
-vxd status
-vxd dashboard
+vxd preflight
+vxd req "Add a health endpoint with tests and documentation"
 ```
 
-### Demo
-
-![VXD Demo](https://vhs.charm.sh/vhs-23AYbABlUZ9ssvssNj9pWX.gif)
-
-See the [full tutorial](docs/tutorial.md) for a step-by-step walkthrough.
-
-<details>
-<summary>Re-record the demo locally</summary>
+For local development from source:
 
 ```bash
-brew install vhs ffmpeg ttyd
-vhs docs/demo.tape
+git clone https://github.com/tzone85/vortex-dispatch.git
+cd vortex-dispatch
+go build -o ~/.local/bin/vxd ./cmd/vxd
+vxd preflight
 ```
-</details>
 
-## Features
-
-- **Agent hierarchy with complexity-based routing** -- Fibonacci scoring routes stories to the right tier
-- **Event-sourced architecture** -- append-only event log with materialized SQLite projections
-- **Pluggable runtimes via YAML config** -- swap between Claude Code, Codex, and Gemini CLI
-- **Adapter/Runner execution model** -- pure command prep (Adapter) separated from execution (TmuxRunner, DockerRunner, SSHRunner)
-- **5-tier escalation chain** -- same-role retry with smart error analysis, senior, manager diagnosis, tech lead re-planning, pause
-- **Smart retry with error analysis** -- 8 error categories with targeted fix suggestions passed to retry agents
-- **Human review gates** -- three modes (auto, plan_only, manual) for plan approval and PR review
-- **Crash recovery** -- lock files, checkpoints, and consistency checks for resuming after process death
-- **Pre-flight validation** -- 12 environment checks across 3 severity tiers before pipeline execution
-- **Cost estimation** -- quick heuristic and LLM-based estimation with Fibonacci-to-hours mapping
-- **Watchdog monitoring** -- stuck detection, permission bypass, context freshness checks
-- **Supervisor oversight** -- periodic drift detection and reprioritization
-- **Senior code review** -- automated review via LLM with approve/request-changes verdicts
-- **Automated QA pipeline** -- lint, build, and test with declarative success criteria (6 kinds)
-- **Auto-merge with PR creation** -- stories flow from code to merged PR hands-free
-- **LLM-powered conflict resolution** -- rebase conflicts auto-resolved via Senior model instead of blocking
-- **Client delivery reports** -- markdown and HTML reports with effort summary, timeline, and agent performance
-- **Pipeline metrics** -- success rates, timing, escalations, and trace-based agent activity stats
-- **Repo learning** -- 3-pass analysis (static scan, git history, LLM deep analysis) builds persistent profiles for agents
-- **Agent context sharing** -- WAVE_CONTEXT.md captures prior wave changes, injected into subsequent waves
-- **TUI dashboard** -- single-pane Bubbletea interface (all 5 sections visible at once: agents, pipeline, stories, activity, escalations)
-- **Web dashboard** -- browser-based dashboard via `vxd dashboard --web` with real-time WebSocket updates and full control panel
-- **Multi-project isolation** -- per-project state under `~/.vxd/projects/<name>/`
-- **Tiered cleanup** -- worktree pruning, branch garbage collection with configurable retention
-- **Self-improvement engine** -- daily autonomous pipeline: research, analysis, implementation, PR, email report; weekly competitor repo clone+diff for pattern extraction
-- **Memory dashboard** -- browser-based timeline, findings explorer, and opportunities view with direct source/PR links
-- **Reputation scoring** -- per-agent performance tracking across assignments
-
-## CLI Commands
-
-| Command | Description |
-|---------|-------------|
-| `vxd init` | Initialize workspace, create `~/.vxd/` dirs, generate default config, set up stores |
-| `vxd req <requirement>` | Submit a requirement (supports `--file`/`-f`, `--godmode`, `--skip-preflight`) |
-| `vxd status [--req ID]` | Show requirement and story status, optionally filtered by requirement |
-| `vxd resume <req-id>` | Resume a paused pipeline (`--godmode`, `--review`, `--auto`, `--force`) |
-| `vxd agents [--status S]` | List all agents with current story, session, and status |
-| `vxd escalations` | List all escalation events with story, agent, reason, and status |
-| `vxd gc [--dry-run]` | Garbage-collect merged branches and worktrees past retention |
-| `vxd config show` | Pretty-print the current configuration as YAML |
-| `vxd config validate` | Load and validate the configuration file |
-| `vxd events [--type T] [--story S] [--limit N]` | List events from the event store, newest first |
-| `vxd dashboard` | Launch the live TUI dashboard |
-| `vxd dashboard --web [--port 8787]` | Launch the web dashboard (browser-based, default port 8787) |
-| `vxd preflight` | Run pre-flight environment checks (15 checks, 3 severity tiers) |
-| `vxd estimate <requirement>` | Estimate cost (`--quick`, `--json`, `--rate`, `--save`) |
-| `vxd report <req-id>` | Generate client delivery report (`--html`, `--internal`, `--output`) |
-| `vxd metrics [--req ID]` | Show pipeline performance metrics with agent activity stats |
-| `vxd learn [repo-path]` | Analyse a repository and build a persistent profile (`--pass`, `--force`) |
-| `vxd projects` | List all tracked projects |
-| `vxd approve-plan <req-id>` | Approve a plan for dispatch (review gates) |
-| `vxd reject-plan <req-id>` | Reject a plan (review gates) |
-| `vxd review <story-id>` | Show story details for review |
-| `vxd approve <story-id>` | Approve a story's PR for merge (`--all <req-id>` for batch) |
-| `vxd reject <story-id>` | Reject a story's PR (returns to in_progress) |
-| `vxd pause <req-id>` | Pause a running requirement |
-| `vxd memory` | Launch the memory dashboard (timeline, findings explorer, opportunities) |
-| `vxd backup [--output DIR]` | Create tar.gz archive of project state (events.jsonl, store.db, config) |
-
-### Submitting Requirements
-
-The `vxd req` command accepts requirements in three ways:
+`vxd req` can accept an inline requirement or a file:
 
 ```bash
-# Inline as a positional argument
-vxd req "Build a REST API for user management with CRUD endpoints"
-
-# From a file (--file or -f)
+vxd req "Build a REST API for user management"
 vxd req --file requirements.md
-vxd req -f ~/specs/my-feature.md
-
-# From stdin
-cat spec.md | vxd req -f -
+cat requirements.md | vxd req -f -
 ```
 
-Using `--file` is recommended for complex requirements — write your full spec in a markdown file with acceptance criteria, constraints, and architecture notes, then hand it off to VXD.
+## How it works
 
-### Godmode (Skip Per-Tool Permission Prompts)
-
-`--godmode` skips per-tool permission prompts during agent execution. It does **NOT** bypass the `review_mode` plan gate or the `auto_merge` PR gate — for fully unattended operation, set `merge.review_mode: auto` (default) **and** `merge.auto_merge: true` in `vxd.yaml`. With those two plus `--godmode`, `vxd req` runs end-to-end from one command:
-
-```bash
-# Submit a requirement in godmode
-vxd req --file requirements.md --godmode
-
-# Resume a pipeline in godmode
-vxd resume 01KM035Y --godmode
-```
-
-Godmode can also be set permanently in `vxd.yaml`:
-```yaml
-planning:
-  godmode: true
-```
-
-The `--godmode` flag takes precedence over the config value. When not passed, the config value is used (default: `false`).
-
-### Repo Learning
-
-Before dispatching agents, run `vxd learn` to build a persistent profile of the target repository. This eliminates the codebase archaeology phase where agents waste early iterations figuring out the tech stack, build commands, and test conventions.
-
-```bash
-# Analyse the current directory
-vxd learn
-
-# Analyse a specific repo
-vxd learn /path/to/project
-
-# Re-run all passes (even if previously completed)
-vxd learn --force
-
-# Run only a specific pass
-vxd learn --pass 1   # Static scan only
-vxd learn --pass 2   # Git history only
-
-# Output the full profile as JSON
-vxd learn --json
-```
-
-The analysis runs in three passes:
-
-- **Pass 1 — Static scan**: Detects language, framework, build/lint/test commands (from Makefile, package.json, Cargo.toml, etc.), CI system, directory structure, entry points, dependencies, and signals (monorepo, no tests, Docker, vendored deps)
-- **Pass 2 — Git history**: Analyses commit message format (conventional/ticket-prefix/freeform), contributor count, churn hotspots (most-changed files), and branch naming patterns
-- **Pass 3 — Deep analysis**: LLM-assisted summary of project purpose, architecture, key patterns, and gotchas (runs automatically during `vxd req` when an LLM client is available)
-
-The profile is saved to `~/.vxd/projects/<name>/repo-profile.json` and automatically loaded by the executor and planner to enrich agent prompts with pre-learned knowledge. Use `vxd projects` to see the learning status of all tracked projects.
-
-### SLA Tracking
-
-VXD tracks per-story duration against configurable SLA thresholds and emits `STORY_SLA_BREACHED` events when stories exceed their limit:
-
-```yaml
-sla:
-  max_minutes_per_complexity:
-    1: 60      # 1pt = 1 hour
-    2: 120     # 2pt = 2 hours
-    3: 240     # 3pt = 4 hours
-    5: 480     # 5pt = 8 hours
-    8: 960     # 8pt = 16 hours
-    13: 1920   # 13pt = 32 hours
-  auto_escalate: false   # opt-in: trigger tier escalation on breach
-```
-
-Breaches surface in `vxd metrics` (count + rate), `vxd report` (⚠ badge per story), and the event log. Set `auto_escalate: true` to automatically promote breached stories to the next tier.
-
-### Secrets Management
-
-LLM API keys are loaded via a swappable secrets provider. Default is environment variables; HashiCorp Vault is supported for production:
-
-```yaml
-# Default — read from env (no config needed)
-secrets:
-  provider: env
-
-# Phase 2 — read from Vault
-secrets:
-  provider: vault
-  vault_addr: http://127.0.0.1:8200
-  vault_token: "..."        # or set VAULT_TOKEN env var
-  vault_mount: secret        # optional, defaults to "secret"
-  vault_path: vxd            # optional, defaults to "vxd"
-```
-
-Vault uses KV v2 (modern default). Store secrets as a single map at the configured path:
-```bash
-vault kv put secret/vxd \
-  ANTHROPIC_API_KEY="sk-ant-..." \
-  GOOGLE_API_KEY="AIza..." \
-  GITHUB_TOKEN="ghp_..."
-```
-
-Switching providers requires no code changes — only the config file.
-
-### Health Endpoint
-
-When running `vxd dashboard --web`, a `/health` endpoint returns JSON `{status: "ok", version: "0.1.0"}` for systemd, Docker, or Kubernetes liveness probes.
-
-### Backups
-
-Create a tar.gz archive of the project state directory:
-```bash
-vxd backup                    # to current directory
-vxd backup --output /backups  # to specific directory
-```
-
-Archives include `events.jsonl`, `store.db`, and other state files. Combined with the append-only event log design, this provides a baseline disaster recovery story (RPO = backup interval, RTO = restore + replay time).
-
-## Configuration
-
-Run `vxd init` to generate `vxd.yaml` with sensible defaults, then customize:
-
-| Section | Purpose | Key Defaults |
-|---------|---------|--------------|
-| `workspace` | State directory, storage backend (`sqlite`/`dolt`), log level (`debug`/`info`/`warn`/`error`), and log retention in days | `state_dir: ~/.vxd`, `backend: sqlite`, `log_level: info`, `log_retention_days: 30` |
-| `models` | LLM provider and model binding per agent role — tech_lead, senior, intermediate, junior, qa, supervisor, manager | `tech_lead: claude-opus-4-20250514` (anthropic), `senior/qa/manager: claude-sonnet-4-20250514`, `junior/intermediate/supervisor: gemma-4-27b-it` (google) |
-| `routing` | Story complexity thresholds per tier, max retries before escalation, and max concurrent agents | `junior_max_complexity: 3`, `intermediate_max_complexity: 5`, `max_retries_before_escalation: 2`, `max_concurrent_agents: 5` |
-| `planning` | Max story complexity (Fibonacci cap), sequential-file patterns, design approach, and godmode flag | `max_story_complexity: 5`, `design_approach: ddd-tdd`, `godmode: false` |
-| `monitor` | Supervisor polling interval, stuck-agent threshold, and context-freshness token budget | `poll_interval_ms: 10000`, `stuck_threshold_s: 600`, `context_freshness_tokens: 150000` |
-| `cleanup` | Worktree pruning strategy (`immediate`/`deferred`), branch retention window, and log archive mode | `worktree_prune: immediate`, `branch_retention_days: 7`, `log_archive: dolt` |
-| `merge` | Auto-merge toggle, base branch, PR body template, and human review mode (`auto`/`plan_only`/`manual`) | `auto_merge: true`, `base_branch: main`, `review_mode: auto` |
-| `runtimes` | Map of named CLI runtime definitions — command, args, supported models, and idle/permission detection patterns | Includes built-in entries for `claude-code`, `codex`, `gemini`, `swe-agent`; each supports optional `runner: docker\|ssh` |
-| `billing` | Hourly consulting rate, currency, Fibonacci-to-hours range mapping, and LLM cost accounting mode | `default_rate: 150.0`, `currency: USD`, `llm_costs.mode: subscription` |
-| `qa` | Declarative success criteria evaluated after each story (output_contains, file_exists, file_contains, exit_code_zero, etc.) | No criteria by default; standard lint/build/test always run |
-| `sla` | Per-Fibonacci-point maximum story duration in minutes; `auto_escalate` promotes breached stories to the next tier | `1pt→60m`, `2pt→120m`, `3pt→240m`, `5pt→480m`, `8pt→960m`, `13pt→1920m`; `auto_escalate: false` |
-| `secrets` | Secrets provider: `env` (default, reads from environment) or `vault` (HashiCorp Vault KV v2) | `provider: env`; Vault settings: `vault_mount: secret`, `vault_path: vxd` |
-| `notify` | Outbound Slack webhook URL and per-event triggers (`notify_on_sla`, `notify_on_complete`) | Disabled by default (empty `slack_webhook_url`) |
-| `autoresearch` | Per-repo Karpathy-style experiment loop: metric command, editable_paths allowlist, gate (`auto`/`winning`/`pr`), experiment budget, and Bayesian sampler | Disabled by default (`enabled: false`); requires `metric.command` and `editable_paths` when enabled |
-
-## Architecture
-
-```
+```text
 Requirement
     |
     v
-[Intake] --> vxd req decomposes via Tech Lead LLM
+ Planning
     |
     v
-[Planning] --> Stories with Fibonacci complexity + dependency DAG
+Dependency DAG
     |
     v
-[Dispatch] --> Wave-based parallel assignment (topo sort on DAG)
+Parallel agent worktrees
     |
     v
-[Execution] --> Agents work in tmux sessions via pluggable runtimes
+ Review -> QA -> delivery gate
     |
     v
-[Review] --> Senior agent reviews diff via LLM
-    |
-    v
-[QA] --> Lint + build + test pipeline
-    |
-    v
-[Merge] --> Rebase with LLM conflict resolution + PR creation + auto-merge
-    |
-    v
-[Cleanup] --> Worktree prune + branch GC
+ PR / merge / human decision
 ```
 
-Events are appended at every stage. SQLite projections materialize the current state for queries.
+The exact path depends on your configuration and review mode. VXD keeps an append-only event history and uses SQLite projections for current state, so a run can be inspected and recovered without treating the terminal session as the source of truth.
 
-See [docs/diagrams/](docs/diagrams/) for rendered architecture and sequence diagrams.
+## Agent providers
 
-## Agent Roles
+VXD can drive multiple coding-agent CLIs through configuration. Common setups include:
 
-| Role | Model Tier | Responsibility |
-|------|------------|----------------|
-| Tech Lead | Claude Opus | Requirement decomposition, story planning, dependency graphs |
-| Senior | Claude Sonnet | Complex stories (5+ points), code review, conflict resolution |
-| Intermediate | Gemma 4 / Claude Sonnet | Medium stories (3-5 points) |
-| Junior | Gemma 4 / Claude Haiku | Simple stories (1-3 points) |
-| QA | Claude Sonnet | Lint, build, test execution per story |
-| Supervisor | Claude Sonnet | Drift detection, reprioritization |
-| Manager | Claude Sonnet | Failure diagnosis, story rewriting at escalation tier 2 |
+| Provider | Typical runtime | Authentication |
+|---|---|---|
+| Anthropic | Claude Code CLI | Claude Code login/subscription or API configuration |
+| OpenAI | Codex CLI | Codex/ChatGPT login |
+| Google | Gemini CLI | Google AI credentials |
+| Custom | YAML-described CLI runtime | Runtime-specific |
 
-## Project Structure
+Provider availability and model names change quickly. Run `vxd preflight` and use current provider documentation rather than assuming an old model identifier is still valid.
 
-```
-cmd/vxd/              CLI entry point
-internal/
-  agent/              Role definitions, complexity scoring, prompts
-  artifact/           Artifact store (launch configs, diffs, traces)
-  cli/                Cobra command implementations (25+ commands)
-  config/             YAML config loader and validation
-  dashboard/          Bubbletea TUI (single-pane, all sections visible)
-  engine/             Core orchestration (35+ files)
-    planner.go        Tech Lead decomposition
-    dispatcher.go     Wave-based parallel dispatch
-    executor.go       Agent lifecycle management
-    monitor.go        Polling loop with review gates and checkpoints
-    escalation.go     5-tier escalation machine
-    smart_retry.go    Error analysis with fix suggestions
-    manager.go        Manager diagnosis and story rewriting
-    reviewer.go       Senior code review
-    review_gate.go    Human review mode resolution
-    qa.go             Lint/build/test with declarative criteria
-    merger.go         PR creation and auto-merge
-    reaper.go         Tiered cleanup and GC
-    checkpoint.go     Crash recovery checkpoints
-    recovery.go       Consistency check and recovery
-    lockfile.go       Advisory lock with PID-based stale detection
-    cost.go           Cost estimation
-    report.go         Client delivery reports
-    trace.go          Agent output trace normalization
-    metrics.go        Pipeline performance metrics
-    wave_context.go   Cross-story context sharing
-  git/                Branch, worktree, and GitHub PR operations
-  graph/              Dependency DAG with topological sort
-  improve/            Self-improvement engine (research, analysis, repo learning, revenue)
-  llm/                LLM clients (Anthropic, OpenAI, Google AI, Claude CLI, Fallback)
-  memory/             Memory dashboard + MemPalace integration
-  preflight/          Pre-flight validation (15 checks, 3 severity tiers)
-  repolearn/          3-pass repo learning (static, git history, LLM deep)
-  runtime/            Adapter/Runner pattern (tmux, Docker, SSH)
-  scratchboard/       Shared memory across parallel agents
-  state/              Event store (file-based) + SQLite projections
-  tmux/               Session management (create, capture, send-keys)
-  web/                Web dashboard (WebSocket, static files, command handlers)
-migrations/           SQLite schema migrations
-test/                 E2E tests
+## Platform support
+
+| Platform | CLI / read-only commands | Full tmux pipeline |
+|---|---:|---:|
+| macOS | Yes | Yes |
+| Linux | Yes | Yes |
+| Windows native | Yes | No |
+| Windows + WSL2 | Yes | Yes |
+
+The full local execution pipeline currently depends on tmux. Windows users should use WSL2 for the same Linux workflow.
+
+## Core commands
+
+```text
+vxd init                 initialise a workspace
+vxd req                  submit a requirement
+vxd status               inspect requirements and stories
+vxd watch                tail a run in the terminal
+vxd dashboard            open the TUI status surface
+vxd dashboard --web      open the browser dashboard
+vxd pause / vxd resume   control a running requirement
+vxd preflight            validate the environment
+vxd doctor               diagnose common pipeline problems
+vxd estimate             estimate work/cost
+vxd metrics              inspect run metrics
+vxd report               generate delivery reports
+vxd events               inspect the event history
+vxd replay               rebuild projections from the event log
+vxd backup               archive project state
+vxd config               inspect and validate configuration
 ```
 
-## Documentation
+Run `vxd --help` and `vxd <command> --help` for the current command surface. The repository's [public agent guide](CLAUDE.md) also documents the command names required by the project's documentation tests without publishing private Vortex Dispatch implementation strategy.
 
-Full training guides are available in the [`docs/`](docs/) directory:
+## Review modes
 
-- **[Getting Started](docs/getting-started.md)** -- Prerequisites, installation, first run
-- **[Tutorial](docs/tutorial.md)** -- Hands-on walkthrough of the full pipeline
-- **[Workflows](docs/workflows.md)** -- Each pipeline stage explained in depth
-- **[Configuration](docs/configuration.md)** -- Every config knob with tuning advice
-- **[Agents and Roles](docs/agents-and-roles.md)** -- Role hierarchy, routing, reputation
-- **[Monitoring](docs/monitoring.md)** -- Watchdog, supervisor, dashboard, escalations
-- **[Architecture](docs/architecture.md)** -- Event sourcing, internals, data flow
-- **[Contributing](docs/contributing.md)** -- Adding runtimes, components, commands
+VXD supports different levels of human involvement:
 
-## Troubleshooting
+| Mode | Plan approval | PR approval | Use case |
+|---|---|---|---|
+| `auto` | No | No | trusted local pipelines |
+| `plan_only` | Yes | No | inspect decomposition before execution |
+| `manual` | Yes | Yes | maximum human control |
 
-### Agents terminate immediately with no code changes
+Example:
 
-**Cause:** `ANTHROPIC_API_KEY` is set in your shell. Claude CLI uses API credits instead of your Max subscription, and the credits are exhausted.
-
-**Fix:**
-```bash
-unset ANTHROPIC_API_KEY
-vxd resume <req-id> --auto
-```
-
-VXD's preflight check will warn you about this conflict:
-```
-⚠ ANTHROPIC_API_KEY is set alongside Claude CLI — agents will use API credits
-  instead of Max subscription. Run 'unset ANTHROPIC_API_KEY' if you have a
-  Max subscription
-```
-
-**Permanent fix:** Remove `ANTHROPIC_API_KEY` from your shell profile (`~/.zshrc` or `~/.bashrc`) if you use a Max subscription.
-
-### Web dashboard shows blank stories/escalations
-
-**Cause:** Stale VXD binary without JSON tags on model structs (fixed in April 2026).
-
-**Fix:** Rebuild VXD:
-```bash
-go build -o ~/.local/bin/vxd ./cmd/vxd
-```
-
-### Pipeline pauses with "agent produced no code changes"
-
-**Causes:**
-1. **API key conflict** (see above)
-2. **Read-only stories** — the planner created a "Codebase Assessment" story that produces no code. VXD requires every story to produce a diff.
-
-**Fix:** The planner prompt now instructs the tech lead not to create read-only assessment stories. Rebuild VXD to get the latest prompt.
-
-### PR conflicts after merging
-
-**Cause:** When multiple stories modify the same file, the second PR's branch diverges after the first merges.
-
-**Fix:** Use `auto_merge: true` in `vxd.yaml`:
 ```yaml
 merge:
-  auto_merge: true
+  auto_merge: false
+  review_mode: manual
   base_branch: main
 ```
 
-In auto-merge mode, VXD rebases each story onto main before merging, resolving conflicts via the LLM-powered ConflictResolver. Without auto-merge, PRs are created but must be rebased and merged manually or via `vxd approve`.
+Use autonomous merge settings only in repositories where you are comfortable with the risk. "The agent sounded confident" remains a terrible change-management policy.
 
-### Merging open PRs in order
+## Configuration
 
-```bash
-# Auto-merge all pending PRs for a requirement (rebases in sequence)
-vxd approve --all <req-id>
+Run `vxd init` to generate `vxd.yaml`. The top-level sections are:
 
-# Or approve/merge individual stories
-vxd approve <story-id>
-```
+| Section | Purpose |
+|---|---|
+| `workspace` | state location, storage and logging |
+| `models` | provider/model bindings for public agent roles |
+| `routing` | complexity thresholds, concurrency and retries |
+| `monitor` | polling, stuck detection and pipeline timeouts |
+| `cleanup` | worktree, branch and log cleanup |
+| `merge` | base branch, merge behaviour and review mode |
+| `planning` | story decomposition and planning controls |
+| `runtimes` | coding CLI definitions and execution targets |
+| `billing` | estimates, rates and spend limits |
+| `qa` | build/test checks and completion verification |
+| `security` | public security gate and scanner controls |
+| `sla` | optional story-duration limits |
+| `secrets` | environment/Vault secret provider configuration |
+| `notify` | optional notification settings |
+| `autoresearch` | experimental research/experiment-loop settings |
+| `devdb` | optional ephemeral database configuration |
+| `dashboard` | web dashboard startup, port and token settings |
+| `improve` | experimental opt-in improvement tooling |
 
-### Review modes
+See [docs/configuration.md](docs/configuration.md) for detailed options and the generated config for current defaults.
 
-Control how much human oversight VXD requires:
+## Ephemeral databases
 
-```yaml
-# vxd.yaml
-merge:
-  auto_merge: true     # Merge PRs automatically after QA passes
-  review_mode: auto    # auto | plan_only | manual
-```
+Database-touching stories can optionally receive isolated Postgres environments so migrations and destructive tests do not share one mutable database across agents. Configure the `devdb` section when that isolation is useful; leave it disabled for projects that do not need it.
 
-| Mode | Plan Approval | PR Approval | Best For |
-|------|--------------|-------------|----------|
-| `auto` | Not required | Not required | Trusted pipelines, CI/CD |
-| `plan_only` | Required (`vxd approve-plan`) | Not required | Review decomposition, auto-merge |
-| `manual` | Required | Required (`vxd approve`) | Full human oversight |
+## Recovery and observability
 
-Override per-run:
-```bash
-vxd resume <req-id> --auto     # Force auto mode for this run
-vxd resume <req-id> --review   # Force manual review for this run
-```
+VXD is designed so a failed terminal or agent process is not the end of the story.
 
-### Monitoring a running pipeline
-
-```bash
-# TUI dashboard (real-time, keyboard navigation)
-vxd dashboard
-
-# Web dashboard (browser-based, WebSocket updates)
-vxd dashboard --web
-vxd dashboard --web --port 8788  # Custom port if 8787 is in use
-
-# Check status from CLI
-vxd status --req <req-id>
-
-# Peek at agent tmux sessions
-tmux list-sessions
-tmux attach -t <session-name>   # Watch agent work live
-```
-
-### Column headers in the dashboard
-
-| Column | Meaning |
-|--------|---------|
-| **C** | Complexity — Fibonacci story points (1, 2, 3, 5, 8, 13) |
-| **T** | Tier — escalation tier (0 = no escalation, 1 = senior retry, 2 = manager, 3 = tech lead re-plan, 4 = paused) |
-
-## Testing
+Useful commands:
 
 ```bash
-go test ./...                    # Unit + integration
-go test -tags e2e ./test/        # E2E tests
-go test ./... -race -coverprofile=coverage.out  # With race detection + coverage
+vxd status
+vxd watch
+vxd doctor
+vxd events
+vxd backup
+vxd replay --dry-run
 ```
 
-## Development
+The web and terminal dashboards are views over persisted state, not the only place that state exists.
+
+### Recovering from a failed replay
+
+`vxd replay` moves the old `vxd.db` aside to `vxd.db.bak-<timestamp>` before it
+rebuilds. If the rebuild fails, it removes what it created and the error names
+the backup to move back, by absolute path. To do that by hand, in the
+project's state directory (`<workspace.state_dir>/projects/<project>`,
+`~/.vxd/projects/<project>` by default):
 
 ```bash
-make build    # Build the vxd binary
-make test     # Run tests with race detection and coverage
-make lint     # Run golangci-lint
-make clean    # Remove binary and coverage artifacts
-make install  # Build and install to $GOPATH/bin
+cd ~/.vxd/projects/<project> || exit
+rm -f vxd.db vxd.db-wal vxd.db-shm
+mv vxd.db.bak-<ts> vxd.db
+[ -f vxd.db.bak-<ts>-wal ] && mv vxd.db.bak-<ts>-wal vxd.db-wal
+[ -f vxd.db.bak-<ts>-shm ] && mv vxd.db.bak-<ts>-shm vxd.db-shm
 ```
 
-### Required: PATH Setup
+The `|| exit` is not decoration: without it, a path that does not exist on
+your machine leaves the `rm -f` to run in whatever directory you were in.
 
-Before using VXD, ensure `~/go/bin` is on your PATH:
+Any command re-creates an empty `vxd.db` when none exists, so after a failed
+replay the newest backup is not always the one you want — compare the UTC
+timestamps before moving one back. Rebuilding from `events.jsonl` with
+`vxd replay` is usually the better answer: the log is the source of truth.
 
-```bash
-mkdir -p "$(go env GOPATH)/bin"
-echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
-```
+### Troubleshooting
 
-Then build and install:
+When a pipeline misbehaves, start with `vxd doctor` — it mechanizes the common
+diagnostics in one pass: binary PATH shadowing (stale build being executed),
+invalid or retired model IDs in config, stuck in-progress stories, stale lock
+files from dead processes, orphaned worktrees and `vxd-*` tmux sessions,
+merge-base sanity (`main` vs `master`), and a dirty repo root that would block
+the post-merge fast-forward pull. Each finding carries a severity and a fix
+hint; `--json` emits machine-readable output and the command exits non-zero on
+any critical finding, so it also works as a CI/cron health probe.
 
-```bash
-make build && make install
-vxd --help   # Should show the command list
-```
+## Open source and the Vortex Dispatch factory
 
-### Using VXD in a New Project
+VXD is Apache-2.0 software. You may use, modify and redistribute it under the terms of that license.
 
-VXD works in **any** git repository — you don't need to be in the source directory:
+Vortex Dispatch also operates private commercial engineering systems. Those private systems can contain production policies, proprietary prompts, customer-specific governance, accumulated operational data and software-factory intelligence that are deliberately not mirrored into this repository.
 
-```bash
-mkdir ~/my-project && cd ~/my-project && git init
-vxd init
-vxd req "Your requirement here"
-```
+That boundary is intentional:
 
-See the [full Getting Started guide](docs/getting-started.md) for detailed setup instructions.
+- **VXD should remain genuinely useful open-source software.**
+- **Private Vortex systems do not need feature parity with VXD.**
+- **A useful public abstraction does not require publishing every internal implementation.**
+- **Customer or cross-project learning never belongs in the public repository.**
 
-## Acknowledgements
+Read [`docs/OPEN_CORE.md`](docs/OPEN_CORE.md) for contributor rules, or visit [vortexdispatch.co.za/open-source](https://vortexdispatch.co.za/open-source) for the commercial explanation.
 
-VXD builds on ideas and patterns from several open-source projects. We're grateful for their pioneering work in AI agent orchestration:
+## Documentation
 
-| Project | Author | What We Learned |
-|---------|--------|-----------------|
-| [Gastown](https://github.com/steveyegge/gastown) | Steve Yegge | Git-backed persistence, runtime abstraction, convoy/formula system |
-| [Beads](https://github.com/steveyegge/beads) | Steve Yegge | Hash-based task IDs, dependency-aware graph, memory decay patterns |
-| [Dolt](https://github.com/dolthub/dolt) | DoltHub | Version-controlled SQL state, branch-per-agent isolation, row-level diffing |
-| [Hungry Ghost Hive](https://github.com/nikrich/hungry-ghost-hive) | nikrich | Agile team hierarchy, complexity-based routing, micromanager daemon |
-| [Wasteland](https://github.com/gastownhall/wasteland) | Gastown Hall | Reputation scoring, embedded web UI, tiered cleanup strategies |
+- [Getting started](docs/getting-started.md)
+- [Tutorial](docs/tutorial.md)
+- [Workflows](docs/workflows.md)
+- [Configuration](docs/configuration.md)
+- [Agents and roles](docs/agents-and-roles.md)
+- [Monitoring](docs/monitoring.md)
+- [Architecture](docs/architecture.md)
+- [Contributing](CONTRIBUTING.md)
+- [Open-core boundary](docs/OPEN_CORE.md)
 
-If you're interested in AI agent orchestration, these projects are well worth studying.
+## Contributing
 
-## Recent Changes
+Contributions to the public VXD core are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md).
 
-### Unreleased — Hardening Session (2026-04-15/16)
+Before proposing a feature, check the open-core boundary. A contribution can improve VXD significantly without attempting to reproduce private Vortex Dispatch factory systems.
 
-**Security**
-- Google AI API key moved from URL query string to `x-goog-api-key` header (HIGH)
-- Planner rejects requirements with prompt injection patterns or embedded secrets (MEDIUM)
-- File permissions tightened from 0644 to 0600 on event store, proposals, opportunities, feedback (LOW)
-- Log retention enforced via `engine.CleanupLogs()` (wired into `vxd gc`)
-- Shared `internal/sanitize/` package extracted for reuse
+## Security
 
-**Capacity & Performance**
-- `routing.max_concurrent_agents` config (default 5, range 1-50)
-- 5 SQLite indexes on foreign key columns
-- Memory leak fixed in Monitor SLA tracking maps
+Do not commit API keys, tokens, customer data, private repository URLs or machine-specific secrets. Follow [SECURITY.md](SECURITY.md) for vulnerability reporting if present, and use the repository's normal issue process for non-sensitive bugs.
 
-**SLA Tracking**
-- New `STORY_SLA_BREACHED` event type with full projection
-- Per-Fibonacci-complexity duration limits (configurable)
-- Optional auto-escalation on breach (`sla.auto_escalate`)
-- Breach badges in `vxd report` (markdown + HTML), counts in `vxd metrics`
+## About Vortex Dispatch
 
-**Observability**
-- `/health` endpoint on web dashboard for liveness probes
+[Vortex Dispatch](https://vortexdispatch.co.za) is a software engineering company in Cape Town building production software with agent-orchestrated engineering systems.
 
-**Disaster Recovery**
-- `vxd backup` command — tar.gz of project state directory
-
-**Secrets Management**
-- New `internal/secrets/` package with `Provider` interface
-- `EnvProvider` (default) and `VaultProvider` (HashiCorp Vault KV v2)
-- Config-driven provider switching via `secrets.provider: vault`
-- Phase 2 ready — flip from env to Vault with zero code changes
-
-**Bug Fixes**
-- `extractJSON()` now handles conversational preambles and embedded code fences
-- Google AI integration test updated for header-based auth
-
-**Documentation**
-- New 1,650-line architecture overview at `docs/superpowers/specs/2026-04-15-architecture-overview.md`
-- README sections for SLA, secrets, /health, backup workflow
+VXD is the open-source part of that story. The commercial offering is the engineering capability and software outcomes, not a requirement that clients adopt VXD themselves.
 
 ## License
 
 [Apache License 2.0](LICENSE)
-
----
-
-Built with the philosophy: **orchestrate agents like a real agile team.**

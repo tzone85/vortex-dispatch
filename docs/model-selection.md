@@ -17,7 +17,7 @@ VXD roles fall into two tiers with different quality requirements:
 **Execution Tier** — High volume, code generation focus:
 - Junior (simple stories, 1-3 complexity)
 - Intermediate (medium stories, 3-5 complexity)
-- Supervisor (periodic drift checks)
+- Supervisor (drift checks; not wired into the pipeline yet)
 
 These roles benefit from fast, cheap models. Gemma 4 on Google AI's free tier is ideal.
 
@@ -31,7 +31,11 @@ These roles need strong reasoning to catch issues. Claude Sonnet/Opus recommende
 
 ## Default Configuration
 
-VXD ships with a hybrid setup that maximizes free-tier usage:
+Every role defaults to `provider: anthropic`: Opus for TechLead, Senior, QA and Manager, Haiku for Intermediate, Junior and Supervisor. The exact model IDs are in the models section of the [Configuration Reference](configuration.md#models).
+
+## Hybrid Free-Tier Setup (opt-in)
+
+To maximize free-tier usage, move the execution roles to Gemma in `vxd.yaml`:
 
 | Role | Provider | Model | Tier |
 |------|----------|-------|------|
@@ -45,7 +49,7 @@ VXD ships with a hybrid setup that maximizes free-tier usage:
 
 ## Choosing Models
 
-**Budget-conscious:** Use the defaults. Execution roles are free, verification roles use your Anthropic subscription or API key.
+**Budget-conscious:** Use the hybrid setup above. Execution roles run free on Gemma; verification roles use your Anthropic subscription or API key.
 
 **Maximum quality:** Put all roles on Claude Sonnet or Opus. Higher cost but strongest reasoning across the board.
 

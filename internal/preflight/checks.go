@@ -270,7 +270,7 @@ func CheckBillingConfig() Result {
 }
 
 // CheckOllama checks whether Ollama is installed and its server is running.
-// Ollama is optional for VXD (only required for Other), so this is informational.
+// Ollama is optional for VXD, so this is informational.
 func CheckOllama() Result {
 	_, err := exec.LookPath("ollama")
 	if err != nil {

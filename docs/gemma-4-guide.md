@@ -9,11 +9,11 @@ VXD uses Google's Gemma 4 (27B, Mixture-of-Experts) via Google AI Studio's free 
    ```bash
    export GOOGLE_AI_API_KEY="your-key-here"
    ```
-3. Run VXD as normal — Junior, Intermediate, and Supervisor roles will automatically use Gemma 4.
+3. Set `provider: google` and `model: gemma-4-27b-it` for the roles you want on Gemma (see the YAML examples below). Every role defaults to Anthropic, so nothing uses Gemma until you do this.
 
 ## How VXD Uses Gemma 4
 
-VXD splits roles into two tiers:
+The recommended Gemma setup splits roles into two tiers:
 
 | Tier | Roles | Provider | Purpose |
 |------|-------|----------|---------|

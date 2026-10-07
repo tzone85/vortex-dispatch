@@ -271,13 +271,11 @@ func TestReplay_DryRunReportsCorruptLines(t *testing.T) {
 	}
 }
 
-// TestReplay_CleanRebuildReleasesStore pins the contract of the deferred
-// projection-store close: on a successful rebuild runReplay must return nil
-// (the deferred Close of a healthy store must NOT fabricate an error), and the
-// store must be fully closed so a subsequent open — here a second replay in the
-// same process — succeeds without a stale handle or lock. This guards the
-// named-return + deferred-Close wiring that surfaces a real close failure
-// without masking success.
+// TestReplay_CleanRebuildReleasesStore pins the projection-store close
+// contract of rebuildAndClose: on a successful rebuild runReplay must return
+// nil (closing a healthy store must NOT fabricate an error), and the store
+// must be fully closed so a subsequent open — here a second replay in the same
+// process — succeeds without a stale handle or lock.
 func TestReplay_CleanRebuildReleasesStore(t *testing.T) {
 	dir, projectDir := setupReplayEnv(t)
 	preStory, preReq := seedReplayEvents(t, projectDir)
@@ -292,7 +290,7 @@ func TestReplay_CleanRebuildReleasesStore(t *testing.T) {
 	}
 
 	// Second replay in the same process: only possible if the first replay's
-	// deferred Close actually ran and released the vxd.db handle/lock.
+	// rebuildAndClose actually closed and released the vxd.db handle/lock.
 	cmd2, _ := newReplayTestCmd(t, dir)
 	if err := cmd2.Execute(); err != nil {
 		t.Fatalf("second replay failed — first replay did not release the store: %v", err)

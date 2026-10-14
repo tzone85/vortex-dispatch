@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os/exec"
 	"path/filepath"
@@ -248,9 +249,28 @@ func parseSemgrep(out []byte, repoDir string) ([]Finding, error) {
 				} `json:"metadata"`
 			} `json:"extra"`
 		} `json:"results"`
+		Errors []struct {
+			Message string `json:"message"`
+			Level   string `json:"level"`
+		} `json:"errors"`
 	}
 	if err := json.Unmarshal(out, &doc); err != nil {
 		return nil, err
+	}
+	// A semgrep run that produced NO results but reported errors scanned
+	// nothing meaningful (e.g. it could not fetch the `--config auto` rule
+	// set, or the target failed to load). Its output is valid JSON, so the
+	// json.Unmarshal check above passes — but treating it as a clean scan
+	// would let a story pass the security gate while the SAST pass never ran.
+	// Surface it as a scanner failure so RunScanners records coverage loss
+	// (a failed scan must never masquerade as a clean one). A run WITH results
+	// plus a benign per-file parse warning is left alone — its findings stand.
+	if len(doc.Results) == 0 && len(doc.Errors) > 0 {
+		msg := "semgrep reported errors and produced no results"
+		if doc.Errors[0].Message != "" {
+			msg = doc.Errors[0].Message
+		}
+		return nil, fmt.Errorf("semgrep did not complete a scan: %s", msg)
 	}
 	findings := make([]Finding, 0, len(doc.Results))
 	for _, r := range doc.Results {
@@ -279,6 +299,7 @@ func parseSemgrep(out []byte, repoDir string) ([]Finding, error) {
 
 func parseNpmAudit(out []byte) ([]Finding, error) {
 	var doc struct {
+		Error           json.RawMessage `json:"error"`
 		Vulnerabilities map[string]struct {
 			Name     string `json:"name"`
 			Severity string `json:"severity"`
@@ -288,6 +309,15 @@ func parseNpmAudit(out []byte) ([]Finding, error) {
 	}
 	if err := json.Unmarshal(out, &doc); err != nil {
 		return nil, err
+	}
+	// npm emits `{"error":{...}}` instead of a report when the audit could not
+	// run — most commonly ENOLOCK (no package-lock.json in the worktree) or a
+	// registry/network failure. That is valid JSON with an empty
+	// Vulnerabilities map, so without this guard it would be recorded as a
+	// clean dependency scan when nothing was actually audited. Return an error
+	// so RunScanners classifies the scanner as failed (coverage lost).
+	if len(doc.Error) > 0 && string(doc.Error) != "null" {
+		return nil, fmt.Errorf("npm audit did not run: %s", string(doc.Error))
 	}
 	findings := make([]Finding, 0, len(doc.Vulnerabilities))
 	for pkg, v := range doc.Vulnerabilities {

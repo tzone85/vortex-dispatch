@@ -27,6 +27,24 @@ type EventAppender interface {
 	Append(state.Event) error
 }
 
+// LabelStoryID is the DB label key under which Provision records the story that
+// owns a provisioned DB. Release reads it back so STORY_DB_DELETED carries the
+// correct StoryID: the SQLite projection keys the release update on
+// (story_id, db_id), so an empty StoryID silently matches zero rows and leaves
+// the story_databases row stuck at status="created" forever.
+const LabelStoryID = "vxd_story_id"
+
+// storyIDForDB recovers the owning story ID for a DB. The label written at
+// Provision time is authoritative; the FormatDBName-derived fallback covers
+// DBs that reach Release without passing through this Lifecycle's Provision
+// (e.g. orphan recovery), where the name still encodes the story ID.
+func storyIDForDB(db DB) string {
+	if s := db.Labels[LabelStoryID]; s != "" {
+		return s
+	}
+	return ParseStoryID(PrefixVXD, db.Name)
+}
+
 // Lifecycle orchestrates a Provider + event emission + worktree file writes.
 // Engine code uses Lifecycle, not Provider directly.
 type Lifecycle struct {
@@ -71,6 +89,14 @@ func (l *Lifecycle) Provision(ctx context.Context, storyID, project, worktreeDir
 	}
 	db.Provider = l.provider.Name()
 
+	// Record the owning story on the DB so Release can emit STORY_DB_DELETED
+	// with the correct StoryID (the projection keys on story_id + db_id). The
+	// returned db is carried by the caller and handed back to Release verbatim.
+	if db.Labels == nil {
+		db.Labels = map[string]string{}
+	}
+	db.Labels[LabelStoryID] = storyID
+
 	if err := WriteEnvFiles(worktreeDir, db); err != nil {
 		l.emitFailed(storyID, name, fmt.Sprintf("envfile: %v", err))
 		return DB{}, fmt.Errorf("devdb write envfile: %w", err)
@@ -95,7 +121,7 @@ func (l *Lifecycle) Release(ctx context.Context, db DB, outcome StoryOutcome) er
 			// Emit a failed-release event so GC can pick up later. We do not
 			// return the error after the event is emitted — callers don't
 			// need to block pipeline progress on release failures.
-			l.emitFailed("", db.Name, fmt.Sprintf("release: %v", err))
+			l.emitFailed(storyIDForDB(db), db.Name, fmt.Sprintf("release: %v", err))
 			return fmt.Errorf("devdb release: %w", err)
 		}
 	}
@@ -113,6 +139,7 @@ func (l *Lifecycle) Release(ctx context.Context, db DB, outcome StoryOutcome) er
 	data, _ := json.Marshal(payload)
 	_ = l.events.Append(state.Event{
 		Type:      state.EventStoryDBDeleted,
+		StoryID:   storyIDForDB(db),
 		Timestamp: l.clock(),
 		Payload:   data,
 	})

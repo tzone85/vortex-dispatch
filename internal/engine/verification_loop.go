@@ -154,11 +154,25 @@ func checkTests(repoDir string) (passing, failing, total int) {
 	}
 
 	cmd.Dir = repoDir
-	out, _ := cmd.CombinedOutput()
+	// Capture the command error: a non-zero exit distinguishes "ran, some
+	// failed" from "could not run/compile at all". Discarding it lets a suite
+	// that never executed be scored as green (0 failing) by the completion
+	// gate — the exact false-negative this gate exists to prevent.
+	out, runErr := cmd.CombinedOutput()
 	output := string(out)
 
 	if fileExists(filepath.Join(repoDir, "go.mod")) {
-		return parseGoTestJSON(output)
+		passing, failing, total = parseGoTestJSON(output)
+		// Fail closed: `go test` exited non-zero but we parsed no failing
+		// signal (e.g. a toolchain error, or a panic before any package-level
+		// event). Treat the suite as unverified-therefore-failing so
+		// ShouldRunFixCycle fires rather than reporting a false green.
+		if runErr != nil && failing == 0 {
+			log.Printf("[verify] go test errored (%v) but parsed 0 failures — treating suite as failing (fail-closed)", runErr)
+			failing = 1
+			total = passing + failing
+		}
+		return passing, failing, total
 	}
 
 	// Parse test results (simplified — count PASS/FAIL lines)
@@ -183,27 +197,64 @@ func checkTests(repoDir string) (passing, failing, total int) {
 	}
 
 	total = passing + failing
+	// Fail closed on the JS path too: a runner that could not launch (missing
+	// dependency, invalid config) emits no parseable counts and exits non-zero.
+	// Without this, checkTests returns 0/0/0 and the gate scores it green.
+	if runErr != nil && passing == 0 && failing == 0 {
+		log.Printf("[verify] test runner errored (%v) with no parseable results — treating suite as failing (fail-closed)", runErr)
+		failing = 1
+		total = 1
+	}
 	log.Printf("[verify] tests: %d passing, %d failing, %d total", passing, failing, total)
 	return passing, failing, total
 }
 
 func parseGoTestJSON(output string) (passing, failing, total int) {
+	// Track per-test results plus package-level failures. A test file that
+	// fails to COMPILE never emits per-test events: `go build ./...` (checkBuild)
+	// does not compile _test.go files, and `go test -json` reports the compile
+	// error only as package-level "build-fail"/"fail" events with an EMPTY Test
+	// field. Skipping every empty-Test line (the previous behaviour) therefore
+	// scored an uncompilable test suite as 0 failing — a false green in the
+	// completion gate. Count those package-level failures so ShouldRunFixCycle
+	// fires.
+	pkgTestFail := map[string]bool{}  // packages with >=1 failing individual test
+	pkgLevelFail := map[string]bool{} // packages that failed at the package level
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
 		var evt struct {
-			Action string `json:"Action"`
-			Test   string `json:"Test"`
+			Action  string `json:"Action"`
+			Test    string `json:"Test"`
+			Package string `json:"Package"`
 		}
-		if err := json.Unmarshal([]byte(line), &evt); err != nil || evt.Test == "" {
+		if err := json.Unmarshal([]byte(line), &evt); err != nil {
 			continue
 		}
-		switch evt.Action {
-		case "pass":
-			passing++
-		case "fail":
+		if evt.Test != "" {
+			switch evt.Action {
+			case "pass":
+				passing++
+			case "fail":
+				failing++
+				pkgTestFail[evt.Package] = true
+			}
+			continue
+		}
+		// Package-level event (no individual test name). A "fail" here with no
+		// per-test failures means the package failed to build or run its tests
+		// (test-file compile error, panic, timeout) — invisible to go build.
+		if evt.Action == "fail" && evt.Package != "" {
+			pkgLevelFail[evt.Package] = true
+		}
+	}
+	// Add one failure for every package that failed at the package level
+	// without already contributing an individual test failure (avoids
+	// double-counting a package whose per-test failures are already tallied).
+	for pkg := range pkgLevelFail {
+		if !pkgTestFail[pkg] {
 			failing++
 		}
 	}

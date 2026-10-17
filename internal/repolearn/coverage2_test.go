@@ -409,7 +409,11 @@ func TestCountFilesInDir_WithFiles(t *testing.T) {
 }
 
 func TestCountFilesInDir_NonexistentDir(t *testing.T) {
-	count := countFilesInDir("/nonexistent/path")
+	// A guaranteed-absent path under this test's own temp dir. The previous
+	// hard-coded "/nonexistent/path" could be created by a sibling package's
+	// test when the suite runs as root, making this assertion order-dependent.
+	missing := filepath.Join(t.TempDir(), "does-not-exist")
+	count := countFilesInDir(missing)
 	if count != 0 {
 		t.Errorf("expected 0 for nonexistent dir, got %d", count)
 	}

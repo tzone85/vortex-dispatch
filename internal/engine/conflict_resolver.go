@@ -591,7 +591,13 @@ File: %s
 	// while the rebase "succeeds". Surface it as a capacity error (NOT
 	// errUnmergeable) so the caller aborts and the pipeline pauses-and-resumes
 	// after the limit resets, exactly as resolveFileTechLead already does.
-	if llm.ContainsCapacitySignature(resp.Content) {
+	//
+	// Use the narrow leaked-notice detector, NOT ContainsCapacitySignature: the
+	// broad vocabulary ("rate limit", "connection refused", "overloaded", …)
+	// legitimately appears inside merged source files, and scanning the whole
+	// resolved file with it would misclassify a correct resolution as a synthetic
+	// 429 and wedge the rebase.
+	if llm.LooksLikeLeakedCapacityNotice(resp.Content) {
 		return "", &llm.APIError{StatusCode: 429, Message: resp.Content, Retryable: true}
 	}
 
@@ -708,7 +714,11 @@ resolved file content — no explanations, no markdown fences.`,
 	// as successful content rather than an error envelope. Don't mistake it for
 	// a bad resolution ("commentary") — surface it as a capacity error so the
 	// pipeline pauses-and-resumes instead of burning the escalation chain.
-	if llm.ContainsCapacitySignature(resp.Content) {
+	//
+	// Narrow leaked-notice detector, NOT ContainsCapacitySignature: the broad
+	// vocabulary legitimately occurs inside merged source files and would
+	// misclassify a correct resolution as a synthetic 429 (see resolveFile).
+	if llm.LooksLikeLeakedCapacityNotice(resp.Content) {
 		return "", &llm.APIError{StatusCode: 429, Message: resp.Content, Retryable: true}
 	}
 

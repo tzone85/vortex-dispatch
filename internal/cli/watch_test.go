@@ -90,7 +90,7 @@ func TestEventMatchesReq_OtherRequirement(t *testing.T) {
 }
 
 func TestTerminalRequirementStatuses_CoversExpected(t *testing.T) {
-	for _, status := range []string{"completed", "done", "failed", "archived"} {
+	for _, status := range []string{"completed", "done", "failed", "archived", "blocked"} {
 		if !terminalRequirementStatuses[status] {
 			t.Errorf("status %q should be terminal", status)
 		}

@@ -24,6 +24,7 @@ var terminalRequirementStatuses = map[string]bool{
 	"done":      true,
 	"failed":    true,
 	"archived":  true,
+	"blocked":   true, // the completion gate's red verdict (REQ_BLOCKED)
 }
 
 const watchPollInterval = 750 * time.Millisecond

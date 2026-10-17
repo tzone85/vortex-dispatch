@@ -193,3 +193,183 @@ func TestScanForSecrets_Negative(t *testing.T) {
 		}
 	}
 }
+
+func TestRedactSecrets(t *testing.T) {
+	in := "ok=1\nkey := \"sk-ant-api03-abcdef1234567890abcdef\"\nAuthorization: Bearer abcdefghijklmnopqrstuvwxyz0123\nAKIAIOSFODNN7EXAMPLE done\n"
+	got := RedactSecrets(in)
+	for _, leaked := range []string{"sk-ant-api03", "abcdefghijklmnopqrstuvwxyz0123", "AKIAIOSFODNN7EXAMPLE"} {
+		if strings.Contains(got, leaked) {
+			t.Errorf("RedactSecrets left %q in %q", leaked, got)
+		}
+	}
+	if strings.Count(got, Redacted) != 3 {
+		t.Errorf("want 3 redactions, got %q", got)
+	}
+	if !strings.HasPrefix(got, "ok=1\n") || !strings.HasSuffix(got, " done\n") {
+		t.Errorf("surrounding text must survive: %q", got)
+	}
+	if ScanForSecrets(got) {
+		t.Errorf("redacted output still scans as a secret: %q", got)
+	}
+	if plain := "os.Getenv(\"ANTHROPIC_API_KEY\")"; RedactSecrets(plain) != plain {
+		t.Errorf("no secret, no change: %q", RedactSecrets(plain))
+	}
+}
+
+func TestRedactSecrets_PrivateKeyBlock_BodyRemoved(t *testing.T) {
+	in := "before\n-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAsecretbody\n-----END RSA PRIVATE KEY-----\nafter\n"
+	got := RedactSecrets(in)
+	if strings.Contains(got, "secretbody") || strings.Contains(got, "END RSA") {
+		t.Fatalf("the key body must go with the header, got %q", got)
+	}
+	if got != "before\n"+Redacted+"\nafter\n" {
+		t.Fatalf("surrounding text must survive, got %q", got)
+	}
+	// An unterminated block (truncated output) is redacted to the end.
+	if got := RedactSecrets("x\n-----BEGIN PRIVATE KEY-----\nbody"); strings.Contains(got, "body") {
+		t.Fatalf("an unterminated block is redacted to the end, got %q", got)
+	}
+}
+
+func TestRedactSecrets_ConnectionStringPassword(t *testing.T) {
+	got := RedactSecrets("could not reach postgres://app:hunter2@db:5432/x (timeout)")
+	if strings.Contains(got, "hunter2") {
+		t.Fatalf("the DSN password must be redacted, got %q", got)
+	}
+	if !strings.Contains(got, Redacted+"db:5432/x") {
+		t.Fatalf("host and path stay, got %q", got)
+	}
+	if plain := "see https://example.com/docs and http://localhost:8080/health"; RedactSecrets(plain) != plain {
+		t.Fatalf("a URL without credentials is untouched, got %q", RedactSecrets(plain))
+	}
+}
+
+func TestRedactSecrets_EnvStylePassword(t *testing.T) {
+	for _, in := range []string{"DB_PASSWORD=hunter2", "export API_KEY=abc123", "GITHUB_TOKEN=ghp_short", "MY_CLIENT_SECRET_V2=xyz"} {
+		got := RedactSecrets(in)
+		for _, leaked := range []string{"hunter2", "abc123", "ghp_short", "xyz"} {
+			if strings.Contains(got, leaked) {
+				t.Fatalf("%q must be redacted, got %q", in, got)
+			}
+		}
+	}
+	if plain := "PASSWORD_MIN_LENGTH is documented"; RedactSecrets(plain) != plain {
+		t.Fatalf("a name without an assignment is untouched, got %q", RedactSecrets(plain))
+	}
+}
+
+// TestRedactSecrets_DoesNotEatAssertions: runner output is test evidence —
+// the want/got lines of a lexer or an auth project survive redaction.
+func TestRedactSecrets_DoesNotEatAssertions(t *testing.T) {
+	for _, plain := range []string{
+		"nextToken = IDENT, want nextToken = NUMBER",
+		"if token == expected",
+		"TOKEN == expected",
+		"lexer_test.go:42: token = IDENT, want NUMBER",
+		"client_secret=xyz is lower-case config, not an env assignment",
+		`{"nextToken": "IDENT", "want": "NUMBER"}`,
+		`{"tokenType":"NUMBER"}`,
+		`{"csrf_token": ""}`,
+	} {
+		if got := RedactSecrets(plain); got != plain {
+			t.Fatalf("assertion output must survive redaction:\n in: %q\ngot: %q", plain, got)
+		}
+	}
+}
+
+// TestRedactSecrets_JSONPassword: the JSON shape keeps its key and loses the value.
+func TestRedactSecrets_JSONPassword(t *testing.T) {
+	for in, want := range map[string]string{
+		`{"password": "hunter2", "user": "bob"}`:                        `{"password": "[REDACTED]", "user": "bob"}`,
+		`{"access_token":"eyJhbGciOiJIUzI1NiJ9.e30","expires_in":3600}`: `{"access_token":"[REDACTED]","expires_in":3600}`,
+		`{"API_KEY": "k-1234567890"}`:                                   `{"API_KEY": "[REDACTED]"}`,
+	} {
+		if got := RedactSecrets(in); got != want {
+			t.Fatalf("RedactSecrets(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if plain := `{"user": "bob", "count": 2}`; RedactSecrets(plain) != plain {
+		t.Fatalf("a JSON object without a secret key is untouched, got %q", RedactSecrets(plain))
+	}
+	// An exact secret key loses a short value too; the fuzzy keys do not.
+	for _, in := range []string{`{"password": "hunter2"}`, `{"client_secret": "abc"}`, `{"password":"x"}`} {
+		if got := RedactSecrets(in); strings.Contains(got, "hunter2") || strings.Contains(got, "abc") || strings.Contains(got, `"x"`) {
+			t.Fatalf("an exact secret key must lose any value: %q -> %q", in, got)
+		}
+	}
+}
+
+// TestRedactSecrets_FuzzyKeyMustEndWithTheWord: the fuzzy JSON pattern is the
+// one that can eat evidence, so the word has to END the key. A tokenizer, a
+// k8s secret reference and a password policy are all names, not secrets, and
+// they reach the fix agent intact.
+func TestRedactSecrets_FuzzyKeyMustEndWithTheWord(t *testing.T) {
+	for _, survives := range []string{
+		`{"nextToken": "IDENTIFIER"}`,
+		`{"nextToken": "SEMICOLON"}`,
+		`{"tokenizer": "wordpiece"}`,
+		`{"secretName": "db-creds-prod"}`,
+		`{"passwordPolicy": "STRONG_V2"}`,
+		`{"nextToken": "IDENT"}`,
+		`{"tokenType": "NUMBER"}`,
+	} {
+		if got := RedactSecrets(survives); got != survives {
+			t.Errorf("%s must survive, got %s", survives, got)
+		}
+	}
+	for _, redacted := range []string{
+		`{"db_password": "hunter2xyz"}`,
+		`{"github.token": "ghp_ABCDEFghijklmnop"}`,
+		`{"accessToken": "ya29.abcdefghijklmnop"}`,
+		`{"clientSecret": "s3cr3t-value-here"}`,
+	} {
+		if got := RedactSecrets(redacted); !strings.Contains(got, Redacted) {
+			t.Errorf("%s must be redacted, got %s", redacted, got)
+		}
+	}
+}
+
+// TestRedactSecrets_EscapedQuoteInValue: a value containing an escaped quote
+// must be redacted whole, not up to the escape with its tail left in the
+// clear.
+func TestRedactSecrets_EscapedQuoteInValue(t *testing.T) {
+	got := RedactSecrets(`{"password": "a\"bcdef"}`)
+	if strings.Contains(got, "bcdef") {
+		t.Fatalf("the whole value must go, got %s", got)
+	}
+}
+
+// TestRedactSecrets_BareTokenKey: "token" on its own is a lexer's word far
+// more often than a credential, and the gaps file exists to carry evidence.
+// The same key behind a separator is a secret.
+func TestRedactSecrets_BareTokenKey(t *testing.T) {
+	if out := RedactSecrets(`{"token": "IDENTIFIER_PLUS"}`); !strings.Contains(out, "IDENTIFIER_PLUS") {
+		t.Errorf("a bare token key is evidence: %q", out)
+	}
+	if out := RedactSecrets(`{"api.token": "IDENTIFIER_PLUS"}`); strings.Contains(out, "IDENTIFIER_PLUS") {
+		t.Errorf("a prefixed token key is a secret: %q", out)
+	}
+	if out := RedactSecrets(`{"accessToken": "IDENTIFIER_PLUS"}`); strings.Contains(out, "IDENTIFIER_PLUS") {
+		t.Errorf("a camel-case token name is a secret by convention: %q", out)
+	}
+}
+
+// TestSecretPatterns_TokenPrefixes: the shapes a test runner or a build log
+// leaks most often, now that gap output reaches an LLM.
+func TestSecretPatterns_TokenPrefixes(t *testing.T) {
+	for _, secret := range []string{
+		"github_pat_" + strings.Repeat("A", 60),
+		"gho_" + strings.Repeat("b", 36),
+		"ghs_" + strings.Repeat("c", 36),
+		"xoxb-" + strings.Repeat("1", 24),
+		"AIza" + strings.Repeat("Z", 35),
+	} {
+		line := "TOKEN printed by the suite: " + secret
+		if !ScanForSecrets(line) {
+			t.Errorf("%s… is a secret", secret[:10])
+		}
+		if strings.Contains(RedactSecrets(line), secret) {
+			t.Errorf("%s… must not survive redaction", secret[:10])
+		}
+	}
+}

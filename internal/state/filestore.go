@@ -29,6 +29,11 @@ func NewFileStore(path string) (*FileStore, error) {
 // Append writes a single event to the end of the JSONL file and flushes
 // it to disk. The fsync ensures durability — critical for an event-sourced
 // system where the event log is the source of truth.
+//
+// The whole marshalled line goes out in ONE Write to a file opened O_APPEND,
+// under the mutex, so a signal or a kill cannot tear it: the last line of the
+// log is either absent or complete. (A machine crash is a different story;
+// `vxd replay` reports a corrupt line with its number.)
 func (fs *FileStore) Append(event Event) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()

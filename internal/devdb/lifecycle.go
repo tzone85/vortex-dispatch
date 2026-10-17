@@ -83,7 +83,7 @@ func (l *Lifecycle) Provision(ctx context.Context, storyID, project, worktreeDir
 // Release deletes the DB and emits STORY_DB_DELETED.
 // Honours cfg.KeepDBOnFail: if the story failed and KeepDBOnFail is true,
 // skips the delete call and emits STORY_DB_DELETED with status="retained".
-func (l *Lifecycle) Release(ctx context.Context, db DB, outcome StoryOutcome) error {
+func (l *Lifecycle) Release(ctx context.Context, storyID string, db DB, outcome StoryOutcome) error {
 	status := "deleted"
 	keep := outcome != OutcomeSuccess && l.cfg.KeepDBOnFail
 	if keep {
@@ -95,7 +95,7 @@ func (l *Lifecycle) Release(ctx context.Context, db DB, outcome StoryOutcome) er
 			// Emit a failed-release event so GC can pick up later. We do not
 			// return the error after the event is emitted — callers don't
 			// need to block pipeline progress on release failures.
-			l.emitFailed("", db.Name, fmt.Sprintf("release: %v", err))
+			l.emitFailed(storyID, db.Name, fmt.Sprintf("release: %v", err))
 			return fmt.Errorf("devdb release: %w", err)
 		}
 	}
@@ -111,8 +111,14 @@ func (l *Lifecycle) Release(ctx context.Context, db DB, outcome StoryOutcome) er
 		"status":           status,
 	}
 	data, _ := json.Marshal(payload)
+	// StoryID MUST be set: projectStoryDBDeleted updates the row keyed by
+	// (story_id, db_id) — the story_databases PRIMARY KEY. An empty StoryID
+	// here matches no row, so the DB's status would never transition off
+	// "active" in the projection (vxd db list / metrics / dashboard would show
+	// released DBs as still live forever).
 	_ = l.events.Append(state.Event{
 		Type:      state.EventStoryDBDeleted,
+		StoryID:   storyID,
 		Timestamp: l.clock(),
 		Payload:   data,
 	})

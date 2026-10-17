@@ -84,59 +84,76 @@ func (f *TechLeadFixer) buildPrompt(triggerStoryID, buildError string, recentSto
 //
 // The function is intentionally non-blocking (returns immediately) so it
 // never stalls the monitor's pipeline goroutine.
+//
+// The detached goroutine deliberately does NOT derive its context from the
+// caller's ctx: DispatchIntegrationFix is invoked from postExecutionPipeline
+// with that function's pipelineCtx, which its deferred cancel() tears down the
+// instant postExecutionPipeline returns — i.e. right after this call returns.
+// Chaining the fix's LLM call to that ctx cancelled it before it could run, so
+// the integration-fix feature silently never produced a hint. The fix work
+// must outlive the pipeline call, so it roots a fresh, self-bounded context
+// (same pattern as the devdb Release defer in postExecutionPipeline). ctx is
+// retained for API symmetry and future use.
 func (f *TechLeadFixer) DispatchIntegrationFix(ctx context.Context, triggerStoryID, repoDir, buildError string) {
-	go func() {
-		fixCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-		defer cancel()
+	_ = ctx
+	go f.runIntegrationFix(triggerStoryID, repoDir, buildError)
+}
 
-		// Look up recently merged stories for the same requirement.
-		story, err := f.projStore.GetStory(triggerStoryID)
-		if err != nil {
-			log.Printf("[integration-fixer] cannot look up trigger story %s: %v", triggerStoryID, err)
-			return
+// runIntegrationFix performs the integration-fix work synchronously against a
+// fresh, self-bounded context. Split out from DispatchIntegrationFix so it is
+// directly unit-testable without goroutine timing and so its lifetime is
+// independent of any caller context (see DispatchIntegrationFix docs).
+func (f *TechLeadFixer) runIntegrationFix(triggerStoryID, repoDir, buildError string) {
+	fixCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	// Look up recently merged stories for the same requirement.
+	story, err := f.projStore.GetStory(triggerStoryID)
+	if err != nil {
+		log.Printf("[integration-fixer] cannot look up trigger story %s: %v", triggerStoryID, err)
+		return
+	}
+
+	allStories, err := f.projStore.ListStories(state.StoryFilter{ReqID: story.ReqID})
+	if err != nil {
+		log.Printf("[integration-fixer] cannot list stories for req %s: %v", story.ReqID, err)
+		return
+	}
+
+	// Collect up to 5 recently merged stories (latest first).
+	var merged []state.Story
+	for i := len(allStories) - 1; i >= 0 && len(merged) < 5; i-- {
+		if allStories[i].Status == "merged" {
+			merged = append(merged, allStories[i])
 		}
+	}
 
-		allStories, err := f.projStore.ListStories(state.StoryFilter{ReqID: story.ReqID})
-		if err != nil {
-			log.Printf("[integration-fixer] cannot list stories for req %s: %v", story.ReqID, err)
-			return
-		}
+	prompt := f.buildPrompt(triggerStoryID, buildError, merged)
 
-		// Collect up to 5 recently merged stories (latest first).
-		var merged []state.Story
-		for i := len(allStories) - 1; i >= 0 && len(merged) < 5; i-- {
-			if allStories[i].Status == "merged" {
-				merged = append(merged, allStories[i])
-			}
-		}
+	resp, err := f.llmClient.Complete(fixCtx, llm.CompletionRequest{
+		Model:     f.model,
+		MaxTokens: f.maxTokens,
+		System:    "You are a Tech Lead diagnosing a broken main branch after a multi-story merge. Be concise and precise.",
+		Messages:  []llm.Message{{Role: llm.RoleUser, Content: prompt}},
+	})
+	if err != nil {
+		log.Printf("[integration-fixer] LLM call failed for %s: %v", triggerStoryID, err)
+		log.Printf("[integration-fixer] MANUAL FIX NEEDED for %s — build error:\n%s", triggerStoryID, buildError)
+		return
+	}
 
-		prompt := f.buildPrompt(triggerStoryID, buildError, merged)
+	fixDescription := strings.TrimSpace(resp.Content)
+	log.Printf("[integration-fixer] suggested fix for %s:\n%s", triggerStoryID, fixDescription)
+	log.Printf("[integration-fixer] to dispatch: vxd req %q", fixDescription)
 
-		resp, err := f.llmClient.Complete(fixCtx, llm.CompletionRequest{
-			Model:     f.model,
-			MaxTokens: f.maxTokens,
-			System:    "You are a Tech Lead diagnosing a broken main branch after a multi-story merge. Be concise and precise.",
-			Messages:  []llm.Message{{Role: llm.RoleUser, Content: prompt}},
-		})
-		if err != nil {
-			log.Printf("[integration-fixer] LLM call failed for %s: %v", triggerStoryID, err)
-			log.Printf("[integration-fixer] MANUAL FIX NEEDED for %s — build error:\n%s", triggerStoryID, buildError)
-			return
-		}
-
-		fixDescription := strings.TrimSpace(resp.Content)
-		log.Printf("[integration-fixer] suggested fix for %s:\n%s", triggerStoryID, fixDescription)
-		log.Printf("[integration-fixer] to dispatch: vxd req %q", fixDescription)
-
-		// Emit an informational event so the fix suggestion is persisted in the
-		// event log for later review.
-		evt := state.NewEvent(state.EventStoryIntegrationFailed, "integration-fixer", triggerStoryID, map[string]any{
-			"build_error":  buildError,
-			"fix_hint":     fixDescription,
-			"trigger_story": triggerStoryID,
-		})
-		if err := f.eventStore.Append(evt); err != nil {
-			log.Printf("[integration-fixer] failed to append fix hint event: %v", err)
-		}
-	}()
+	// Emit an informational event so the fix suggestion is persisted in the
+	// event log for later review.
+	evt := state.NewEvent(state.EventStoryIntegrationFailed, "integration-fixer", triggerStoryID, map[string]any{
+		"build_error":   buildError,
+		"fix_hint":      fixDescription,
+		"trigger_story": triggerStoryID,
+	})
+	if err := f.eventStore.Append(evt); err != nil {
+		log.Printf("[integration-fixer] failed to append fix hint event: %v", err)
+	}
 }

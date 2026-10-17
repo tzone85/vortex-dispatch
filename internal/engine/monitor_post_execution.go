@@ -36,7 +36,7 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 		// block this goroutine (and the WaitGroup it belongs to) indefinitely.
 		rctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if err := m.lifecycle.Release(rctx, ag.DB, outcomeForRelease); err != nil {
+		if err := m.lifecycle.Release(rctx, storyID, ag.DB, outcomeForRelease); err != nil {
 			log.Printf("[pipeline] devdb release failed for %s (outcome=%s): %v (will GC later)",
 				storyID, outcomeForRelease.String(), err)
 		}

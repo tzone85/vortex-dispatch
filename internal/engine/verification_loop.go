@@ -154,13 +154,24 @@ func checkTests(repoDir string) (passing, failing, total int) {
 	}
 
 	cmd.Dir = repoDir
-	out, _ := cmd.CombinedOutput()
+	out, runErr := cmd.CombinedOutput()
 	output := string(out)
 
 	if fileExists(filepath.Join(repoDir, "go.mod")) {
 		return parseGoTestJSON(output)
 	}
 
+	passing, failing, total = parseJSTestOutput(output, runErr != nil)
+	log.Printf("[verify] tests: %d passing, %d failing, %d total", passing, failing, total)
+	return passing, failing, total
+}
+
+// parseJSTestOutput extracts pass/fail counts from jest/vitest output.
+// runFailed reports whether the runner process exited non-zero.
+//
+// Pure (no I/O) so the collection-failure guard is unit-testable without a JS
+// toolchain.
+func parseJSTestOutput(output string, runFailed bool) (passing, failing, total int) {
 	// Parse test results (simplified — count PASS/FAIL lines)
 	for _, line := range strings.Split(output, "\n") {
 		if strings.Contains(line, "\"numPassedTests\"") || strings.Contains(line, "PASS:") {
@@ -182,8 +193,22 @@ func checkTests(repoDir string) (passing, failing, total int) {
 		}
 	}
 
+	// A jest/vitest runner that fails to COLLECT tests — a test-file compile
+	// error (a spec importing a symbol a sibling story renamed), a broken
+	// config, a missing runner — exits non-zero and emits none of the markers
+	// above, so parsing yields 0/0/0. checkBuild's `tsc --noEmit` / `npm run
+	// build` typically excludes *.test.ts, so it doesn't catch a test-only
+	// break either. Left as 0 failing, the completion gate would report the
+	// composed mainline GREEN on a suite that does not compile/run (the Go
+	// equivalent is handled by parseGoTestJSON's build-fail count). Treat a
+	// non-zero exit with no parseable results as a failure so the gate triggers
+	// a fix cycle. Note: `--passWithNoTests` makes a genuine no-tests run exit
+	// zero, so this does not misfire on empty suites.
+	if runFailed && passing == 0 && failing == 0 {
+		failing = 1
+	}
+
 	total = passing + failing
-	log.Printf("[verify] tests: %d passing, %d failing, %d total", passing, failing, total)
 	return passing, failing, total
 }
 
@@ -197,7 +222,21 @@ func parseGoTestJSON(output string) (passing, failing, total int) {
 			Action string `json:"Action"`
 			Test   string `json:"Test"`
 		}
-		if err := json.Unmarshal([]byte(line), &evt); err != nil || evt.Test == "" {
+		if err := json.Unmarshal([]byte(line), &evt); err != nil {
+			continue
+		}
+		// A package whose test binary fails to compile emits a package-scoped
+		// "build-fail" action with NO Test field and produces zero per-test
+		// events. `go build ./...` (checkBuild) never compiles _test.go files,
+		// so a test-only compile break would otherwise leave failing==0 and let
+		// the completion gate report the composed mainline GREEN on a tree whose
+		// test suite does not compile — exactly the cross-story drift (a changed
+		// signature a sibling story's test still calls the old way) the gate
+		// exists to catch. Count it as a failure.
+		if evt.Test == "" {
+			if evt.Action == "build-fail" {
+				failing++
+			}
 			continue
 		}
 		switch evt.Action {

@@ -1,6 +1,7 @@
 package state
 
 import (
+	"database/sql"
 	"encoding/json"
 	"path/filepath"
 	"testing"
@@ -570,6 +571,67 @@ func TestProject_StoryDBDeleted_UpdatesRow(t *testing.T) {
 	}
 	if status != "deleted" {
 		t.Errorf("status = %q, want deleted", status)
+	}
+}
+
+// TestProject_StoryDBDeleted_EmptyStoryID_MatchesByDBID reproduces exactly how
+// devdb.Lifecycle.Release emits STORY_DB_DELETED — with the real story_id only
+// on the STORY_DB_CREATED event and an EMPTY StoryID (and no story_id in the
+// payload) on the delete event. The projector must still flip the row via db_id
+// alone; otherwise the UPDATE matches 0 rows and the DB projects as stuck at
+// "created" forever (regression guard for the release-wiring audit finding).
+func TestProject_StoryDBDeleted_EmptyStoryID_MatchesByDBID(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewSQLiteStore(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer s.Close()
+
+	createdData, _ := json.Marshal(map[string]any{
+		"db_id":   "abc123",
+		"db_name": "vxd-test-s1",
+	})
+	if err := s.Project(Event{
+		Type:      EventStoryDBCreated,
+		StoryID:   "s1", // CREATE carries the real story ID
+		Timestamp: time.Now(),
+		Payload:   createdData,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// DELETE as Release actually emits it: no StoryID, no story_id in payload.
+	deletedData, _ := json.Marshal(map[string]any{
+		"db_id":            "abc123",
+		"duration_seconds": 12.5,
+		"bytes_used":       0,
+		"status":           "deleted",
+	})
+	if err := s.Project(Event{
+		Type:      EventStoryDBDeleted,
+		Timestamp: time.Now(),
+		Payload:   deletedData,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var status string
+	var dur float64
+	var deletedAt sql.NullTime
+	if err := s.db.QueryRow(
+		`SELECT status, duration_seconds, deleted_at FROM story_databases WHERE story_id='s1' AND db_id='abc123'`,
+	).Scan(&status, &dur, &deletedAt); err != nil {
+		t.Fatal(err)
+	}
+	if status != "deleted" {
+		t.Errorf("status = %q, want deleted (release with empty StoryID must still update the row)", status)
+	}
+	if dur != 12.5 {
+		t.Errorf("duration_seconds = %v, want 12.5", dur)
+	}
+	if !deletedAt.Valid {
+		t.Errorf("deleted_at not recorded; release projection did not fire")
 	}
 }
 

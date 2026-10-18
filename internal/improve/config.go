@@ -44,6 +44,11 @@ type Config struct {
 	MaxProposalsPerDay  int
 	MinHourlyRate       int
 	OpportunityKeywords [][]string // 7 sets, rotated daily
+
+	// Self-audit
+	SelfAudit            bool   // VXD_SELF_AUDIT, default true ("false" disables)
+	SelfHeal             bool   // VXD_SELF_HEAL, default false ("true" enables)
+	SelfAuditTestTimeout string // VXD_SELF_AUDIT_TEST_TIMEOUT, default "15m"
 }
 
 // AllowedLicenses lists permissive licenses acceptable for new dependencies.
@@ -105,6 +110,13 @@ func LoadConfig() (Config, error) {
 		}
 	}
 
+	selfAudit := os.Getenv("VXD_SELF_AUDIT") != "false"
+	selfHeal := os.Getenv("VXD_SELF_HEAL") == "true"
+	selfAuditTimeout := "15m"
+	if to := os.Getenv("VXD_SELF_AUDIT_TEST_TIMEOUT"); to != "" {
+		selfAuditTimeout = to
+	}
+
 	defaultKeywords := [][]string{
 		{"software developer", "backend"},
 		{"web application", "fullstack"},
@@ -135,6 +147,9 @@ func LoadConfig() (Config, error) {
 		MaxProposalsPerDay:   maxProposals,
 		MinHourlyRate:        minHourly,
 		OpportunityKeywords:  defaultKeywords,
+		SelfAudit:            selfAudit,
+		SelfHeal:             selfHeal,
+		SelfAuditTestTimeout: selfAuditTimeout,
 	}, nil
 }
 

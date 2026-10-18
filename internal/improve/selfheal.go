@@ -100,7 +100,7 @@ func (impl *Implementer) SelfHeal(ctx context.Context, rep SelfAuditReport, date
 	}
 
 	if err := impl.git("checkout", "-b", branch, "main"); err != nil {
-		impl.git("checkout", "main")
+		_ = impl.git("checkout", "main") // best-effort cleanup
 		return fail(fmt.Sprintf("create branch: %v", err))
 	}
 
@@ -152,7 +152,7 @@ func (impl *Implementer) SelfHeal(ctx context.Context, rep SelfAuditReport, date
 
 	res.PRURL = prURL
 	res.Disposition = "implemented"
-	impl.git("checkout", "main")
+	_ = impl.git("checkout", "main") // best-effort cleanup
 	return res, true
 }
 

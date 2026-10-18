@@ -342,15 +342,6 @@ func trimOutput(s string) string {
 	return s[:maxCapturedOutput] + "\n...[truncated]"
 }
 
-// toolMissing reports whether err means "the tool is not installed".
-func toolMissing(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "executable file not found") || strings.Contains(msg, exec.ErrNotFound.Error())
-}
-
 func (a *SelfAuditor) run(ctx context.Context, check CheckName, parse func(string) []SelfFinding, name string, args ...string) CheckResult {
 	start := time.Now()
 	out, code, err := a.Runner.Run(ctx, a.Root, name, args...)
@@ -623,17 +614,17 @@ func ParseGovulncheckOutput(out string) []SelfFinding {
 			f := newSelfFinding(CheckVuln, sev, id, "vulnerability "+id, "", "")
 			cur = &f
 		case cur != nil && trimmed != "":
-			if cur.Finding.Title == "vulnerability "+cur.Target && !strings.HasPrefix(trimmed, "More info:") &&
+			if cur.Title == "vulnerability "+cur.Target && !strings.HasPrefix(trimmed, "More info:") &&
 				!strings.HasPrefix(trimmed, "Found in:") && !strings.HasPrefix(trimmed, "Fixed in:") &&
 				!strings.HasPrefix(trimmed, "Example traces") && !strings.HasPrefix(trimmed, "#") {
-				cur.Finding.Title = cur.Target + ": " + trimmed
+				cur.Title = cur.Target + ": " + trimmed
 			}
 			if cur.Detail == "" {
 				cur.Detail = trimmed
 			} else {
 				cur.Detail += "\n" + trimmed
 			}
-			cur.Finding.Content = cur.Detail
+			cur.Content = cur.Detail
 		}
 	}
 	flush()

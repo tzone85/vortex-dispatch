@@ -86,8 +86,8 @@ func (impl *Implementer) qualityGates() []gate {
 
 // abandon returns to main and deletes a failed work branch.
 func (impl *Implementer) abandon(branch string) {
-	impl.git("checkout", "main")
-	impl.git("branch", "-D", branch)
+	_ = impl.git("checkout", "main")     // best-effort cleanup
+	_ = impl.git("branch", "-D", branch) // best-effort cleanup
 }
 
 // Implement attempts to implement a single analyzed finding.
@@ -305,7 +305,6 @@ func CheckSecrets(diff string) error {
 	}
 	return nil
 }
-
 
 func slugify(s string) string {
 	re := regexp.MustCompile(`[^a-zA-Z0-9]+`)

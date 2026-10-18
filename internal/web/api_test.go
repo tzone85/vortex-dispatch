@@ -51,7 +51,9 @@ func setupAPIServer(t *testing.T) *Server {
 		"complexity": 3, "elapsed_seconds": 18000, "max_minutes": 240,
 	}))
 
-	return NewServer(es, ps, 0, state.ReqFilter{})
+	srv := NewServer(es, ps, 0, state.ReqFilter{})
+	srv.NoOpen = true
+	return srv
 }
 
 func TestAPI_ListRequirements(t *testing.T) {

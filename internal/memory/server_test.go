@@ -72,7 +72,9 @@ func newTestServer(t *testing.T) *Server {
 	})
 	os.WriteFile(filepath.Join(runsDir, "2026-04-08.json"), runData, 0o644) //nolint:errcheck
 
-	return NewServer(dir, dir, 0)
+	srv := NewServer(dir, dir, 0)
+	srv.NoOpen = true
+	return srv
 }
 
 func TestNewServer(t *testing.T) {

@@ -93,7 +93,8 @@ func (s *Server) Start(ctx context.Context) error {
 	// ReadHeaderTimeout bounds header dribble (Slowloris defence, gosec G112).
 	s.httpServer = &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 
-	url := fmt.Sprintf("http://%s", addr)
+	// Report the address actually bound (port 0 means an ephemeral port).
+	url := fmt.Sprintf("http://%s", listener.Addr().String())
 	browserURL := fmt.Sprintf("%s/?%s=%s", url, web.NonceQueryParam, nonce)
 	log.Printf("Memory dashboard running at %s", url)
 	// Redact most of the token in the log; the full value lives in
@@ -104,7 +105,8 @@ func (s *Server) Start(ctx context.Context) error {
 		short = short[:8]
 	}
 	log.Printf("Memory dashboard auth token: %s… (full value at ~/.vxd/dashboard.token; use `Authorization: Bearer <token>`)", short)
-	if !s.NoOpen {
+	// Never launch a browser for an ephemeral port: it is only used by tests.
+	if !s.NoOpen && s.port != 0 {
 		openBrowser(browserURL)
 	}
 

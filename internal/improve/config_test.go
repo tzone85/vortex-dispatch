@@ -177,3 +177,52 @@ func TestImproveCronNoOpWhenDisabled(t *testing.T) {
 		})
 	}
 }
+
+func setImproveRequiredEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("FIRECRAWL_API_KEY", "fc-test")
+	t.Setenv("RESEND_API_KEY", "re-test")
+	t.Setenv("GOOGLE_AI_API_KEY", "gai-test")
+}
+
+func TestLoadConfig_SelfAuditDefaults(t *testing.T) {
+	setImproveRequiredEnv(t)
+	t.Setenv("VXD_SELF_AUDIT", "")
+	t.Setenv("VXD_SELF_HEAL", "")
+	t.Setenv("VXD_SELF_AUDIT_TEST_TIMEOUT", "")
+
+	cfg, err := improve.LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.SelfAudit {
+		t.Error("SelfAudit must default to true")
+	}
+	if cfg.SelfHeal {
+		t.Error("SelfHeal must default to false")
+	}
+	if cfg.SelfAuditTestTimeout != "15m" {
+		t.Errorf("timeout = %q, want 15m", cfg.SelfAuditTestTimeout)
+	}
+}
+
+func TestLoadConfig_SelfAuditOverrides(t *testing.T) {
+	setImproveRequiredEnv(t)
+	t.Setenv("VXD_SELF_AUDIT", "false")
+	t.Setenv("VXD_SELF_HEAL", "true")
+	t.Setenv("VXD_SELF_AUDIT_TEST_TIMEOUT", "30m")
+
+	cfg, err := improve.LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SelfAudit {
+		t.Error("VXD_SELF_AUDIT=false must disable")
+	}
+	if !cfg.SelfHeal {
+		t.Error("VXD_SELF_HEAL=true must enable")
+	}
+	if cfg.SelfAuditTestTimeout != "30m" {
+		t.Errorf("timeout = %q, want 30m", cfg.SelfAuditTestTimeout)
+	}
+}

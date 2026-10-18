@@ -89,13 +89,20 @@ func BuildWeeklyDigest(auditDir, opportunitiesDir string, now time.Time) WeeklyD
 	auditLog := NewAuditLog(auditDir)
 	weekEntries, _ := auditLog.ReadSince(weekStart)
 
+	seenPR := map[string]bool{}
 	for _, e := range weekEntries {
 		digest.TotalFindings++
 		if e.Relevance >= 5 {
 			digest.RelevantFindings++
 		}
 		if e.Disposition == "implemented" {
-			digest.PRsCreated++
+			// One PR may cover several findings (self-heal); count PRs, not entries.
+			if e.PRURL == "" || !seenPR[e.PRURL] {
+				digest.PRsCreated++
+			}
+			if e.PRURL != "" {
+				seenPR[e.PRURL] = true
+			}
 		}
 		digest.CategoryBreakdown[e.Category]++
 

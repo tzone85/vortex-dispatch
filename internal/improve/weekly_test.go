@@ -123,3 +123,25 @@ func TestBuildWeeklyEmailHTML(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildWeeklyDigest_CountsDistinctPRs(t *testing.T) {
+	dir := t.TempDir()
+	al := improve.NewAuditLog(dir)
+	runID := time.Now().UTC().Format(time.RFC3339)
+	entries := []improve.AuditEntry{
+		{RunID: runID, Disposition: "implemented", PRURL: "https://x/pr/1"},
+		{RunID: runID, Disposition: "implemented", PRURL: "https://x/pr/1"}, // same self-heal PR
+		{RunID: runID, Disposition: "implemented", PRURL: "https://x/pr/2"},
+		{RunID: runID, Disposition: "implemented"}, // legacy entry without URL
+		{RunID: runID, Disposition: "proposed"},
+	}
+	for _, e := range entries {
+		if err := al.Append(e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	digest := improve.BuildWeeklyDigest(dir, t.TempDir(), time.Now())
+	if digest.PRsCreated != 3 {
+		t.Errorf("PRsCreated = %d, want 3 (two distinct URLs + one legacy)", digest.PRsCreated)
+	}
+}

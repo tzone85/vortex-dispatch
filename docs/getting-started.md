@@ -443,6 +443,14 @@ EOF
 source ~/.zshrc
 ```
 
+Optional self-audit settings (the daily run audits the repo's own toolchain first):
+
+```bash
+export VXD_SELF_AUDIT=true               # default; "false" disables
+export VXD_SELF_HEAL=false               # "true" opens one gated PR for gofmt / go mod tidy drift
+export VXD_SELF_AUDIT_TEST_TIMEOUT=15m   # go test -timeout used by the audit
+```
+
 ### Step 4: Initialize VXD
 
 ```bash

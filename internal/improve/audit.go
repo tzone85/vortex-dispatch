@@ -45,6 +45,10 @@ type RunSummary struct {
 	PRsProposed      int       `json:"prs_proposed"`
 	Errors           []string  `json:"errors"`
 	EmailSent        bool      `json:"email_sent"`
+
+	SelfAuditFindings int      `json:"self_audit_findings"`
+	SelfAuditSkipped  []string `json:"self_audit_skipped,omitempty"`
+	SelfHealPRURL     string   `json:"self_heal_pr_url,omitempty"`
 }
 
 // AuditLog reads and writes the JSONL audit log.

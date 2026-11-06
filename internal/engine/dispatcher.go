@@ -14,7 +14,7 @@ import (
 )
 
 // safeStoryIDPattern defines the regex pattern for valid story IDs to prevent
-// shell injection and invalid branch names. Other cross-port: Safe story ID pattern to validate against before dispatch
+// shell injection and invalid branch names. Story IDs are validated before dispatch.
 var safeStoryIDPattern = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 
 // Assignment represents a story routed to a specific agent role with session

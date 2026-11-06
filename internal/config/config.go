@@ -241,6 +241,11 @@ type QAConfig struct {
 	// default of 2. Set to a negative value to disable auto-fix (hard gate only:
 	// verify once, block on red).
 	CompletionFixCycles int `yaml:"completion_fix_cycles,omitempty"`
+	// CompletionTestTimeoutS bounds one test-suite run inside the completion
+	// gate, in seconds. 0 — and any negative value — uses the default of 20
+	// minutes. A suite that does not finish in time blocks the requirement
+	// without an auto-fix cycle.
+	CompletionTestTimeoutS int `yaml:"completion_test_timeout_s,omitempty"`
 	// FlakyRetries is how many times a FAILED test step is re-run before the
 	// failure counts as real (default 1; 0 disables retrying). A test that
 	// passes on retry keeps QA green but emits STORY_QA_FLAKY (step, attempts)

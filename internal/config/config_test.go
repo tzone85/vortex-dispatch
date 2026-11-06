@@ -627,3 +627,35 @@ func TestDefaultConfig_BudgetUnlimited(t *testing.T) {
 		t.Fatal("expected validation error for negative billing.max_usd_per_req")
 	}
 }
+
+// TestLoadFromFile_QAKeys: the three qa keys reach the config a run uses.
+// completion_test_timeout_s in particular bounds one test-suite run inside
+// the completion gate, and a key that never loads is a key that silently does
+// nothing.
+func TestLoadFromFile_QAKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vxd.config.yaml")
+	if err := os.WriteFile(path, []byte(`
+version: "1.0"
+qa:
+  disable_completion_gate: true
+  completion_fix_cycles: 3
+  completion_test_timeout_s: 90
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.LoadFromFile(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !cfg.QA.DisableCompletionGate {
+		t.Error("disable_completion_gate did not load")
+	}
+	if cfg.QA.CompletionFixCycles != 3 {
+		t.Errorf("completion_fix_cycles = %d, want 3", cfg.QA.CompletionFixCycles)
+	}
+	if cfg.QA.CompletionTestTimeoutS != 90 {
+		t.Errorf("completion_test_timeout_s = %d, want 90", cfg.QA.CompletionTestTimeoutS)
+	}
+}

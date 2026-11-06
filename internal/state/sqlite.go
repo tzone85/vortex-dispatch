@@ -1,6 +1,7 @@
 package state
 
 import (
+	"crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/oklog/ulid/v2"
 )
 
 // initSQL is the schema migration applied on store creation.
@@ -122,7 +124,7 @@ func NewSQLiteStore(dsn string) (*SQLiteStore, error) {
 	}
 
 	if _, err := db.Exec(initSQL); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("apply migration: %w", err)
 	}
 
@@ -180,6 +182,7 @@ func NewSQLiteStore(dsn string) (*SQLiteStore, error) {
 	}
 	for _, stmt := range indexStatements {
 		if _, err := db.Exec(stmt); err != nil {
+			_ = db.Close() // the caller gets no handle to close
 			return nil, fmt.Errorf("create index: %w", err)
 		}
 	}
@@ -815,7 +818,7 @@ func (s *SQLiteStore) projectStoryEscalated(evt Event, payload map[string]any) e
 	_, err := s.db.Exec(
 		`INSERT OR IGNORE INTO escalations (id, story_id, from_agent, reason, status, from_tier, to_tier, created_at)
 		 VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)`,
-		evt.ID, evt.StoryID, evt.AgentID, reason, fromTier, toTier, evt.Timestamp,
+		projectionRowID(evt), evt.StoryID, evt.AgentID, reason, fromTier, toTier, evt.Timestamp,
 	)
 	return err
 }
@@ -1066,7 +1069,7 @@ func (s *SQLiteStore) projectStoryCostRecorded(evt Event, payload map[string]any
 		`INSERT OR IGNORE INTO story_costs
 		 (id, story_id, req_id, stage, model, input_tokens, output_tokens, est_usd, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		evt.ID,
+		projectionRowID(evt),
 		payloadStr(payload, "story_id"),
 		payloadStr(payload, "req_id"),
 		payloadStr(payload, "stage"),
@@ -1152,4 +1155,17 @@ func payloadMap(m map[string]any, key string) map[string]any {
 		return map[string]any{}
 	}
 	return sub
+}
+
+// projectionRowID is the primary key for a projected row that has one row per
+// event (escalations, story_costs). It is the event's own persisted ULID, so a
+// replay of the same log yields identical rows and re-projecting an event is a
+// no-op under INSERT OR IGNORE. An event without an ID (hand-built struct
+// literal) falls back to a fresh ULID so distinct events can never collapse
+// onto the same "" key and be silently dropped.
+func projectionRowID(evt Event) string {
+	if evt.ID != "" {
+		return evt.ID
+	}
+	return ulid.MustNew(ulid.Timestamp(evt.Timestamp), rand.Reader).String()
 }

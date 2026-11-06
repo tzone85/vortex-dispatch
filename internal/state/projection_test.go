@@ -843,3 +843,44 @@ func TestStoryDBStatusAll_MultipleStatuses(t *testing.T) {
 		t.Errorf("s3: want retained, got %q", statuses["s3"])
 	}
 }
+
+// TestProject_ReqBlockedThenCompleted_ProjectsTheSameTwice: a blocked
+// requirement that a later resume completes ends completed, and projecting
+// the same events into a fresh store gives the same answer.
+func TestProject_ReqBlockedThenCompleted_ProjectsTheSameTwice(t *testing.T) {
+	events := []Event{
+		NewEvent(EventReqSubmitted, "", "", map[string]any{"id": "REQ-BC1", "title": "Blocked then completed"}),
+		NewEvent(EventReqBlocked, "monitor", "", map[string]any{"id": "REQ-BC1"}),
+		NewEvent(EventReqResumed, "", "", map[string]any{"id": "REQ-BC1"}), // vxd resume unblocks before the gate re-runs
+		NewEvent(EventReqCompleted, "monitor", "", map[string]any{"id": "REQ-BC1"}),
+	}
+	wantAfter := map[EventType]string{EventReqBlocked: "blocked", EventReqResumed: "planned", EventReqCompleted: "completed"}
+	for _, name := range []string{"first", "second store"} {
+		s, err := NewSQLiteStore(filepath.Join(t.TempDir(), name+".db"))
+		if err != nil {
+			t.Fatalf("create store: %v", err)
+		}
+		for _, evt := range events {
+			if err := s.Project(evt); err != nil {
+				t.Fatalf("%s: project %s: %v", name, evt.Type, err)
+			}
+			if want, ok := wantAfter[evt.Type]; ok {
+				req, err := s.GetRequirement("REQ-BC1")
+				if err != nil {
+					t.Fatalf("%s: %v", name, err)
+				}
+				if req.Status != want {
+					t.Fatalf("%s: want %s after %s, got %s", name, want, evt.Type, req.Status)
+				}
+			}
+		}
+		req, err := s.GetRequirement("REQ-BC1")
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if req.Status != "completed" {
+			t.Fatalf("%s: want completed after REQ_BLOCKED, REQ_RESUMED, REQ_COMPLETED, got %s", name, req.Status)
+		}
+		_ = s.Close()
+	}
+}

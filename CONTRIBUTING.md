@@ -116,3 +116,14 @@ covered by tests. Replay must remain deterministic.
 Behavioural changes should update user-facing documentation in the same PR.
 Public docs should explain observable VXD behaviour, not private Vortex
 Dispatch implementation details.
+
+## Publication check
+
+Run `make public-boundary` before sharing changes. This is also part of
+`make verify` and CI. Follow [the publication policy](docs/OPEN_CORE.md),
+including its manual review requirement for new code, prompts and data.
+
+The normal Go suite uses local fixtures for provider behavior. The Claude CLI
+live smoke test requires explicit opt-in:
+`VXD_LIVE_CLAUDE_TEST=1 go test ./internal/llm -run '^TestClaudeCLIClient_Integration$' -count=1`.
+It needs a working Claude login and may consume subscription/API allowance.

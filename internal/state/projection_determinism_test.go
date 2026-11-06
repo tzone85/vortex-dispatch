@@ -88,3 +88,34 @@ func TestProject_StoryEscalated_Idempotent(t *testing.T) {
 		t.Fatalf("escalation row not keyed on event ULID: got %q, want %q", escalations[0].ID, evt.ID)
 	}
 }
+
+// TestProject_StoryCostRecorded_EmptyIDsDoNotCollapse guards the fallback in
+// projectionRowID: two distinct cost events built without an ID (struct
+// literals rather than NewEvent) must both be recorded. Keying them on "" with
+// INSERT OR IGNORE would silently drop the second and under-count spend.
+func TestProject_StoryCostRecorded_EmptyIDsDoNotCollapse(t *testing.T) {
+	s, err := NewSQLiteStore(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer s.Close()
+
+	for i := 0; i < 2; i++ {
+		evt := NewEvent(EventStoryCostRecorded, "metering", "s-noid", map[string]any{
+			"story_id": "s-noid", "req_id": "r-noid", "stage": "review",
+			"model": "m", "input_tokens": 1, "output_tokens": 1, "est_usd": 0.01,
+		})
+		evt.ID = ""
+		if err := s.Project(evt); err != nil {
+			t.Fatalf("project %d: %v", i, err)
+		}
+	}
+
+	var rows int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM story_costs WHERE req_id = ?`, "r-noid").Scan(&rows); err != nil {
+		t.Fatalf("count story_costs: %v", err)
+	}
+	if rows != 2 {
+		t.Fatalf("story_costs rows = %d, want 2 (ID-less events collapsed onto one key)", rows)
+	}
+}

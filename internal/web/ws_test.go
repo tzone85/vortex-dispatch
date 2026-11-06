@@ -409,6 +409,7 @@ func TestServer_Start_PortConflict(t *testing.T) {
 
 	s2 := newTestServer(t)
 	s2.port = port
+	s2.NoOpen = true
 
 	// The listener is still held, so Start should fail
 	err = s2.Start(context.Background())

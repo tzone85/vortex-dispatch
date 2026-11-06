@@ -187,3 +187,34 @@ func TestSendEmail_ResendAPI(t *testing.T) {
 		t.Errorf("expected subject, got %v", receivedBody["subject"])
 	}
 }
+
+func TestBuildEmailHTML_SelfAuditSection(t *testing.T) {
+	data := improve.EmailData{
+		Date:    "2026-10-18",
+		Summary: "x",
+		SelfAudit: &improve.EmailSelfAudit{
+			Summary:  "6 checks, 1 findings",
+			Findings: []improve.EmailSection{{Title: "[low] a.go — gofmt drift: a.go"}},
+			Skipped:  []string{"govulncheck: not installed"},
+		},
+	}
+	html, err := improve.BuildEmailHTML(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Self-Audit", "gofmt drift: a.go", "not a clean bill of health"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("html missing %q", want)
+		}
+	}
+}
+
+func TestBuildEmailHTML_OmitsSelfAuditWhenNil(t *testing.T) {
+	html, err := improve.BuildEmailHTML(improve.EmailData{Date: "2026-10-18", Summary: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(html, "Self-Audit") {
+		t.Error("Self-Audit block must be omitted when SelfAudit is nil")
+	}
+}

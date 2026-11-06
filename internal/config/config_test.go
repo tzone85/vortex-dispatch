@@ -608,3 +608,54 @@ func TestImproveDefaultDisabled(t *testing.T) {
 		t.Fatal("DefaultConfig().Improve.Enabled must be false — the pipeline is experimental and opt-in")
 	}
 }
+
+// TestDefaultConfig_BudgetUnlimited pins the F2 budget-cap default: 0 means
+// unlimited (no enforcement), the default validates, and negative caps are
+// rejected at load time.
+func TestDefaultConfig_BudgetUnlimited(t *testing.T) {
+	cfg := config.DefaultConfig()
+	if cfg.Billing.MaxUSDPerReq != 0 {
+		t.Fatalf("expected billing.max_usd_per_req default 0 (unlimited), got %f", cfg.Billing.MaxUSDPerReq)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("default config should validate with unlimited budget: %v", err)
+	}
+
+	neg := config.DefaultConfig()
+	neg.Billing.MaxUSDPerReq = -1
+	if err := neg.Validate(); err == nil {
+		t.Fatal("expected validation error for negative billing.max_usd_per_req")
+	}
+}
+
+// TestLoadFromFile_QAKeys: the three qa keys reach the config a run uses.
+// completion_test_timeout_s in particular bounds one test-suite run inside
+// the completion gate, and a key that never loads is a key that silently does
+// nothing.
+func TestLoadFromFile_QAKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vxd.config.yaml")
+	if err := os.WriteFile(path, []byte(`
+version: "1.0"
+qa:
+  disable_completion_gate: true
+  completion_fix_cycles: 3
+  completion_test_timeout_s: 90
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.LoadFromFile(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !cfg.QA.DisableCompletionGate {
+		t.Error("disable_completion_gate did not load")
+	}
+	if cfg.QA.CompletionFixCycles != 3 {
+		t.Errorf("completion_fix_cycles = %d, want 3", cfg.QA.CompletionFixCycles)
+	}
+	if cfg.QA.CompletionTestTimeoutS != 90 {
+		t.Errorf("completion_test_timeout_s = %d, want 90", cfg.QA.CompletionTestTimeoutS)
+	}
+}

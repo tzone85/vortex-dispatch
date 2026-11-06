@@ -69,6 +69,15 @@ func ReadLock(lockPath string) (LockInfo, error) {
 	return readLockFile(lockPath)
 }
 
+// ProcessAlive reports whether a process with the given PID exists and is
+// reachable via signal 0. Exported so diagnostics tooling (`vxd doctor`
+// stale-lock check) reuses the EXACT liveness probe AcquireLock uses to
+// decide staleness — two different probes could disagree about whether a
+// lock is stale.
+func ProcessAlive(pid int) bool {
+	return isProcessAlive(pid)
+}
+
 // --- internal helpers ---
 
 // readLockFile reads and decodes the JSON lock file at path.

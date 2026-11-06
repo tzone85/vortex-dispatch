@@ -38,7 +38,12 @@ The requirement text can be provided as:
 
 Product & marketing made easy:
   vxd req "Launch marketing site: hero + 4 features + pricing table + footer for Vortex"
-  vxd req --file marketing-brief.md   # turn brief into site, emails, or analytics dashboard`,
+  vxd req --file marketing-brief.md   # turn brief into site, emails, or analytics dashboard
+
+In auto mode this command ends in the same monitor vxd resume does, so it
+exits the same way: 1 when the requirement is blocked, when the completion
+gate reached no verdict, or when stories remain unfinished with nothing left
+running. See vxd resume --help.`,
 
 		Args: cobra.MaximumNArgs(1),
 		RunE: runReq,
@@ -50,6 +55,10 @@ Product & marketing made easy:
 	cmd.Flags().Bool("background", false, "self-daemonize after planning: fork a detached child process and exit; tail logs with 'vxd logs <req-id>'")
 	cmd.Flags().Bool("no-dashboard", false, "skip the always-on dashboard auto-spawn for this run (overrides dashboard.auto_start config)")
 	cmd.SilenceUsage = true
+	// main prints the error; without this cobra prints it too, and since this
+	// command ends in the monitor, a blocked gate is an ordinary way for it to
+	// end (the same reason resume silences them).
+	cmd.SilenceErrors = true
 	return cmd
 }
 
@@ -116,6 +125,12 @@ func runReq(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
+		// F2: meter the persisted planning call into STORY_COST_RECORDED.
+		// per_token mode prices via the static table; subscription records raw
+		// tokens at est_usd=0. Ephemeral estimates stay unmetered (the planner
+		// only tags Stage when persisting).
+		planPriced := s.Config.Billing.LLMCosts.Mode == "per_token"
+		client = llm.NewMeteredClient(client, &costRecorder{events: s.Events, proj: s.Proj, priced: planPriced}, planPriced)
 	}
 
 	// Generate requirement ID
@@ -336,9 +351,9 @@ func resolveRequirement(cmd *cobra.Command, args []string) (string, error) {
 	}
 }
 
-// planningFallbackClient wraps an API client and falls back to a CLI client
-// when the API fails. If the CLI also fails (e.g. prompt too long), it returns
-// a helpful error suggesting the user shorten their requirement.
+// planningFallbackClient tries the CLI client first (subscription, no per-token
+// cost) and falls back to the API client when the CLI fails or returns an empty
+// response. If neither succeeds, it returns an error with a hint for the user.
 type planningFallbackClient struct {
 	apiClient llm.Client
 	cliClient llm.Client
@@ -395,8 +410,8 @@ func (p *planningFallbackClient) Complete(ctx context.Context, req llm.Completio
 	return llm.CompletionResponse{}, fmt.Errorf("no LLM client available for planning — set ANTHROPIC_API_KEY or install claude CLI")
 }
 
-// buildPlanningClient creates a client that tries API first, then falls back
-// to CLI. Planning prompts can be large, so the API is preferred.
+// buildPlanningClient builds whichever of the CLI and API clients the provider
+// supports and wraps them in planningFallbackClient (CLI first, API second).
 func buildPlanningClient(provider string, godmode bool) (llm.Client, error) {
 	var apiClient llm.Client
 	var cliClient llm.Client

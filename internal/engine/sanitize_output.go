@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/tzone85/vortex-dispatch/internal/sanitize"
 )
 
 // hallucination patterns that LLMs may prefix to generated files.
@@ -196,7 +198,7 @@ func validateNodeProject(dir string) error {
 		cmd := exec.Command(tscPath, "--noEmit") // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command -- fixed argv; tscPath is <worktree>/node_modules/.bin/tsc
 		cmd.Dir = dir
 		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("TypeScript check failed:\n%s", truncateOutput(string(out), 500))
+			return fmt.Errorf("TypeScript check failed:\n%s", buildOutput(out))
 		}
 		return nil
 	}
@@ -205,7 +207,7 @@ func validateNodeProject(dir string) error {
 	cmd := exec.Command("npm", "run", "build")
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("npm build failed:\n%s", truncateOutput(string(out), 500))
+		return fmt.Errorf("npm build failed:\n%s", buildOutput(out))
 	}
 	return nil
 }
@@ -214,7 +216,7 @@ func validateGoProject(dir string) error {
 	cmd := exec.Command("go", "build", "./...")
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("go build failed:\n%s", truncateOutput(string(out), 500))
+		return fmt.Errorf("go build failed:\n%s", buildOutput(out))
 	}
 	return nil
 }
@@ -240,7 +242,7 @@ func validatePythonProject(dir string) error {
 	cmd := exec.Command("python3", args...)
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("python syntax check failed:\n%s", truncateOutput(string(out), 500))
+		return fmt.Errorf("python syntax check failed:\n%s", buildOutput(out))
 	}
 	return nil
 }
@@ -250,11 +252,15 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-func truncateOutput(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "\n...(truncated)"
+// buildOutputBytes is how much of a failed build's output validateBuild keeps.
+const buildOutputBytes = 500
+
+// buildOutput is what a validateBuild error carries: known secret shapes
+// redacted BEFORE the cut (a token straddling the cut would otherwise leak
+// its prefix), then headOutput — the same helper a gap's output goes through,
+// so the package has one head and one tail cut, not one per caller.
+func buildOutput(out []byte) string {
+	return headOutput(sanitize.RedactSecrets(string(out)), buildOutputBytes)
 }
 
 // scanFileForConflictMarkers checks if a file contains unresolved merge conflict markers.

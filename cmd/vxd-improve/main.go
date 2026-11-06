@@ -81,6 +81,48 @@ func main() {
 		StartedAt: startedAt,
 	}
 
+	impl := improve.NewImplementer(cfg.RepoPath, cfg.ClaudePath, cfg.MaxDiffLines, cfg.MaxFilesChanged, cfg.DryRun)
+	auditLog := improve.NewAuditLog(cfg.AuditDir)
+	prsCreated := 0
+
+	// Phase 0: Self-Audit (look inward before looking outward)
+	log.Println("Phase 0: Self-Audit")
+	var selfReport improve.SelfAuditReport
+	var healResult improve.ImplementResult
+	healed := false
+	if cfg.SelfAudit {
+		auditor := improve.NewSelfAuditor(cfg.RepoPath, nil)
+		auditor.TestTimeout = cfg.SelfAuditTestTimeout
+		selfReport, _ = auditor.Audit(ctx)
+		for _, sk := range selfReport.Skipped() {
+			summary.SelfAuditSkipped = append(summary.SelfAuditSkipped, string(sk.Check)+": "+sk.Err)
+		}
+		summary.SelfAuditFindings = len(selfReport.Findings)
+		log.Printf("  %d finding(s): %d auto-fixable, %d need judgement, %d check(s) skipped",
+			len(selfReport.Findings), len(selfReport.DeterministicFindings()),
+			len(selfReport.JudgementFindings()), len(selfReport.Skipped()))
+
+		if cfg.SelfHeal && len(selfReport.DeterministicFindings()) > 0 {
+			healResult, healed = impl.SelfHeal(ctx, selfReport, date)
+			if healed && healResult.IsImplemented() {
+				prsCreated++
+				summary.SelfHealPRURL = healResult.PRURL
+			}
+			if healed && healResult.Error != "" {
+				summary.Errors = append(summary.Errors, "[self-heal] "+healResult.Error)
+			}
+		}
+
+		entries := improve.MergeHealResult(selfReport.AuditEntries(runID), selfReport.Findings, healResult, healed)
+		for _, e := range entries {
+			if err := auditLog.Append(e); err != nil {
+				log.Printf("  self-audit changelog append error: %v", err)
+			}
+		}
+	} else {
+		log.Println("  disabled (VXD_SELF_AUDIT=false)")
+	}
+
 	// Phase 1: Research
 	log.Println("Phase 1: Research")
 	researcher := improve.NewResearcher(cfg.FirecrawlKey, "https://api.firecrawl.dev")
@@ -111,11 +153,7 @@ func main() {
 
 	// Phase 3: Implementation
 	log.Println("Phase 3: Implementation")
-	impl := improve.NewImplementer(cfg.RepoPath, cfg.ClaudePath, cfg.MaxDiffLines, cfg.MaxFilesChanged, cfg.DryRun)
-	auditLog := improve.NewAuditLog(cfg.AuditDir)
-
 	var results []improve.ImplementResult
-	prsCreated := 0
 
 	for i, sf := range scored {
 		if prsCreated >= cfg.MaxPRsPerRun {
@@ -322,6 +360,9 @@ func main() {
 	// Phase 9: Email (after all data gathered)
 	log.Println("Phase 9: Email")
 	emailData := buildEmailData(date, findings, results, summary, filteredOpps, proposalResults, allPipelineOpps, totalRevenue, milestone)
+	if cfg.SelfAudit {
+		emailData.SelfAudit = improve.BuildSelfAuditEmail(selfReport, healResult, healed)
+	}
 
 	html, err := improve.BuildEmailHTML(emailData)
 	if err != nil {

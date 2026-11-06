@@ -121,10 +121,11 @@ func TestLifecycle_Release_Success_Deletes(t *testing.T) {
 	if es.appended[0].Type != state.EventStoryDBDeleted {
 		t.Errorf("type = %v, want STORY_DB_DELETED", es.appended[0].Type)
 	}
-	// The event must carry StoryID or the SQLite projector (keyed on
-	// story_id, db_id) updates 0 rows and the DB projects as stuck at "created".
+	// The delete event MUST carry the story ID: the SQLite projector joins the
+	// deletion to the STORY_DB_CREATED row on (story_id, db_id). An empty
+	// StoryID here silently drops the projection UPDATE (regression guard).
 	if es.appended[0].StoryID != "story-1" {
-		t.Errorf("StoryID = %q, want story-1", es.appended[0].StoryID)
+		t.Errorf("StoryID = %q, want %q", es.appended[0].StoryID, "story-1")
 	}
 	var payload map[string]any
 	_ = json.Unmarshal(es.appended[0].Payload, &payload)
@@ -139,7 +140,7 @@ func TestLifecycle_Release_FailedWithKeepDB_Retains(t *testing.T) {
 	lc := devdb.NewLifecycle(rp, es, devdb.Config{Provider: "null", KeepDBOnFail: true})
 
 	db := devdb.DB{ID: "abc"}
-	if err := lc.Release(context.Background(), "story-2", db, devdb.OutcomeFailed); err != nil {
+	if err := lc.Release(context.Background(), "story-1", db, devdb.OutcomeFailed); err != nil {
 		t.Fatal(err)
 	}
 	if len(rp.deleted) != 0 {
@@ -157,7 +158,7 @@ func TestLifecycle_Release_FailedWithoutKeepDB_Deletes(t *testing.T) {
 	es := &fakeEventStore{}
 	lc := devdb.NewLifecycle(rp, es, devdb.Config{Provider: "null", KeepDBOnFail: false})
 
-	if err := lc.Release(context.Background(), "story-3", devdb.DB{ID: "abc"}, devdb.OutcomeFailed); err != nil {
+	if err := lc.Release(context.Background(), "story-1", devdb.DB{ID: "abc"}, devdb.OutcomeFailed); err != nil {
 		t.Fatal(err)
 	}
 	if len(rp.deleted) != 1 {

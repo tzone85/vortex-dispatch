@@ -79,6 +79,18 @@ merge:
     ### Acceptance Criteria
     {acceptance_criteria}
 
+qa:
+  # The completion gate verifies the composed mainline once every story of a
+  # requirement is done. true falls back to the legacy advisory verification,
+  # which writes .vxd-fix-gaps.md but completes the requirement regardless.
+  disable_completion_gate: false
+  # Fix-agent runs on a red mainline before REQ_BLOCKED. Negative: verify
+  # once and block, with no auto-fix.
+  completion_fix_cycles: 2
+  # Bound on ONE test-suite run inside the gate, in seconds. A suite that
+  # overruns blocks the requirement without a fix agent.
+  completion_test_timeout_s: 1200
+
 planning:
   sequential_file_patterns:
     - "package.json"

@@ -48,6 +48,61 @@ func initBareAndClone(t *testing.T, branch string) (string, string) {
 // Fix 1: pullMainAfterMerge
 // ===================================================================
 
+// TestPullBaseAfterMerge_KeepsTrackedGitignore: .gitignore is the operator's
+// file. The pull pre-cleans VXD's own scratch files and appends VXD's
+// patterns to .gitignore, but must never delete it — ensureGitignorePatterns
+// would then recreate a VXD-only file, .env and node_modules/ would stop
+// being ignored, and the fix agent's `git add -A` is one step away.
+func TestPullBaseAfterMerge_KeepsTrackedGitignore(t *testing.T) {
+	clone, _ := initBareAndClone(t, "main")
+	gi := filepath.Join(clone, ".gitignore")
+	if err := os.WriteFile(gi, []byte("node_modules/\n.env\n"), 0644); err != nil {
+		t.Fatalf("write .gitignore: %v", err)
+	}
+	run(t, clone, "git", "add", ".gitignore")
+	run(t, clone, "git", "commit", "-m", "ignore node_modules and .env")
+	run(t, clone, "git", "push", "origin", "main")
+
+	pullBaseAfterMerge(clone, "main")
+
+	got, err := os.ReadFile(gi)
+	if err != nil {
+		t.Fatalf(".gitignore must survive the pull: %v", err)
+	}
+	for _, want := range []string{"node_modules/", ".env"} {
+		if !strings.Contains(string(got), want) {
+			t.Fatalf("the operator's %q line was dropped; .gitignore is now:\n%s", want, got)
+		}
+	}
+	if !strings.Contains(string(got), ".vxd-fix-gaps.md") {
+		t.Fatalf("VXD's own patterns must still be appended, got:\n%s", got)
+	}
+}
+
+// TestPullBaseAfterMerge_LeavesWorktreeClean_WithTrackedGitignore: whatever
+// the pull does to .gitignore, git must never see it as deleted.
+func TestPullBaseAfterMerge_LeavesWorktreeClean_WithTrackedGitignore(t *testing.T) {
+	clone, _ := initBareAndClone(t, "main")
+	if err := os.WriteFile(filepath.Join(clone, ".gitignore"), []byte("node_modules/\n"), 0644); err != nil {
+		t.Fatalf("write .gitignore: %v", err)
+	}
+	run(t, clone, "git", "add", ".gitignore")
+	run(t, clone, "git", "commit", "-m", "ignore node_modules")
+	run(t, clone, "git", "push", "origin", "main")
+
+	pullBaseAfterMerge(clone, "main")
+
+	status := run(t, clone, "git", "status", "--porcelain")
+	for _, line := range strings.Split(strings.TrimSpace(status), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if !strings.HasSuffix(line, ".gitignore") || strings.HasPrefix(strings.TrimSpace(line), "D") {
+			t.Fatalf("the pull may leave an appended .gitignore and nothing else, got:\n%s", status)
+		}
+	}
+}
+
 func TestPullMainAfterMerge_SyncsLocalCheckout(t *testing.T) {
 	clone, bare := initBareAndClone(t, "main")
 
@@ -178,7 +233,7 @@ func TestEnsureGitignorePatterns_CreatesGitignoreIfMissing(t *testing.T) {
 		t.Fatal("gitignore should be created")
 	}
 	content := string(gi)
-	for _, pat := range []string{"CLAUDE.md", "WAVE_CONTEXT.md", "vxd.yaml", ".vxd-prompts/"} {
+	for _, pat := range []string{"CLAUDE.md", "WAVE_CONTEXT.md", "vxd.yaml", ".vxd-prompts/", ".vxd-fix-gaps.md"} {
 		if !strings.Contains(content, pat) {
 			t.Errorf("gitignore missing pattern %q", pat)
 		}

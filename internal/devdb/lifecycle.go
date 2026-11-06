@@ -80,10 +80,18 @@ func (l *Lifecycle) Provision(ctx context.Context, storyID, project, worktreeDir
 	return db, nil
 }
 
-// Release deletes the DB and emits STORY_DB_DELETED.
+// Release deletes the DB for the given story and emits STORY_DB_DELETED.
 // Honours cfg.KeepDBOnFail: if the story failed and KeepDBOnFail is true,
 // skips the delete call and emits STORY_DB_DELETED with status="retained".
-func (l *Lifecycle) Release(ctx context.Context, db DB, outcome StoryOutcome) error {
+//
+// storyID MUST be the ID of the story that owns this DB: the emitted event
+// carries it so the SQLite projector can join the deletion back to the
+// STORY_DB_CREATED row (projected on (story_id, db_id)). Without it the
+// delete event's StoryID is "" and the projector's
+// `UPDATE ... WHERE story_id = ? AND db_id = ?` matches zero rows, so the DB
+// is reported "created"/active forever and its duration is never recorded —
+// on the live projection and on every replay.
+func (l *Lifecycle) Release(ctx context.Context, storyID string, db DB, outcome StoryOutcome) error {
 	status := "deleted"
 	keep := outcome != OutcomeSuccess && l.cfg.KeepDBOnFail
 	if keep {
@@ -95,7 +103,7 @@ func (l *Lifecycle) Release(ctx context.Context, db DB, outcome StoryOutcome) er
 			// Emit a failed-release event so GC can pick up later. We do not
 			// return the error after the event is emitted — callers don't
 			// need to block pipeline progress on release failures.
-			l.emitFailed("", db.Name, fmt.Sprintf("release: %v", err))
+			l.emitFailed(storyID, db.Name, fmt.Sprintf("release: %v", err))
 			return fmt.Errorf("devdb release: %w", err)
 		}
 	}
@@ -113,6 +121,7 @@ func (l *Lifecycle) Release(ctx context.Context, db DB, outcome StoryOutcome) er
 	data, _ := json.Marshal(payload)
 	_ = l.events.Append(state.Event{
 		Type:      state.EventStoryDBDeleted,
+		StoryID:   storyID,
 		Timestamp: l.clock(),
 		Payload:   data,
 	})

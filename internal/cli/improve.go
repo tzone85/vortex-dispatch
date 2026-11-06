@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -30,6 +31,7 @@ Run "vxd improve runs" to see daily run history.`)
 	cmd.AddCommand(newImproveLogCmd())
 	cmd.AddCommand(newImproveRunsCmd())
 	cmd.AddCommand(newImproveDetailCmd())
+	cmd.AddCommand(newImproveAuditCmd())
 
 	return cmd
 }
@@ -284,6 +286,93 @@ func runImproveDetail(_ *cobra.Command, args []string) error {
 		fmt.Printf("\nSecurity: %s\n", e.SecurityReview)
 	}
 
+	return nil
+}
+
+// --- vxd improve audit ---
+
+func newImproveAuditCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "audit",
+		Short: "Run the self-audit (build, vet, gofmt, test, govulncheck, go mod tidy) on this repo",
+		Long: "Run the repository's own toolchain and report real findings.\n" +
+			"Deterministic findings (gofmt, go mod tidy) can be fixed in the working tree with --fix.\n" +
+			"Judgement findings (build, vet, test, govulncheck) are only ever reported.\n" +
+			"This command never writes to the improvement changelog.",
+		RunE: runImproveAudit,
+	}
+	cmd.Flags().String("repo", "", "Repository root (default: current directory)")
+	cmd.Flags().Bool("json", false, "Output the report as JSON")
+	cmd.Flags().Bool("skip-tests", false, "Skip the (slow) go test check")
+	cmd.Flags().String("timeout", "15m", "Value for go test -timeout")
+	cmd.Flags().Bool("fix", false, "Apply deterministic fixes (gofmt, go mod tidy) in the working tree; no branch or PR")
+	cmd.SilenceUsage = true
+	return cmd
+}
+
+func runImproveAudit(cmd *cobra.Command, _ []string) error {
+	repo, _ := cmd.Flags().GetString("repo")
+	jsonOut, _ := cmd.Flags().GetBool("json")
+	skipTests, _ := cmd.Flags().GetBool("skip-tests")
+	timeout, _ := cmd.Flags().GetString("timeout")
+	fix, _ := cmd.Flags().GetBool("fix")
+
+	if repo == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("determine working directory: %w", err)
+		}
+		repo = cwd
+	}
+	if info, err := os.Stat(repo); err != nil || !info.IsDir() {
+		return fmt.Errorf("self-audit: repo %q is not a directory", repo)
+	}
+
+	ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Minute)
+	defer cancel()
+
+	auditor := improve.NewSelfAuditor(repo, nil)
+	auditor.TestTimeout = timeout
+	auditor.SkipTests = skipTests
+	rep, err := auditor.Audit(ctx)
+	if err != nil {
+		return fmt.Errorf("self-audit: %w", err)
+	}
+
+	out := cmd.OutOrStdout()
+	if jsonOut {
+		data, err := json.MarshalIndent(rep, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshal report: %w", err)
+		}
+		fmt.Fprintln(out, string(data))
+	} else {
+		fmt.Fprint(out, rep.Markdown())
+	}
+
+	if skipped := rep.Skipped(); len(skipped) > 0 {
+		fmt.Fprintf(cmd.ErrOrStderr(), "\nWARNING: %d check(s) did not run; this is not a clean bill of health.\n", len(skipped))
+		if len(skipped) == len(rep.Results) {
+			return fmt.Errorf("self-audit: no check could run (is the Go toolchain on PATH and %q a Go module?)", repo)
+		}
+	}
+
+	remaining := len(rep.Findings)
+	if fix {
+		det := rep.DeterministicFindings()
+		applied, fixErr := improve.ApplyDeterministicFixes(ctx, improve.ExecRunner{}, repo, det)
+		for _, a := range applied {
+			fmt.Fprintf(cmd.ErrOrStderr(), "fixed: %s\n", a)
+		}
+		if fixErr != nil {
+			return fmt.Errorf("apply fixes: %w", fixErr)
+		}
+		remaining -= len(det)
+	}
+
+	if remaining > 0 {
+		return fmt.Errorf("self-audit: %d finding(s) need attention", remaining)
+	}
 	return nil
 }
 

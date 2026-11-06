@@ -133,6 +133,7 @@ vxd report               generate delivery reports
 vxd events               inspect the event history
 vxd replay               rebuild projections from the event log
 vxd backup               archive project state
+vxd improve audit        audit the repo's own toolchain (build, vet, gofmt, test, govulncheck, tidy)
 vxd config               inspect and validate configuration
 ```
 

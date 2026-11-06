@@ -223,6 +223,31 @@ func TestGetDayDetail_NoData(t *testing.T) {
 	}
 }
 
+// TestGetDayDetail_RejectsPathTraversal pins the defense-in-depth date guard:
+// `date` is client-supplied (the websocket select_date message) and flows into
+// a filesystem path, so a traversal string must not let GetDayDetail read a
+// *.json file outside auditDir. filepath.Join cleans "../" segments, so
+// "../../secret" would otherwise resolve to <base>/secret.json.
+func TestGetDayDetail_RejectsPathTraversal(t *testing.T) {
+	base := t.TempDir()
+	auditDir := filepath.Join(base, "audit")
+	if err := os.MkdirAll(auditDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// A secret run summary that lives OUTSIDE auditDir. "../../secret" from
+	// <auditDir>/runs/ resolves exactly to <base>/secret.json.
+	writeJSON(t, filepath.Join(base, "secret.json"), runSummary{SourcesScraped: 999})
+
+	dd, err := GetDayDetail(auditDir, "../../secret")
+	if err != nil {
+		t.Fatalf("GetDayDetail should not error on a malformed date, got: %v", err)
+	}
+	if dd.RunSummary != nil {
+		t.Fatalf("path traversal read a file outside auditDir: RunSummary=%+v", dd.RunSummary)
+	}
+}
+
 func TestListFindings(t *testing.T) {
 	dir := t.TempDir()
 

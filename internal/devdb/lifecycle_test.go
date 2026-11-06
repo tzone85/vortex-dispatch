@@ -121,9 +121,9 @@ func TestLifecycle_Release_Success_Deletes(t *testing.T) {
 	if es.appended[0].Type != state.EventStoryDBDeleted {
 		t.Errorf("type = %v, want STORY_DB_DELETED", es.appended[0].Type)
 	}
-	// StoryID must be carried on the event: the projection updates the row keyed
-	// by (story_id, db_id). An empty StoryID matches no row and the "deleted"
-	// status never projects, leaving released DBs shown as active forever.
+	// The delete event MUST carry the story ID: the SQLite projector joins the
+	// deletion to the STORY_DB_CREATED row on (story_id, db_id). An empty
+	// StoryID here silently drops the projection UPDATE (regression guard).
 	if es.appended[0].StoryID != "story-1" {
 		t.Errorf("StoryID = %q, want %q", es.appended[0].StoryID, "story-1")
 	}

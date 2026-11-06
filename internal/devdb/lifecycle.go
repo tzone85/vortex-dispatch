@@ -80,9 +80,17 @@ func (l *Lifecycle) Provision(ctx context.Context, storyID, project, worktreeDir
 	return db, nil
 }
 
-// Release deletes the DB and emits STORY_DB_DELETED.
+// Release deletes the DB for the given story and emits STORY_DB_DELETED.
 // Honours cfg.KeepDBOnFail: if the story failed and KeepDBOnFail is true,
 // skips the delete call and emits STORY_DB_DELETED with status="retained".
+//
+// storyID MUST be the ID of the story that owns this DB: the emitted event
+// carries it so the SQLite projector can join the deletion back to the
+// STORY_DB_CREATED row (projected on (story_id, db_id)). Without it the
+// delete event's StoryID is "" and the projector's
+// `UPDATE ... WHERE story_id = ? AND db_id = ?` matches zero rows, so the DB
+// is reported "created"/active forever and its duration is never recorded —
+// on the live projection and on every replay.
 func (l *Lifecycle) Release(ctx context.Context, storyID string, db DB, outcome StoryOutcome) error {
 	status := "deleted"
 	keep := outcome != OutcomeSuccess && l.cfg.KeepDBOnFail
@@ -111,11 +119,6 @@ func (l *Lifecycle) Release(ctx context.Context, storyID string, db DB, outcome 
 		"status":           status,
 	}
 	data, _ := json.Marshal(payload)
-	// StoryID MUST be set: projectStoryDBDeleted updates the row keyed by
-	// (story_id, db_id) — the story_databases PRIMARY KEY. An empty StoryID
-	// here matches no row, so the DB's status would never transition off
-	// "active" in the projection (vxd db list / metrics / dashboard would show
-	// released DBs as still live forever).
 	_ = l.events.Append(state.Event{
 		Type:      state.EventStoryDBDeleted,
 		StoryID:   storyID,

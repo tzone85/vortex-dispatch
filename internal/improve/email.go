@@ -28,6 +28,16 @@ type EmailData struct {
 	Opportunities    []EmailOpportunity
 	OpportunityStats *OpportunityStats
 	MissionMilestone *MissionMilestoneData
+	SelfAudit        *EmailSelfAudit
+}
+
+// EmailSelfAudit is the self-audit block of the daily email.
+type EmailSelfAudit struct {
+	Summary   string
+	Checks    []string
+	Findings  []EmailSection
+	HealPRURL string
+	Skipped   []string
 }
 
 // EmailPR represents a PR in the email table.
@@ -87,6 +97,7 @@ const emailTemplateSrc = `<!DOCTYPE html>
 <nav style="margin-bottom:20px;">
 <a href="#summary" style="margin-right:12px;">Summary</a>
 {{if .PRs}}<a href="#prs" style="margin-right:12px;">PRs</a>{{end}}
+{{if .SelfAudit}}<a href="#selfaudit" style="margin-right:12px;">Self-Audit</a>{{end}}
 {{if .Trends}}<a href="#trends" style="margin-right:12px;">Trends</a>{{end}}
 {{if .Historical}}<a href="#historical" style="margin-right:12px;">Historical</a>{{end}}
 {{if .Competitors}}<a href="#competitors" style="margin-right:12px;">Competitors</a>{{end}}
@@ -114,6 +125,23 @@ const emailTemplateSrc = `<!DOCTYPE html>
 </tr>
 {{end}}
 </table>
+</div>
+{{end}}
+
+{{if .SelfAudit}}
+<a name="selfaudit"></a><div style="margin-bottom:30px;">
+<h2 style="color:#7c3aed;border-bottom:2px solid #7c3aed;padding-bottom:5px;">Self-Audit</h2>
+<p>{{.SelfAudit.Summary}}</p>
+{{if .SelfAudit.Skipped}}<p style="color:#b45309;"><strong>{{len .SelfAudit.Skipped}} check(s) could not run; this is not a clean bill of health.</strong></p>
+<ul>{{range .SelfAudit.Skipped}}<li>{{.}}</li>{{end}}</ul>{{end}}
+{{if .SelfAudit.HealPRURL}}<p>Self-heal PR: <a href="{{.SelfAudit.HealPRURL}}">{{.SelfAudit.HealPRURL}}</a></p>{{end}}
+<ul style="color:#666;font-size:13px;">{{range .SelfAudit.Checks}}<li>{{.}}</li>{{end}}</ul>
+{{range .SelfAudit.Findings}}
+<div style="margin-bottom:10px;padding:10px;background:#faf5ff;border-radius:6px;">
+<strong>{{.Title}}</strong>
+{{if .Content}}<p style="margin:4px 0 0 0;color:#444;">{{.Content}}</p>{{end}}
+</div>
+{{end}}
 </div>
 {{end}}
 

@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -35,6 +36,16 @@ type Server struct {
 	opportunitiesDir string
 	NoOpen           bool   // skip opening browser on start
 	TokenPath        string // dashboard auth token path; empty = default ~/.vxd/dashboard.token
+
+	// oppMu serializes read-modify-write access to the opportunity files
+	// (pipeline.jsonl, discovered_sources.jsonl, revenue.jsonl). Each
+	// WebSocket connection is served on its own goroutine, so without this
+	// lock two connections (e.g. two dashboard tabs) can interleave the
+	// truncate-and-rewrite in updateOpportunityStatus/approveSource —
+	// producing partial JSONL lines that LoadOpportunities silently drops
+	// (permanent record loss) — or compute cumulative revenue totals from
+	// the same stale base (lost update).
+	oppMu sync.Mutex
 }
 
 // NewServer creates a new memory dashboard server.
@@ -324,7 +335,13 @@ func (s *Server) MarshalInit() (json.RawMessage, error) {
 }
 
 func (s *Server) handleListOpportunities(ctx context.Context, conn *websocket.Conn, filter, sortBy string) {
+	// Read all three files under oppMu so a concurrent rewrite (which
+	// truncates then re-writes) can never be observed half-written.
+	s.oppMu.Lock()
 	opps, err := LoadOpportunities(s.opportunitiesDir)
+	revenue := LoadTotalRevenue(s.opportunitiesDir)
+	sources, _ := LoadDiscoveredSources(s.opportunitiesDir)
+	s.oppMu.Unlock()
 	if err != nil {
 		log.Printf("[memory/ws] load opportunities: %v", err)
 		return
@@ -346,10 +363,7 @@ func (s *Server) handleListOpportunities(ctx context.Context, conn *websocket.Co
 		return opps[i].Rank > opps[j].Rank
 	})
 
-	revenue := LoadTotalRevenue(s.opportunitiesDir)
 	stats := ComputeOpportunityStats(opps, revenue)
-
-	sources, _ := LoadDiscoveredSources(s.opportunitiesDir)
 
 	resp := ServerMessage{
 		Type:              "opportunities",
@@ -361,17 +375,33 @@ func (s *Server) handleListOpportunities(ctx context.Context, conn *websocket.Co
 }
 
 func (s *Server) handleUpdateOpportunity(ctx context.Context, conn *websocket.Conn, id, status string) {
-	pipelinePath := filepath.Join(s.opportunitiesDir, "pipeline.jsonl")
-	opps, err := LoadOpportunities(s.opportunitiesDir)
-	if err != nil {
-		log.Printf("[memory/ws] load for update: %v", err)
+	if err := s.updateOpportunityStatus(id, status); err != nil {
+		log.Printf("[memory/ws] update opportunity: %v", err)
 		return
 	}
 
+	// Send updated list
+	s.handleListOpportunities(ctx, conn, "", "rank")
+}
+
+// updateOpportunityStatus rewrites pipeline.jsonl with opportunity `id` set to
+// `status`. The load-modify-write runs under oppMu so concurrent connections
+// cannot interleave the truncating rewrite or lose each other's updates. It
+// takes the lock itself (not a *Locked helper) so callers never nest it under
+// another oppMu acquisition.
+func (s *Server) updateOpportunityStatus(id, status string) error {
+	s.oppMu.Lock()
+	defer s.oppMu.Unlock()
+
+	opps, err := LoadOpportunities(s.opportunitiesDir)
+	if err != nil {
+		return fmt.Errorf("load pipeline: %w", err)
+	}
+
+	pipelinePath := filepath.Join(s.opportunitiesDir, "pipeline.jsonl")
 	f, err := os.Create(pipelinePath)
 	if err != nil {
-		log.Printf("[memory/ws] create pipeline: %v", err)
-		return
+		return fmt.Errorf("create pipeline: %w", err)
 	}
 	defer f.Close()
 
@@ -381,57 +411,19 @@ func (s *Server) handleUpdateOpportunity(ctx context.Context, conn *websocket.Co
 		}
 		data, _ := json.Marshal(opp)
 		if _, err := f.Write(append(data, '\n')); err != nil {
-			log.Printf("[memory/ws] write opportunity %s: %v", opp.ID, err)
-			return
+			return fmt.Errorf("write opportunity %s: %w", opp.ID, err)
 		}
 	}
 	if err := f.Sync(); err != nil {
-		log.Printf("[memory/ws] sync opportunities: %v", err)
+		return fmt.Errorf("sync pipeline: %w", err)
 	}
-
-	// Send updated list
-	s.handleListOpportunities(ctx, conn, "", "rank")
+	return nil
 }
 
 func (s *Server) handleLogRevenue(ctx context.Context, conn *websocket.Conn, id string, amount float64) {
-	revenuePath := filepath.Join(s.opportunitiesDir, "revenue.jsonl")
-
-	existingTotal := LoadTotalRevenue(s.opportunitiesDir)
-	newTotal := existingTotal + amount
-
-	entry := struct {
-		OpportunityID   string  `json:"opportunity_id"`
-		Amount          float64 `json:"amount"`
-		Currency        string  `json:"currency"`
-		Date            string  `json:"date"`
-		Status          string  `json:"status"`
-		CumulativeTotal float64 `json:"cumulative_total"`
-	}{
-		OpportunityID:   id,
-		Amount:          amount,
-		Currency:        "USD",
-		Date:            time.Now().Format("2006-01-02"),
-		Status:          "received",
-		CumulativeTotal: newTotal,
-	}
-
-	if err := os.MkdirAll(filepath.Dir(revenuePath), 0o755); err != nil {
-		log.Printf("[memory/ws] mkdir revenue dir: %v", err)
-		return
-	}
-	f, err := os.OpenFile(revenuePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	existingTotal, newTotal, err := s.logRevenue(id, amount)
 	if err != nil {
-		log.Printf("[memory/ws] open revenue: %v", err)
-		return
-	}
-	data, _ := json.Marshal(entry)
-	if _, err := f.Write(append(data, '\n')); err != nil {
-		log.Printf("[memory/ws] write revenue entry: %v", err)
-		_ = f.Close()
-		return
-	}
-	if err := f.Close(); err != nil {
-		log.Printf("[memory/ws] close revenue: %v", err)
+		log.Printf("[memory/ws] log revenue: %v", err)
 		return
 	}
 
@@ -456,18 +448,77 @@ func (s *Server) handleLogRevenue(ctx context.Context, conn *websocket.Conn, id 
 	}
 }
 
-func (s *Server) handleApproveSource(ctx context.Context, conn *websocket.Conn, url string) {
-	sourcesPath := filepath.Join(s.opportunitiesDir, "discovered_sources.jsonl")
-	sources, err := LoadDiscoveredSources(s.opportunitiesDir)
+// logRevenue appends a revenue entry and returns the cumulative total before
+// and after the entry. The read-of-total and the append run under oppMu as a
+// single critical section so two concurrent entries cannot both compute their
+// cumulative_total from the same stale base (lost update).
+func (s *Server) logRevenue(id string, amount float64) (existingTotal, newTotal float64, err error) {
+	s.oppMu.Lock()
+	defer s.oppMu.Unlock()
+
+	existingTotal = LoadTotalRevenue(s.opportunitiesDir)
+	newTotal = existingTotal + amount
+
+	entry := struct {
+		OpportunityID   string  `json:"opportunity_id"`
+		Amount          float64 `json:"amount"`
+		Currency        string  `json:"currency"`
+		Date            string  `json:"date"`
+		Status          string  `json:"status"`
+		CumulativeTotal float64 `json:"cumulative_total"`
+	}{
+		OpportunityID:   id,
+		Amount:          amount,
+		Currency:        "USD",
+		Date:            time.Now().Format("2006-01-02"),
+		Status:          "received",
+		CumulativeTotal: newTotal,
+	}
+
+	revenuePath := filepath.Join(s.opportunitiesDir, "revenue.jsonl")
+	if err := os.MkdirAll(filepath.Dir(revenuePath), 0o755); err != nil {
+		return existingTotal, newTotal, fmt.Errorf("mkdir revenue dir: %w", err)
+	}
+	f, err := os.OpenFile(revenuePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
-		log.Printf("[memory/ws] load sources: %v", err)
+		return existingTotal, newTotal, fmt.Errorf("open revenue: %w", err)
+	}
+	data, _ := json.Marshal(entry)
+	if _, werr := f.Write(append(data, '\n')); werr != nil {
+		_ = f.Close()
+		return existingTotal, newTotal, fmt.Errorf("write revenue entry: %w", werr)
+	}
+	if cerr := f.Close(); cerr != nil {
+		return existingTotal, newTotal, fmt.Errorf("close revenue: %w", cerr)
+	}
+	return existingTotal, newTotal, nil
+}
+
+func (s *Server) handleApproveSource(ctx context.Context, conn *websocket.Conn, url string) {
+	if err := s.approveSource(url); err != nil {
+		log.Printf("[memory/ws] approve source: %v", err)
 		return
 	}
 
+	// Send updated list
+	s.handleListOpportunities(ctx, conn, "", "rank")
+}
+
+// approveSource rewrites discovered_sources.jsonl with source `url` marked
+// approved. Runs under oppMu for the same reason as updateOpportunityStatus.
+func (s *Server) approveSource(url string) error {
+	s.oppMu.Lock()
+	defer s.oppMu.Unlock()
+
+	sources, err := LoadDiscoveredSources(s.opportunitiesDir)
+	if err != nil {
+		return fmt.Errorf("load sources: %w", err)
+	}
+
+	sourcesPath := filepath.Join(s.opportunitiesDir, "discovered_sources.jsonl")
 	f, err := os.Create(sourcesPath)
 	if err != nil {
-		log.Printf("[memory/ws] create sources: %v", err)
-		return
+		return fmt.Errorf("create sources: %w", err)
 	}
 	defer f.Close()
 
@@ -477,16 +528,13 @@ func (s *Server) handleApproveSource(ctx context.Context, conn *websocket.Conn, 
 		}
 		data, _ := json.Marshal(src)
 		if _, err := f.Write(append(data, '\n')); err != nil {
-			log.Printf("[memory/ws] write source %s: %v", src.URL, err)
-			return
+			return fmt.Errorf("write source %s: %w", src.URL, err)
 		}
 	}
 	if err := f.Sync(); err != nil {
-		log.Printf("[memory/ws] sync sources: %v", err)
+		return fmt.Errorf("sync sources: %w", err)
 	}
-
-	// Send updated list
-	s.handleListOpportunities(ctx, conn, "", "rank")
+	return nil
 }
 
 func openBrowser(url string) {

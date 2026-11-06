@@ -810,11 +810,15 @@ func (s *SQLiteStore) projectStoryEscalated(evt Event, payload map[string]any) e
 		return fmt.Errorf("update story escalation_tier: %w", err)
 	}
 
-	id := ulid.MustNew(ulid.Timestamp(evt.Timestamp), rand.Reader)
+	// Key the row on the event's own ULID (stable, persisted in the event
+	// log) rather than a freshly minted random ULID. This keeps replay
+	// deterministic — two replays of the same events.jsonl produce identical
+	// rows — and makes re-projecting an already-applied event a no-op instead
+	// of inserting a duplicate escalation.
 	_, err := s.db.Exec(
-		`INSERT INTO escalations (id, story_id, from_agent, reason, status, from_tier, to_tier, created_at)
+		`INSERT OR IGNORE INTO escalations (id, story_id, from_agent, reason, status, from_tier, to_tier, created_at)
 		 VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)`,
-		id.String(), evt.StoryID, evt.AgentID, reason, fromTier, toTier, evt.Timestamp,
+		projectionRowID(evt), evt.StoryID, evt.AgentID, reason, fromTier, toTier, evt.Timestamp,
 	)
 	return err
 }
@@ -1054,15 +1058,18 @@ type StoryCostSummary struct {
 	ByStage           map[string]StageCost
 }
 
-// projectStoryCostRecorded inserts one measured LLM-call cost row. Each event
-// carries its own ULID primary key, so replays are naturally idempotent.
+// projectStoryCostRecorded inserts one measured LLM-call cost row. The row is
+// keyed on the event's own ULID (evt.ID) — stable and persisted in the event
+// log — so replays are byte-identical and the INSERT OR IGNORE genuinely
+// deduplicates a re-projected event. Keying on a freshly minted random ULID
+// would defeat both: replays would differ, and re-projection would double-count
+// cost (which feeds the billing.max_usd_per_req budget cap).
 func (s *SQLiteStore) projectStoryCostRecorded(evt Event, payload map[string]any) error {
-	id := ulid.MustNew(ulid.Timestamp(evt.Timestamp), rand.Reader)
 	_, err := s.db.Exec(
 		`INSERT OR IGNORE INTO story_costs
 		 (id, story_id, req_id, stage, model, input_tokens, output_tokens, est_usd, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id.String(),
+		projectionRowID(evt),
 		payloadStr(payload, "story_id"),
 		payloadStr(payload, "req_id"),
 		payloadStr(payload, "stage"),
@@ -1148,4 +1155,17 @@ func payloadMap(m map[string]any, key string) map[string]any {
 		return map[string]any{}
 	}
 	return sub
+}
+
+// projectionRowID is the primary key for a projected row that has one row per
+// event (escalations, story_costs). It is the event's own persisted ULID, so a
+// replay of the same log yields identical rows and re-projecting an event is a
+// no-op under INSERT OR IGNORE. An event without an ID (hand-built struct
+// literal) falls back to a fresh ULID so distinct events can never collapse
+// onto the same "" key and be silently dropped.
+func projectionRowID(evt Event) string {
+	if evt.ID != "" {
+		return evt.ID
+	}
+	return ulid.MustNew(ulid.Timestamp(evt.Timestamp), rand.Reader).String()
 }

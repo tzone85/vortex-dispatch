@@ -153,6 +153,13 @@ func TestRunResume_AllStoriesComplete(t *testing.T) {
 	s.Events.Append(mergeEvt)
 	s.Proj.Project(mergeEvt)
 
+	// The requirement already has its verdict: with every story merged there
+	// is nothing left for resume to do. (An unsettled one — interrupted or
+	// blocked gate — would re-run the completion gate instead, #138.)
+	doneEvt := state.NewEvent(state.EventReqCompleted, "monitor", "", map[string]any{"id": "REQ-RESUME3"})
+	s.Events.Append(doneEvt)
+	s.Proj.Project(doneEvt)
+
 	s.Close()
 
 	orig, _ := os.Getwd()

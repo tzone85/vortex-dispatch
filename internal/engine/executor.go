@@ -351,14 +351,20 @@ func (e *Executor) spawn(repoDir string, a Assignment, story PlannedStory) Spawn
 
 	// Emit STORY_STARTED event with tier and role so AttemptTracker can
 	// reconstruct attempt history without reverse-engineering roles.
-	startEvt := state.NewEvent(state.EventStoryStarted, a.AgentID, a.StoryID, map[string]any{
+	// adaptive_decision rides along when the dispatcher overrode static
+	// routing for this assignment (F3 audit trail).
+	startPayload := map[string]any{
 		"worktree_path": worktreePath,
 		"runtime":       rtName,
 		"session_name":  a.SessionName,
 		"branch":        a.Branch,
 		"tier":          tierForRole(a.Role),
 		"role":          string(a.Role),
-	})
+	}
+	if a.AdaptiveDecision != "" {
+		startPayload["adaptive_decision"] = a.AdaptiveDecision
+	}
+	startEvt := state.NewEvent(state.EventStoryStarted, a.AgentID, a.StoryID, startPayload)
 	if err := e.eventStore.Append(startEvt); err != nil {
 		result.Error = fmt.Errorf("emit story started: %w", err)
 		return result

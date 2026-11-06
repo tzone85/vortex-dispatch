@@ -249,9 +249,28 @@ func parseSemgrep(out []byte, repoDir string) ([]Finding, error) {
 				} `json:"metadata"`
 			} `json:"extra"`
 		} `json:"results"`
+		Errors []struct {
+			Message string `json:"message"`
+			Level   string `json:"level"`
+		} `json:"errors"`
 	}
 	if err := json.Unmarshal(out, &doc); err != nil {
 		return nil, err
+	}
+	// A semgrep run that produced NO results but reported errors scanned
+	// nothing meaningful (e.g. it could not fetch the `--config auto` rule
+	// set, or the target failed to load). Its output is valid JSON, so the
+	// json.Unmarshal check above passes — but treating it as a clean scan
+	// would let a story pass the security gate while the SAST pass never ran.
+	// Surface it as a scanner failure so RunScanners records coverage loss
+	// (a failed scan must never masquerade as a clean one). A run WITH results
+	// plus a benign per-file parse warning is left alone — its findings stand.
+	if len(doc.Results) == 0 && len(doc.Errors) > 0 {
+		msg := "semgrep reported errors and produced no results"
+		if doc.Errors[0].Message != "" {
+			msg = doc.Errors[0].Message
+		}
+		return nil, fmt.Errorf("semgrep did not complete a scan: %s", msg)
 	}
 	findings := make([]Finding, 0, len(doc.Results))
 	for _, r := range doc.Results {
@@ -280,6 +299,7 @@ func parseSemgrep(out []byte, repoDir string) ([]Finding, error) {
 
 func parseNpmAudit(out []byte) ([]Finding, error) {
 	var doc struct {
+		Error           json.RawMessage `json:"error"`
 		Vulnerabilities map[string]struct {
 			Name     string `json:"name"`
 			Severity string `json:"severity"`
@@ -289,6 +309,15 @@ func parseNpmAudit(out []byte) ([]Finding, error) {
 	}
 	if err := json.Unmarshal(out, &doc); err != nil {
 		return nil, err
+	}
+	// npm emits `{"error":{...}}` instead of a report when the audit could not
+	// run — most commonly ENOLOCK (no package-lock.json in the worktree) or a
+	// registry/network failure. That is valid JSON with an empty
+	// Vulnerabilities map, so without this guard it would be recorded as a
+	// clean dependency scan when nothing was actually audited. Return an error
+	// so RunScanners classifies the scanner as failed (coverage lost).
+	if len(doc.Error) > 0 && string(doc.Error) != "null" {
+		return nil, fmt.Errorf("npm audit did not run: %s", string(doc.Error))
 	}
 	findings := make([]Finding, 0, len(doc.Vulnerabilities))
 	for pkg, v := range doc.Vulnerabilities {
@@ -310,7 +339,7 @@ func parseNpmAudit(out []byte) ([]Finding, error) {
 	return findings, nil
 }
 
-func parseGovulncheck(out []byte) ([]Finding, error) {
+func parseGovulncheck(out []byte, runErr error) ([]Finding, error) {
 	var findings []Finding
 	sc := bufio.NewScanner(bytes.NewReader(out))
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -339,7 +368,23 @@ func parseGovulncheck(out []byte) ([]Finding, error) {
 			Source:   "scanner",
 		})
 	}
-	return findings, sc.Err()
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	// Unlike the JSON scanners, govulncheck's text output carries no parse-error
+	// signal when the tool itself fails: it just prints a diagnostic and no
+	// "Vulnerability #" lines. govulncheck exits 0 (no vulns) or 3 (vulns found)
+	// on a completed scan, and non-zero-non-3 (e.g. 1 when it can't reach the
+	// vuln DB in an offline/proxied CI, a module-load failure, or a timeout) when
+	// it did NOT run. If it produced no findings AND the process failed, the scan
+	// did not complete — surface it as an error so RunScanners routes govulncheck
+	// to `failed` rather than reporting a false clean pass (the module invariant:
+	// a failed scan must never masquerade as a clean one). When findings were
+	// parsed, the tool clearly ran (exit 3), so the non-zero exit is expected.
+	if len(findings) == 0 && runErr != nil {
+		return nil, fmt.Errorf("govulncheck did not complete: %w", runErr)
+	}
+	return findings, nil
 }
 
 // Run executes the scanner against repoDir and returns parsed findings. A
@@ -386,7 +431,7 @@ func (s Scanner) Run(ctx context.Context, repoDir string) ([]Finding, error) {
 	case ScannerGosec:
 		findings, parseErr = parseGosec(out, repoDir)
 	case ScannerGovulncheck:
-		findings, parseErr = parseGovulncheck(out)
+		findings, parseErr = parseGovulncheck(out, runErr)
 	case ScannerGitleaks:
 		findings, parseErr = parseGitleaks(out, repoDir)
 	case ScannerSemgrep:

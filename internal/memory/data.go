@@ -229,18 +229,26 @@ func GetDayDetail(auditDir, date string) (DayDetail, error) {
 		}
 	}
 
-	// Read run summary
-	runPath := filepath.Join(auditDir, "runs", date+".json")
-	data, err := os.ReadFile(runPath)
-	if err == nil {
-		var rs runSummary
-		if json.Unmarshal(data, &rs) == nil {
-			dd.RunSummary = &RunSummaryDetail{
-				SourcesScraped:   rs.SourcesScraped,
-				FindingsTotal:    rs.FindingsTotal,
-				FindingsRelevant: rs.FindingsRelevant,
-				PRsCreated:       rs.PRsCreated,
-				EmailSent:        rs.EmailSent,
+	// Read run summary. `date` is client-supplied (the websocket select_date
+	// message) and flows into a filesystem path, so validate its shape before
+	// it reaches os.ReadFile: filepath.Join cleans embedded "../" segments, so
+	// an unvalidated date like "../../../etc/cron" would escape auditDir and
+	// read an arbitrary *.json file. Only the canonical YYYY-MM-DD form — the
+	// only shape the dashboard ever sends, matching extractDate and
+	// GetCommitsForDate — is allowed through.
+	if _, perr := time.Parse("2006-01-02", date); perr == nil {
+		runPath := filepath.Join(auditDir, "runs", date+".json")
+		data, rerr := os.ReadFile(runPath)
+		if rerr == nil {
+			var rs runSummary
+			if json.Unmarshal(data, &rs) == nil {
+				dd.RunSummary = &RunSummaryDetail{
+					SourcesScraped:   rs.SourcesScraped,
+					FindingsTotal:    rs.FindingsTotal,
+					FindingsRelevant: rs.FindingsRelevant,
+					PRsCreated:       rs.PRsCreated,
+					EmailSent:        rs.EmailSent,
+				}
 			}
 		}
 	}

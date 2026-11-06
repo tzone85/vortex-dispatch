@@ -10,8 +10,13 @@
 # Bypass once:   git push --no-verify   (use sparingly — CI is the backstop)
 set -euo pipefail
 
-# Skip on branch deletes (no local tree to verify).
-if [ -t 0 ]; then : ; fi
+# Check the commits actually being pushed, including non-checked-out branches.
+# A clean working tree alone cannot detect reintroduced historical material.
+while read -r local_ref local_oid remote_ref remote_oid; do
+	if [[ "$local_oid" =~ ^0+$ ]]; then continue; fi
+	echo "[pre-push] checking publication history for $local_ref ..."
+	VXD_PUBLIC_HISTORY_REFS="$local_oid" make public-history
+done
 
 echo "[pre-push] running green gate (make verify) ..."
 if ! make verify; then

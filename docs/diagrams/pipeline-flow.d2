@@ -30,7 +30,7 @@ tmux: tmux session\nspawn agent {
   shape: package
 }
 
-agent: Agent (Claude/Gemma)\nimplement {
+agent: Agent (runtime CLI)\nimplement {
   style.fill: "#dcfce7"
 }
 
@@ -46,11 +46,19 @@ qa: QA\nbuild + test + criteria {
   style.fill: "#fef3c7"
 }
 
-merge: Merger\nrebase → push → PR → squash-merge {
+security: Security Gate\nscanners + LLM review {
   style.fill: "#fef3c7"
 }
 
-cleanup: stripVXDArtifacts\npullMainAfterMerge {
+paused: Requirement paused\n(human decision) {
+  style.fill: "#fee2e2"
+}
+
+merge: Merger\nrebase → re-QA → push → PR → squash-merge {
+  style.fill: "#fef3c7"
+}
+
+cleanup: Monitor cleanup\nremove worktree + branches {
   shape: parallelogram
 }
 
@@ -59,7 +67,7 @@ done: Requirement complete {
   style.fill: "#dcfce7"
 }
 
-escalate: Escalation chain\n(5 tiers) {
+escalate: Reset to draft /\nescalation chain (5 tiers) {
   style.fill: "#fee2e2"
 }
 
@@ -69,12 +77,16 @@ stories -> dispatch
 dispatch -> worktree
 worktree -> tmux
 tmux -> agent
-agent -> monitor: STORY_COMPLETED
-monitor -> review
+agent -> monitor: session done
+monitor -> review: STORY_COMPLETED
 review -> qa: pass
 review -> escalate: fail
-qa -> merge: pass
+qa -> security: pass
 qa -> escalate: fail
+security -> merge: pass
+security -> paused: finding
 merge -> cleanup
+merge -> escalate: fail
+cleanup -> dispatch: next wave
 cleanup -> done
 escalate -> dispatch: retry / re-plan

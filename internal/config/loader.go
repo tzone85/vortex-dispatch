@@ -35,6 +35,8 @@ func DefaultConfig() Config {
 			MaxSeniorRetries:              2,
 			MaxManagerAttempts:            2,
 			MaxConcurrentAgents:           5,
+			Adaptive:                      false, // F3: opt-in history-aware tier selection
+			AdaptiveMinSamples:            5,
 		},
 		Monitor: MonitorConfig{
 			PollIntervalMs:         10000,
@@ -123,6 +125,11 @@ func DefaultConfig() Config {
 			// gate to "high" via security.gate_severity.
 			GateSeverity: "critical",
 			AutoLearn:    true,
+		},
+		QA: QAConfig{
+			// Retry a failed TEST step once before calling the failure real;
+			// lint/build are deterministic and never retried. 0 disables.
+			FlakyRetries: 1,
 		},
 		SLA: SLAConfig{
 			MaxMinutesPerComplexity: IntKeyMap{

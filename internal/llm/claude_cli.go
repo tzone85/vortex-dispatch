@@ -37,6 +37,16 @@ func (c *ClaudeCLIClient) WithSkipPermissions() *ClaudeCLIClient {
 	return &ClaudeCLIClient{cliPath: c.cliPath, skipPerms: true}
 }
 
+// claudeEnvelope mirrors the JSON object emitted by
+// `claude -p … --output-format json`. Newer CLI versions include a usage
+// block; older ones omit it (zero-valued). Surfacing usage here is what lets
+// subscription-mode cost metering record real token volume (est_usd=0).
+type claudeEnvelope struct {
+	Result  string `json:"result"`
+	IsError bool   `json:"is_error"`
+	Usage   Usage  `json:"usage"`
+}
+
 // Complete builds a prompt from the request and invokes
 // `claude -p "<prompt>" --output-format json [--model <model>] --max-turns 10`.
 // It captures stdout as the completion content.
@@ -73,10 +83,7 @@ func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (
 		// valid output. Check stdout for a parseable JSON result before failing.
 		raw := strings.TrimSpace(stdout.String())
 		if raw != "" && strings.HasPrefix(raw, "{") {
-			var envelope struct {
-				Result  string `json:"result"`
-				IsError bool   `json:"is_error"`
-			}
+			var envelope claudeEnvelope
 			if jsonErr := json.Unmarshal([]byte(raw), &envelope); jsonErr == nil && envelope.Result != "" {
 				// Check for usage exhaustion in the result text.
 				resultLower := strings.ToLower(envelope.Result)
@@ -92,6 +99,7 @@ func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (
 					return CompletionResponse{
 						Content: trimCodeFences(strings.TrimSpace(envelope.Result)),
 						Model:   req.Model,
+						Usage:   envelope.Usage,
 					}, nil
 				}
 			}
@@ -120,10 +128,7 @@ func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (
 	// Debug: uncomment to trace CLI output
 	// log.Printf("[claude-cli] stdout len=%d, stderr len=%d", len(stdout.String()), len(stderrStr))
 
-	var envelope struct {
-		Result  string `json:"result"`
-		IsError bool   `json:"is_error"`
-	}
+	var envelope claudeEnvelope
 	if jsonErr := json.Unmarshal([]byte(raw), &envelope); jsonErr != nil {
 		// Not JSON — return raw output (fallback for older CLI versions)
 		return CompletionResponse{
@@ -146,6 +151,7 @@ func (c *ClaudeCLIClient) Complete(ctx context.Context, req CompletionRequest) (
 	return CompletionResponse{
 		Content: result,
 		Model:   req.Model,
+		Usage:   envelope.Usage,
 	}, nil
 }
 

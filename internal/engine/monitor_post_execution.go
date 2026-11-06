@@ -36,7 +36,7 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 		// block this goroutine (and the WaitGroup it belongs to) indefinitely.
 		rctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if err := m.lifecycle.Release(rctx, ag.DB, outcomeForRelease); err != nil {
+		if err := m.lifecycle.Release(rctx, storyID, ag.DB, outcomeForRelease); err != nil {
 			log.Printf("[pipeline] devdb release failed for %s (outcome=%s): %v (will GC later)",
 				storyID, outcomeForRelease.String(), err)
 		}
@@ -429,6 +429,12 @@ func (m *Monitor) postExecutionPipeline(ctx context.Context, ag ActiveAgent, rep
 			log.Printf("[pipeline] checkpoint write error: %v", err)
 		}
 	}
+
+	// 3.5 Budget cap (F2): enforce billing.max_usd_per_req after the pipeline.
+	// Over cap → REQ_BUDGET_EXCEEDED + clean pause (same path as a capacity
+	// pause — no escalation-tier burn); `vxd resume` continues once the
+	// operator raises the cap.
+	m.checkBudget(storyID)
 
 	// 4. Check if requirement is paused before next wave dispatch
 	if m.isRequirementPaused(storyID) {

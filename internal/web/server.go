@@ -152,7 +152,8 @@ func (s *Server) Start(ctx context.Context) error {
 		log.Printf("dashboard pidfile: %v", err)
 	}
 
-	url := fmt.Sprintf("http://%s", addr)
+	// Report the address actually bound (port 0 means an ephemeral port).
+	url := fmt.Sprintf("http://%s", listener.Addr().String())
 	browserURL := fmt.Sprintf("%s/?%s=%s", url, NonceQueryParam, nonce)
 	log.Printf("Dashboard server running at %s", url)
 	// Print only a short prefix so the full token does not land in
@@ -160,7 +161,8 @@ func (s *Server) Start(ctx context.Context) error {
 	// token sits at ~/.vxd/dashboard.token (mode 0o600); operators run
 	// `cat ~/.vxd/dashboard.token` if they need it for curl.
 	log.Printf("Dashboard auth token: %s… (full value at ~/.vxd/dashboard.token; use `Authorization: Bearer <token>`)", redactTokenForLog(token))
-	if !s.NoOpen {
+	// Never launch a browser for an ephemeral port: it is only used by tests.
+	if !s.NoOpen && s.port != 0 {
 		openBrowser(browserURL)
 	}
 

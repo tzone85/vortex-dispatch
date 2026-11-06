@@ -107,6 +107,18 @@ type Monitor struct {
 	// on each story before merge, pausing the requirement when a finding meets
 	// the gate severity. Nil disables the per-story security gate.
 	securityGate *SecurityGate
+
+	// costMeter records STORY_COST_RECORDED events for metered LLM calls made
+	// by monitor-owned components (reviewer, manager, conflict resolver).
+	// Nil means no metering is active for this run.
+	costMeter llm.UsageRecorder
+}
+
+// SetCostMeter wires the F2 usage recorder into the monitor so that every
+// successful, Stage-tagged LLM call made by pipeline components is recorded
+// as a STORY_COST_RECORDED event. Pass nil to disable metering.
+func (m *Monitor) SetCostMeter(rec llm.UsageRecorder) {
+	m.costMeter = rec
 }
 
 // SetNotifier configures the outbound webhook notifier (Slack, Discord, etc.).
@@ -244,4 +256,12 @@ type RunContext struct {
 	PlannedStories []PlannedStory
 	DAG            *graph.DAG
 	WaveNumber     int
+
+	// GateOnly marks a run that exists only to re-run the completion gate
+	// (`vxd resume` with every story already complete), so the
+	// all-stories-done branch skips regenerating the documentation: it would
+	// commit a duplicate README section before pullBaseAfterMerge runs, and
+	// the fast-forward would then fail — leaving the gate verifying a stale
+	// tree on every attempt at fixing the gaps.
+	GateOnly bool
 }

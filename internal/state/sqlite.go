@@ -96,6 +96,19 @@ CREATE TABLE IF NOT EXISTS story_databases (
     PRIMARY KEY (story_id, db_id)
 );
 CREATE INDEX IF NOT EXISTS idx_story_databases_status ON story_databases(status);
+
+CREATE TABLE IF NOT EXISTS story_costs (
+    id TEXT PRIMARY KEY,
+    story_id TEXT NOT NULL DEFAULT '',
+    req_id TEXT NOT NULL DEFAULT '',
+    stage TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL DEFAULT '',
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    est_usd REAL NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_story_costs_req_id ON story_costs(req_id);
 `
 
 // SQLiteStore implements ProjectionStore using SQLite.
@@ -111,7 +124,7 @@ func NewSQLiteStore(dsn string) (*SQLiteStore, error) {
 	}
 
 	if _, err := db.Exec(initSQL); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("apply migration: %w", err)
 	}
 
@@ -169,6 +182,7 @@ func NewSQLiteStore(dsn string) (*SQLiteStore, error) {
 	}
 	for _, stmt := range indexStatements {
 		if _, err := db.Exec(stmt); err != nil {
+			_ = db.Close() // the caller gets no handle to close
 			return nil, fmt.Errorf("create index: %w", err)
 		}
 	}
@@ -234,6 +248,11 @@ func (s *SQLiteStore) Project(evt Event) error {
 		return s.updateStoryStatus(evt.StoryID, "pr_submitted")
 	case EventStoryQAFailed:
 		return s.updateStoryStatus(evt.StoryID, "draft")
+	case EventStoryQAFlaky:
+		// Informational: flakiness telemetry (a test step failed then passed
+		// on retry). The accompanying STORY_QA_PASSED / STORY_QA_FAILED event
+		// owns the story-status transition; mutating status here could race it.
+		return nil
 	case EventStorySecurityPassed, EventStorySecurityFailed:
 		// Informational: the security gate's pass/fail is recorded in the event
 		// log; pausing on failure is handled by the pipeline (REQ_PAUSED), so no
@@ -246,6 +265,14 @@ func (s *SQLiteStore) Project(evt Event) error {
 	case EventDashboardTokenRotated:
 		// Informational: token rotations are recorded in the event log for the
 		// audit trail; no projection state to mutate.
+		return nil
+
+	case EventStoryCostRecorded:
+		return s.projectStoryCostRecorded(evt, payload)
+	case EventReqBudgetExceeded:
+		// Informational: the budget-exceeded signal lives in the event log for
+		// the audit trail; the accompanying REQ_PAUSED performs the actual
+		// status transition (same clean-pause path as a capacity pause).
 		return nil
 	case EventStoryPRCreated:
 		return s.projectStoryPRCreated(evt.StoryID, payload)
@@ -783,11 +810,15 @@ func (s *SQLiteStore) projectStoryEscalated(evt Event, payload map[string]any) e
 		return fmt.Errorf("update story escalation_tier: %w", err)
 	}
 
-	id := ulid.MustNew(ulid.Timestamp(evt.Timestamp), rand.Reader)
+	// Key the row on the event's own ULID (stable, persisted in the event
+	// log) rather than a freshly minted random ULID. This keeps replay
+	// deterministic — two replays of the same events.jsonl produce identical
+	// rows — and makes re-projecting an already-applied event a no-op instead
+	// of inserting a duplicate escalation.
 	_, err := s.db.Exec(
-		`INSERT INTO escalations (id, story_id, from_agent, reason, status, from_tier, to_tier, created_at)
+		`INSERT OR IGNORE INTO escalations (id, story_id, from_agent, reason, status, from_tier, to_tier, created_at)
 		 VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)`,
-		id.String(), evt.StoryID, evt.AgentID, reason, fromTier, toTier, evt.Timestamp,
+		projectionRowID(evt), evt.StoryID, evt.AgentID, reason, fromTier, toTier, evt.Timestamp,
 	)
 	return err
 }
@@ -900,12 +931,27 @@ func (s *SQLiteStore) projectStoryDBDeleted(evt Event, payload map[string]any) e
 	}
 	dur := payloadFloat(payload, "duration_seconds")
 	bytes := payloadInt(payload, "bytes_used")
+	dbID := payloadStr(payload, "db_id")
+	// db_id is provider-unique per story, so it alone identifies the row. Match
+	// on story_id too when the event carries it, but fall back to db_id-only for
+	// STORY_DB_DELETED events emitted before Release threaded the story ID
+	// through — otherwise the release would silently update 0 rows and the DB
+	// would replay as stuck at status="created" forever.
+	if evt.StoryID != "" {
+		_, err := s.db.Exec(
+			`UPDATE story_databases
+			 SET status = ?, deleted_at = ?, duration_seconds = ?, bytes_used = ?
+			 WHERE story_id = ? AND db_id = ?`,
+			status, evt.Timestamp, dur, bytes,
+			evt.StoryID, dbID,
+		)
+		return err
+	}
 	_, err := s.db.Exec(
 		`UPDATE story_databases
 		 SET status = ?, deleted_at = ?, duration_seconds = ?, bytes_used = ?
-		 WHERE story_id = ? AND db_id = ?`,
-		status, evt.Timestamp, dur, bytes,
-		evt.StoryID, payloadStr(payload, "db_id"),
+		 WHERE db_id = ?`,
+		status, evt.Timestamp, dur, bytes, dbID,
 	)
 	return err
 }
@@ -1009,6 +1055,82 @@ func (s *SQLiteStore) StoryDBStatusAll() (map[string]string, error) {
 	return out, rows.Err()
 }
 
+// --- cost tracking (F2) ---
+
+// StageCost aggregates token usage and estimated spend for one pipeline stage.
+type StageCost struct {
+	InputTokens  int
+	OutputTokens int
+	EstUSD       float64
+}
+
+// StoryCostSummary aggregates STORY_COST_RECORDED events for a requirement.
+type StoryCostSummary struct {
+	ReqID             string
+	TotalInputTokens  int
+	TotalOutputTokens int
+	TotalEstUSD       float64
+	ByStage           map[string]StageCost
+}
+
+// projectStoryCostRecorded inserts one measured LLM-call cost row. The row is
+// keyed on the event's own ULID (evt.ID) — stable and persisted in the event
+// log — so replays are byte-identical and the INSERT OR IGNORE genuinely
+// deduplicates a re-projected event. Keying on a freshly minted random ULID
+// would defeat both: replays would differ, and re-projection would double-count
+// cost (which feeds the billing.max_usd_per_req budget cap).
+func (s *SQLiteStore) projectStoryCostRecorded(evt Event, payload map[string]any) error {
+	_, err := s.db.Exec(
+		`INSERT OR IGNORE INTO story_costs
+		 (id, story_id, req_id, stage, model, input_tokens, output_tokens, est_usd, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		projectionRowID(evt),
+		payloadStr(payload, "story_id"),
+		payloadStr(payload, "req_id"),
+		payloadStr(payload, "stage"),
+		payloadStr(payload, "model"),
+		payloadInt(payload, "input_tokens"),
+		payloadInt(payload, "output_tokens"),
+		payloadFloat(payload, "est_usd"),
+		evt.Timestamp,
+	)
+	return err
+}
+
+// StoryCostSummaryByReq returns aggregated cost accounting for a requirement:
+// total tokens + estimated USD, broken down by pipeline stage. Unknown
+// requirements aggregate to a zero summary, not an error.
+func (s *SQLiteStore) StoryCostSummaryByReq(reqID string) (StoryCostSummary, error) {
+	sum := StoryCostSummary{ReqID: reqID, ByStage: map[string]StageCost{}}
+	rows, err := s.db.Query(
+		`SELECT stage, COALESCE(input_tokens, 0), COALESCE(output_tokens, 0), COALESCE(est_usd, 0)
+		 FROM story_costs WHERE req_id = ?`,
+		reqID,
+	)
+	if err != nil {
+		return sum, fmt.Errorf("query story_costs for %s: %w", reqID, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var stage string
+		var in, out int
+		var usd float64
+		if err := rows.Scan(&stage, &in, &out, &usd); err != nil {
+			return sum, err
+		}
+		sum.TotalInputTokens += in
+		sum.TotalOutputTokens += out
+		sum.TotalEstUSD += usd
+		sc := sum.ByStage[stage]
+		sc.InputTokens += in
+		sc.OutputTokens += out
+		sc.EstUSD += usd
+		sum.ByStage[stage] = sc
+	}
+	return sum, rows.Err()
+}
+
 // --- payload extraction helpers ---
 
 func payloadStr(m map[string]any, key string) string {
@@ -1048,4 +1170,17 @@ func payloadMap(m map[string]any, key string) map[string]any {
 		return map[string]any{}
 	}
 	return sub
+}
+
+// projectionRowID is the primary key for a projected row that has one row per
+// event (escalations, story_costs). It is the event's own persisted ULID, so a
+// replay of the same log yields identical rows and re-projecting an event is a
+// no-op under INSERT OR IGNORE. An event without an ID (hand-built struct
+// literal) falls back to a fresh ULID so distinct events can never collapse
+// onto the same "" key and be silently dropped.
+func projectionRowID(evt Event) string {
+	if evt.ID != "" {
+		return evt.ID
+	}
+	return ulid.MustNew(ulid.Timestamp(evt.Timestamp), rand.Reader).String()
 }

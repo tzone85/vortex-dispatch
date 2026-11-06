@@ -9,7 +9,7 @@ import (
 const maxNameLen = 63
 
 // PrefixVXD is the canonical naming prefix for VXD-managed databases.
-// Other's mirror should declare its own equivalent (e.g. "other").
+// Other consumers should declare their own prefix.
 const PrefixVXD = "vxd"
 
 // Matches a valid Postgres-friendly DB name produced by FormatDBName:

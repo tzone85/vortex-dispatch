@@ -224,15 +224,14 @@ func (a *authenticator) Rotate() (string, error) {
 }
 
 // RequireToken is a thin compatibility wrapper for callers that don't
-// need the bootstrap-nonce flow. Equivalent to NewAuthMiddleware with
-// only Token set (or AllowUnauthenticated when token is empty — only
-// the AllowUnauthenticated path is explicit; empty token still panics
-// in NewAuthMiddleware, mirroring the safety guarantee).
+// need the bootstrap-nonce flow. It sets only Token, so it inherits
+// NewAuthMiddleware's fail-closed guarantee: an empty token PANICS rather
+// than silently starting an unauthenticated dashboard. RequireToken never
+// opts into AllowUnauthenticated — the escape hatch stays explicit and must
+// be requested through NewAuthMiddleware directly, never inferred from a
+// (mis)configured empty token.
 func RequireToken(token string, next http.Handler) http.Handler {
-	mw := NewAuthMiddleware(AuthOptions{
-		Token:                token,
-		AllowUnauthenticated: token == "",
-	})
+	mw := NewAuthMiddleware(AuthOptions{Token: token})
 	return mw(next)
 }
 
@@ -251,7 +250,7 @@ func (a *authenticator) wrap(next http.Handler) http.Handler {
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none'")
+		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; media-src 'self' https://d8j0ntlcm91z4.cloudfront.net; connect-src 'self' ws: wss:; frame-ancestors 'none'")
 
 		if _, ok := authBypassedPaths[r.URL.Path]; ok {
 			next.ServeHTTP(w, r)

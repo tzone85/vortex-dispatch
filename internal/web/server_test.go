@@ -25,7 +25,11 @@ func newTestServer(t *testing.T) *Server {
 		es.Close()  //nolint:errcheck
 		ps.Close()  //nolint:errcheck
 	})
-	return NewServer(es, ps, 0, state.ReqFilter{})
+	s := NewServer(es, ps, 0, state.ReqFilter{})
+	// Never open real browser tabs from the test suite: Start() honours
+	// NoOpen, and test servers must not spawn `open`/`xdg-open` on the host.
+	s.NoOpen = true
+	return s
 }
 
 // seedRequirement emits and projects a REQ_SUBMITTED event and returns the requirement ID.

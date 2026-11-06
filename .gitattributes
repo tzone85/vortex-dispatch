@@ -1,6 +1,7 @@
 # Force LF endings for source and config — keeps Go build tags, shell
 # scripts, and YAML parsers happy when the repo is cloned on Windows with
 # core.autocrlf=true.
+.gitattributes text eol=lf
 *.go        text eol=lf
 *.sh        text eol=lf
 *.yaml      text eol=lf
@@ -8,6 +9,9 @@
 *.json      text eol=lf
 *.md        text eol=lf
 *.txt       text eol=lf
+*.html      text eol=lf
+*.css       text eol=lf
+*.js        text eol=lf
 Makefile    text eol=lf
 go.mod      text eol=lf
 go.sum      text eol=lf

@@ -3,8 +3,10 @@ package engine
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/tzone85/vortex-dispatch/internal/notify"
 	"github.com/tzone85/vortex-dispatch/internal/state"
@@ -75,7 +77,8 @@ func TestEmitRequirementOutcome_NotifiesCompleted(t *testing.T) {
 }
 
 // TestEmitRequirementOutcome_NotifiesBlocked pins that a blocked requirement
-// notifies at error severity with the resume hint in the body.
+// notifies at error severity with the gaps-file hint and the re-run command
+// in the body (the same instruction as the [gate] log line).
 func TestEmitRequirementOutcome_NotifiesBlocked(t *testing.T) {
 	m, n := newNotifyTestMonitor(t)
 
@@ -84,6 +87,9 @@ func TestEmitRequirementOutcome_NotifiesBlocked(t *testing.T) {
 	msgs := n.all()
 	if len(msgs) != 1 {
 		t.Fatalf("expected 1 notification, got %d", len(msgs))
+	}
+	if !strings.Contains(msgs[0].Body, ".vxd-fix-gaps.md") || !strings.Contains(msgs[0].Body, "vxd resume r-002") {
+		t.Errorf("body must point at .vxd-fix-gaps.md and at `vxd resume r-002`, got %q", msgs[0].Body)
 	}
 	if msgs[0].EventType != string(state.EventReqBlocked) {
 		t.Errorf("EventType = %q, want %q", msgs[0].EventType, state.EventReqBlocked)
@@ -100,4 +106,71 @@ func TestEmitRequirementOutcome_NilNotifierSafe(t *testing.T) {
 	m.notifier = nil
 
 	m.emitRequirementOutcome("r-003", state.EventReqCompleted, "REQ_COMPLETED")
+}
+
+// ctxHonoringNotifier records a message only when its context is still live.
+// A cancelled context (what the caller's ctx would be by the time a
+// fire-and-forget stall notify runs) causes the send to be dropped — modelling
+// how SlackNotifier's http.NewRequestWithContext aborts on a cancelled ctx.
+type ctxHonoringNotifier struct {
+	mu       sync.Mutex
+	messages []notify.Message
+}
+
+func (c *ctxHonoringNotifier) Notify(ctx context.Context, msg notify.Message) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.messages = append(c.messages, msg)
+	return nil
+}
+func (c *ctxHonoringNotifier) Name() string { return "ctx-honoring" }
+func (c *ctxHonoringNotifier) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.messages)
+}
+func (c *ctxHonoringNotifier) first() notify.Message {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.messages[0]
+}
+
+// TestNotifyStalledAsync_UsesFreshContext is the regression pin for the
+// PIPELINE_STALLED notify: the fire-and-forget send must root its own context,
+// not the caller's — which is cancelled the instant dispatchNextWave returns on
+// a stall. If the send used a cancelled context, the always-send
+// human-intervention alert would be silently dropped. With a ctx-honoring
+// notifier the message is delivered only if the context is live.
+func TestNotifyStalledAsync_UsesFreshContext(t *testing.T) {
+	n := &ctxHonoringNotifier{}
+	m := &Monitor{notifier: n}
+
+	m.notifyStalledAsync("r-stall", 3)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if n.count() == 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n.count() != 1 {
+		t.Fatal("PIPELINE_STALLED notification was not delivered: the send used a cancelled/expired context")
+	}
+	msg := n.first()
+	if msg.EventType != string(state.EventPipelineStalled) {
+		t.Errorf("EventType = %q, want %q", msg.EventType, state.EventPipelineStalled)
+	}
+	if msg.Severity != "error" {
+		t.Errorf("Severity = %q, want error", msg.Severity)
+	}
+}
+
+// TestNotifyStalledAsync_NilNotifierSafe guards the default (no webhook) path.
+func TestNotifyStalledAsync_NilNotifierSafe(t *testing.T) {
+	m := &Monitor{notifier: nil}
+	m.notifyStalledAsync("r-stall", 1) // must not panic
 }

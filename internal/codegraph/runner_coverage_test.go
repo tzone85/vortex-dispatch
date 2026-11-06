@@ -2,6 +2,8 @@ package codegraph
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -35,7 +37,7 @@ func TestRunner_Build_Available(t *testing.T) {
 		t.Skip("code-review-graph not installed")
 	}
 	// Build on the VXD repo — graph.db already exists from earlier
-	err := r.Build(context.Background(), "/Users/YOURUSER/Sites/misc/vortex-dispatch")
+	err := r.Build(context.Background(), liveGraphRepository(t))
 	if err != nil {
 		t.Fatalf("Build failed: %v", err)
 	}
@@ -46,7 +48,7 @@ func TestRunner_Status_Available(t *testing.T) {
 	if !r.Available() {
 		t.Skip("code-review-graph not installed")
 	}
-	info, err := r.Status(context.Background(), "/Users/YOURUSER/Sites/misc/vortex-dispatch")
+	info, err := r.Status(context.Background(), liveGraphRepository(t))
 	if err != nil {
 		t.Fatalf("Status failed: %v", err)
 	}
@@ -60,7 +62,7 @@ func TestRunner_DetectChanges_Available(t *testing.T) {
 	if !r.Available() {
 		t.Skip("code-review-graph not installed")
 	}
-	ia, err := r.DetectChanges(context.Background(), "/Users/YOURUSER/Sites/misc/vortex-dispatch", "HEAD~1")
+	ia, err := r.DetectChanges(context.Background(), liveGraphRepository(t), "HEAD~1")
 	if err != nil {
 		t.Fatalf("DetectChanges failed: %v", err)
 	}
@@ -72,7 +74,7 @@ func TestRunner_DetectChanges_Available(t *testing.T) {
 
 func TestGraphDB_Open_Existing(t *testing.T) {
 	// Test opening the real VXD graph database
-	gdb, err := Open("/Users/YOURUSER/Sites/misc/vortex-dispatch")
+	gdb, err := Open(liveGraphRepository(t))
 	if err != nil {
 		t.Skip("no graph database available")
 	}
@@ -91,4 +93,18 @@ func TestGraphDB_Open_Existing(t *testing.T) {
 	if len(info.Languages) == 0 {
 		t.Error("expected at least one language")
 	}
+}
+
+// A live graph is operator-owned and requires explicit opt-in. Normal tests
+// use the fixture database and fake runner; they never inspect a local project.
+func liveGraphRepository(t *testing.T) string {
+	t.Helper()
+	repo := os.Getenv("VXD_LIVE_CODEGRAPH_REPO")
+	if repo == "" {
+		t.Skip("set VXD_LIVE_CODEGRAPH_REPO to a prepared graph repository")
+	}
+	if !filepath.IsAbs(repo) {
+		t.Fatal("VXD_LIVE_CODEGRAPH_REPO must be an absolute path")
+	}
+	return repo
 }

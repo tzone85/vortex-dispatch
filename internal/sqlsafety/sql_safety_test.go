@@ -136,6 +136,14 @@ func TestStripSQLCommentsAndStrings(t *testing.T) {
 		{"SELECT 1 /* unterminated", "SELECT 1 "},
 		// Unterminated string — strip to EOF rather than panic.
 		{"SELECT '''unterminated", "SELECT "},
+		// Double-quoted identifiers keep their inner text (a call site), with
+		// only the surrounding quotes removed, so the denylist sees the bare
+		// name. Escaped "" sequences collapse away.
+		{`SELECT "pg_read_file"('x')`, "SELECT pg_read_file()"},
+		{`SELECT "col" FROM "tbl"`, "SELECT col FROM tbl"},
+		{`SELECT "a""b"`, "SELECT ab"},
+		// Unterminated identifier — strip to EOF rather than panic.
+		{`SELECT "unterminated`, "SELECT unterminated"},
 	}
 	for _, tt := range cases {
 		if got := stripSQLCommentsAndStrings(tt.in); got != tt.want {
@@ -168,6 +176,13 @@ func TestSQLSafety_FunctionDenylist(t *testing.T) {
 		{"schema-qualified", "SELECT pg_catalog.pg_terminate_backend(1)"},
 		{"comment ambush reassembles", "SELECT pg_terminate/**/_backend(1)"},
 		{"nested in expression", "SELECT 1 WHERE pg_terminate_backend(pid) IS NOT NULL"},
+		// Quoted-identifier ambush: Postgres resolves "pg_read_file" to the
+		// same pg_catalog function, but the surrounding quotes used to defeat
+		// the call-detection regex (the `"` sat between the name and `(`).
+		{"quoted identifier", `SELECT "pg_read_file"('/etc/passwd')`},
+		{"quoted identifier + space", `SELECT "pg_terminate_backend" (1)`},
+		{"schema-qualified quoted", `SELECT pg_catalog."pg_read_file"('/etc/passwd')`},
+		{"fully-quoted schema and fn", `SELECT "pg_catalog"."lo_export"(1,'/tmp/x')`},
 	}
 	for _, tt := range denied {
 		t.Run("denied/"+tt.name, func(t *testing.T) {
@@ -190,6 +205,11 @@ func TestSQLSafety_FunctionDenylist(t *testing.T) {
 		{"quoted string mention", "SELECT * FROM logs WHERE msg = 'pg_terminate_backend(1)'"},
 		{"comment mention", "SELECT 1 -- pg_terminate_backend(1)"},
 		{"plain select", "SELECT id, name FROM users"},
+		// Stripping quotes from identifiers must not over-match legitimate
+		// quoted column/table names that merely resemble a denied function.
+		{"quoted column, no call", `SELECT "pg_terminate_backend" FROM audit_log`},
+		{"quoted table name, no call", `SELECT * FROM "pg_read_file_log"`},
+		{"ordinary quoted identifier", `SELECT "user name", "order" FROM "orders"`},
 	}
 	for _, tt := range allowed {
 		t.Run("allowed/"+tt.name, func(t *testing.T) {

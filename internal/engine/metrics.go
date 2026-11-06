@@ -37,6 +37,10 @@ type PipelineMetrics struct {
 	SLABreaches   int     // total stories that breached SLA
 	SLABreachRate float64 // SLABreaches / TotalStories
 
+	// Flaky-QA tracking: test steps that failed then passed on retry
+	// (STORY_QA_FLAKY events, qa.flaky_retries feature).
+	FlakyQAPasses int
+
 	// Agent activity (from trace analysis)
 	TotalToolCalls   int
 	TotalFileEdits   int
@@ -67,6 +71,7 @@ type RequirementStat struct {
 	MergedCount     int
 	EscalationCount int
 	SLABreaches     int
+	FlakyQAPasses   int
 	FirstPassRate   float64
 	TotalDuration   time.Duration
 	ToolCalls       int
@@ -74,6 +79,7 @@ type RequirementStat struct {
 	Errors          int
 	Stories         []StoryStat
 	DBMetrics       state.StoryDBMetrics
+	Cost            state.StoryCostSummary
 }
 
 // ComputeMetrics calculates pipeline metrics from the event store.
@@ -152,6 +158,17 @@ func ComputeMetrics(es state.EventStore, ps *state.SQLiteStore, limit int, logDi
 				reqStat.SLABreaches += len(breaches)
 			}
 
+			// Count flaky-QA passes for this story (test step failed then
+			// passed on retry — visible flakiness, not a silent pass).
+			flaky, _ := es.List(state.EventFilter{
+				Type:    state.EventStoryQAFlaky,
+				StoryID: story.ID,
+			})
+			if len(flaky) > 0 {
+				m.FlakyQAPasses += len(flaky)
+				reqStat.FlakyQAPasses += len(flaky)
+			}
+
 			// Check if story passed on first attempt (no REVIEW_FAILED or QA_FAILED)
 			reviewFails, _ := es.List(state.EventFilter{
 				Type:    state.EventStoryReviewFailed,
@@ -196,6 +213,12 @@ func ComputeMetrics(es state.EventStore, ps *state.SQLiteStore, limit int, logDi
 
 		dbm, _ := ps.StoryDBMetricsByReq(req.ID)
 		reqStat.DBMetrics = dbm
+
+		// Per-requirement cost accounting (F2): tokens + est USD by stage.
+		costSum, costErr := ps.StoryCostSummaryByReq(req.ID)
+		if costErr == nil {
+			reqStat.Cost = costSum
+		}
 
 		m.RequirementStats = append(m.RequirementStats, reqStat)
 	}
@@ -279,6 +302,10 @@ func FormatMetrics(m PipelineMetrics) string {
 		b.WriteString("\nSLA breaches: 0\n")
 	}
 
+	if m.FlakyQAPasses > 0 {
+		fmt.Fprintf(&b, "\nFlaky QA passes: %d (tests that failed then passed on retry)\n", m.FlakyQAPasses)
+	}
+
 	if len(m.RequirementStats) > 0 {
 		b.WriteString("\nRecent Requirements:\n")
 		for _, rs := range m.RequirementStats {
@@ -287,8 +314,8 @@ func FormatMetrics(m PipelineMetrics) string {
 				title = title[:50] + "..."
 			}
 			fmt.Fprintf(&b, "  [%s] %s\n", rs.Status, title)
-			fmt.Fprintf(&b, "    Stories: %d | Merged: %d | First-pass: %.0f%% | Escalations: %d | SLA breaches: %d | Duration: %s\n",
-				rs.StoryCount, rs.MergedCount, rs.FirstPassRate, rs.EscalationCount, rs.SLABreaches, formatDuration(rs.TotalDuration))
+			fmt.Fprintf(&b, "    Stories: %d | Merged: %d | First-pass: %.0f%% | Escalations: %d | SLA breaches: %d | Flaky QA: %d | Duration: %s\n",
+				rs.StoryCount, rs.MergedCount, rs.FirstPassRate, rs.EscalationCount, rs.SLABreaches, rs.FlakyQAPasses, formatDuration(rs.TotalDuration))
 			for _, ss := range rs.Stories {
 				stTitle := ss.Title
 				if len(stTitle) > 40 {
@@ -309,6 +336,20 @@ func FormatMetrics(m PipelineMetrics) string {
 				fmt.Fprintf(&b, "      DB-hours: %.2f\n", hours)
 				if rs.DBMetrics.Provider != "" {
 					fmt.Fprintf(&b, "      Provider: %s\n", rs.DBMetrics.Provider)
+				}
+			}
+			if rs.Cost.TotalInputTokens > 0 || rs.Cost.TotalOutputTokens > 0 || rs.Cost.TotalEstUSD > 0 {
+				b.WriteString("    Cost:\n")
+				fmt.Fprintf(&b, "      Tokens: %d in / %d out | Est: $%.4f\n",
+					rs.Cost.TotalInputTokens, rs.Cost.TotalOutputTokens, rs.Cost.TotalEstUSD)
+				stages := make([]string, 0, len(rs.Cost.ByStage))
+				for st := range rs.Cost.ByStage {
+					stages = append(stages, st)
+				}
+				sort.Strings(stages)
+				for _, st := range stages {
+					sc := rs.Cost.ByStage[st]
+					fmt.Fprintf(&b, "      %-9s %d in / %d out ($%.4f)\n", st+":", sc.InputTokens, sc.OutputTokens, sc.EstUSD)
 				}
 			}
 		}

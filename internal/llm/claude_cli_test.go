@@ -36,8 +36,8 @@ func TestClaudeCLIClient_MissingBinary(t *testing.T) {
 	defer cancel()
 
 	_, err := client.Complete(ctx, llm.CompletionRequest{
-		Model:   "claude-sonnet-4-6",
-		System:  "You are a test assistant.",
+		Model:    "claude-sonnet-4-6",
+		System:   "You are a test assistant.",
 		Messages: []llm.Message{{Role: llm.RoleUser, Content: "Hello"}},
 	})
 	if err == nil {
@@ -122,10 +122,12 @@ func TestClaudeCLIClient_FiltersAnthropicAPIKey(t *testing.T) {
 	}
 }
 
-// TestClaudeCLIClient_Integration is a smoke test that runs only when the
-// claude CLI is available and authenticated. It verifies a simple completion
-// round-trip. Skipped when the CLI is missing or not authenticated.
+// TestClaudeCLIClient_Integration is an explicit live-provider smoke test.
+// Normal tests must not consume a developer's subscription or depend on login.
 func TestClaudeCLIClient_Integration(t *testing.T) {
+	if os.Getenv("VXD_LIVE_CLAUDE_TEST") != "1" {
+		t.Skip("set VXD_LIVE_CLAUDE_TEST=1 to run the paid/live Claude smoke test")
+	}
 	if _, err := exec.LookPath("claude"); err != nil {
 		t.Skip("claude CLI not found on $PATH, skipping integration test")
 	}

@@ -49,31 +49,31 @@ models:
     max_tokens: 16000
   senior:
     provider: anthropic
-    model: claude-sonnet-4-6
+    model: claude-opus-4-7
     max_tokens: 8000
   intermediate:
-    provider: google
-    model: gemma-4-27b-it
+    provider: anthropic
+    model: claude-haiku-4-5
     max_tokens: 4000
   junior:
-    provider: google
-    model: gemma-4-27b-it
+    provider: anthropic
+    model: claude-haiku-4-5
     max_tokens: 4000
   qa:
     provider: anthropic
-    model: claude-sonnet-4-6
+    model: claude-opus-4-7
     max_tokens: 8000
   supervisor:
-    provider: google
-    model: gemma-4-27b-it
+    provider: anthropic
+    model: claude-haiku-4-5
     max_tokens: 4000
   manager:
     provider: anthropic
-    model: claude-sonnet-4-6
+    model: claude-opus-4-7
     max_tokens: 8000
 ```
 
-Defaults bias execution roles (junior/intermediate/supervisor) toward Gemma (free tier on Google AI Studio) and reserve Anthropic budget for verification roles (tech_lead/senior/qa/manager). Swap any role to OpenAI/Haiku/Sonnet — see the cost-optimised and quality-maximised examples below.
+Every role defaults to the `anthropic` provider. To put a role on Gemma (Google AI Studio free tier), OpenAI or Codex, change that role's `provider` and `model`; see the cost-optimised and quality-maximised examples below.
 
 | Role | Recommended Model | Why |
 |------|-------------------|-----|
@@ -82,9 +82,9 @@ Defaults bias execution roles (junior/intermediate/supervisor) toward Gemma (fre
 | Intermediate | Haiku/Sonnet | Medium stories; Haiku for cost savings, Sonnet for quality |
 | Junior | Haiku/GPT-4o-mini | Simple stories; cheapest models work well here |
 | QA | Sonnet | Needs to understand code quality; Sonnet is the sweet spot |
-| Supervisor | Sonnet | Drift detection needs good judgment but not maximum reasoning |
+| Supervisor | — | Not wired into the pipeline yet, so this binding has no effect |
 
-**Tuning tip:** Start with the defaults. If junior agents produce low-quality code that fails review repeatedly, upgrade them to Sonnet. If costs are a concern, move intermediate to Haiku.
+**Tuning tip:** Start with the defaults. If junior agents produce low-quality code that fails review repeatedly, upgrade them to Sonnet. If costs are a concern, move QA or Senior from Opus to Sonnet, or put the execution roles on Gemma.
 
 ### routing
 
@@ -191,6 +191,29 @@ merge:
 | `pr_template` | (see above) | Supports `{story_id}`, `{description}`, `{acceptance_criteria}` placeholders |
 
 **Tuning tip:** Set `auto_merge: false` when getting started so you can manually review the first few PRs. Once you trust the pipeline, enable it.
+
+### qa: the completion gate verifies the composed mainline
+
+Once every story of a requirement is complete (merged, PR submitted, awaiting approval or split), the completion gate verifies the composed mainline before `REQ_COMPLETED` is emitted — architecture.md, step 10, owns that flow, and `vxd resume --help` owns the exit codes.
+
+`vxd resume <req>` re-runs the gate after an interruption, or after a blocked requirement is fixed, once every story is merged or split; the requirement is unblocked first with `REQ_RESUMED`, so `vxd status` reads `planned` while the gate runs. Two things stop it before the gate: a story still awaiting its pull request, because `auto_merge: false` lets an open PR count as complete and the mainline then does not carry that work, and a dirty working tree, because the gate verifies the checkout and the fix agent it starts on red commits and pushes what it finds there. Both exit non-zero — stopping is not passing. A gate-only re-run does not regenerate the project documentation; that happened on the pass that completed the stories.
+
+```yaml
+qa:
+  disable_completion_gate: false   # true = legacy advisory verification; the requirement always completes
+  completion_fix_cycles: 2         # auto-fix agent runs on a red mainline before REQ_BLOCKED
+  completion_test_timeout_s: 1200  # one test-suite run inside the gate; 0 = the 20-minute default
+```
+
+| Key | Default | Notes |
+|-----|---------|-------|
+| `disable_completion_gate` | `false` | `true` turns the gate off: verification still runs and writes `.vxd-fix-gaps.md`, but the requirement completes regardless |
+| `completion_fix_cycles` | `2` (when `0`) | Fix-agent runs before blocking; a negative value verifies once and blocks on red with no auto-fix |
+| `completion_test_timeout_s` | `1200` (when `0` or negative) | Bound on one test-suite run inside the gate, in seconds |
+
+A suite that does not finish within `completion_test_timeout_s` is recorded as a critical gap and blocks the requirement **without** dispatching a fix agent (an agent cannot repair a suite that does not finish): make the suite finish, or raise the bound, then `vxd resume <req>` re-runs the gate. On Unix the runner runs in its own process group and the whole group is killed; on Windows only the runner itself is, so a grandchild it spawned (a dev server a test suite starts) can outlive the timeout.
+
+`.vxd-fix-gaps.md` and the fix agent's prompt carry the runner's and compiler's output (truncated; API keys, tokens, private-key blocks, connection-string passwords and env-style secret assignments in known shapes are redacted). The file is added to `.gitignore` automatically — treat it as a local artefact.
 
 ### runtimes
 

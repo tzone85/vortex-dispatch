@@ -17,6 +17,20 @@ import (
 	"github.com/tzone85/vortex-dispatch/internal/llm"
 )
 
+// selfAuditTimeout bounds the unattended Phase-0 self-audit + self-heal. Without
+// it the daily run inherits context.Background(), so a stalled network call
+// (e.g. govulncheck fetching the vuln DB, or a hung claude self-heal subprocess)
+// would hang the cron forever — no email, no run summary, and no next-day
+// idempotency file, which also wedges subsequent runs. The interactive CLI
+// (`vxd improve audit`) already bounds Audit the same way.
+const selfAuditTimeout = 30 * time.Minute
+
+// boundSelfAudit derives the Phase-0 self-audit context from parent with a
+// deadline so an unattended daily run cannot hang forever on a stalled call.
+func boundSelfAudit(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(parent, selfAuditTimeout)
+}
+
 // improveEnabledFromVXDConfig resolves the experimental-pipeline gate:
 // VXD_IMPROVE_ENABLED env wins, else improve.enabled from the repo vxd.yaml
 // or global ~/.vxd/config.yaml, else the default (disabled).
@@ -91,9 +105,10 @@ func main() {
 	var healResult improve.ImplementResult
 	healed := false
 	if cfg.SelfAudit {
+		auditCtx, cancelAudit := boundSelfAudit(ctx)
 		auditor := improve.NewSelfAuditor(cfg.RepoPath, nil)
 		auditor.TestTimeout = cfg.SelfAuditTestTimeout
-		selfReport, _ = auditor.Audit(ctx)
+		selfReport, _ = auditor.Audit(auditCtx)
 		for _, sk := range selfReport.Skipped() {
 			summary.SelfAuditSkipped = append(summary.SelfAuditSkipped, string(sk.Check)+": "+sk.Err)
 		}
@@ -103,7 +118,7 @@ func main() {
 			len(selfReport.JudgementFindings()), len(selfReport.Skipped()))
 
 		if cfg.SelfHeal && len(selfReport.DeterministicFindings()) > 0 {
-			healResult, healed = impl.SelfHeal(ctx, selfReport, date)
+			healResult, healed = impl.SelfHeal(auditCtx, selfReport, date)
 			if healed && healResult.IsImplemented() {
 				prsCreated++
 				summary.SelfHealPRURL = healResult.PRURL
@@ -119,6 +134,7 @@ func main() {
 				log.Printf("  self-audit changelog append error: %v", err)
 			}
 		}
+		cancelAudit()
 	} else {
 		log.Println("  disabled (VXD_SELF_AUDIT=false)")
 	}

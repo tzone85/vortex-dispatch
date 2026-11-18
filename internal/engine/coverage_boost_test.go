@@ -81,7 +81,17 @@ func TestWriteMetadata_Success(t *testing.T) {
 }
 
 func TestWriteMetadata_InvalidDir(t *testing.T) {
-	err := WriteMetadata("/nonexistent/path/that/does/not/exist", ProjectMetadata{
+	// Use a path whose parent component is a regular file: os.MkdirAll fails
+	// with ENOTDIR for any euid (root included) and nothing is written outside
+	// the temp dir. The old hard-coded "/nonexistent/path/..." target silently
+	// SUCCEEDED and polluted the real filesystem when the suite ran as root
+	// (e.g. in a rootful CI container), which also broke repolearn's
+	// TestCountFilesInDir_NonexistentDir via the created /nonexistent/path tree.
+	notDir := filepath.Join(t.TempDir(), "iamafile")
+	if err := os.WriteFile(notDir, []byte("x"), 0o600); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	err := WriteMetadata(filepath.Join(notDir, "sub"), ProjectMetadata{
 		Name: "test",
 	})
 	if err == nil {

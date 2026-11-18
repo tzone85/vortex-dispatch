@@ -184,6 +184,75 @@ func TestParseGofmtOutput(t *testing.T) {
 	}
 }
 
+// TestParseGofmtOutput_ParseErrorIsNotAPath guards against gofmt's stderr
+// diagnostic for a file that fails to parse being misread as a drift finding.
+// `gofmt -l .` exits non-zero and writes `path.go:line:col: message` to stderr,
+// which the runner captures via combined output. That line must NOT become a
+// finding: otherwise it (a) hides run()'s "exit N without parseable findings ->
+// skipped" classification and (b) aborts ApplyDeterministicFixes on an unsafe
+// target.
+func TestParseGofmtOutput_ParseErrorIsNotAPath(t *testing.T) {
+	out := "internal/improve/broken.go:3:14: expected ')', found '{'\n"
+	got := improve.ParseGofmtOutput(out)
+	if len(got) != 0 {
+		t.Fatalf("parse-error diagnostic must yield no findings, got %d: %+v", len(got), got)
+	}
+}
+
+// TestParseGofmtOutput_MixedPathsAndDiagnostic keeps real drift paths while
+// discarding an interleaved diagnostic line.
+func TestParseGofmtOutput_MixedPathsAndDiagnostic(t *testing.T) {
+	out := "internal/improve/config.go\n" +
+		"internal/improve/broken.go:3:14: expected declaration, found '}'\n" +
+		"internal/autoresearch/metric.go\n"
+	got := improve.ParseGofmtOutput(out)
+	if len(got) != 2 {
+		t.Fatalf("want 2 drift findings (diagnostic discarded), got %d: %+v", len(got), got)
+	}
+	for _, f := range got {
+		if !strings.HasSuffix(f.Target, ".go") || strings.ContainsAny(f.Target, " :") {
+			t.Errorf("target %q is not a bare .go path", f.Target)
+		}
+	}
+}
+
+// TestAudit_GofmtParseError_MarksSkipped verifies the end-to-end effect: when
+// gofmt reports a parse error (exit 2 + diagnostic), the gofmt check is recorded
+// as skipped (surfaced), never as a clean pass or a bogus finding.
+func TestAudit_GofmtParseError_MarksSkipped(t *testing.T) {
+	r := newFakeRunner()
+	r.out["gofmt -l ."] = "internal/improve/broken.go:3:14: expected ')', found '{'\n"
+	r.code["gofmt -l ."] = 2
+
+	a := improve.NewSelfAuditor(".", r)
+	a.SkipTests = true
+	rep, err := a.Audit(context.Background())
+	if err != nil {
+		t.Fatalf("Audit: %v", err)
+	}
+	var gofmt *improve.CheckResult
+	for i := range rep.Results {
+		if rep.Results[i].Check == improve.CheckGofmt {
+			gofmt = &rep.Results[i]
+		}
+	}
+	if gofmt == nil {
+		t.Fatal("no gofmt result")
+	}
+	if !gofmt.Skipped {
+		t.Errorf("gofmt parse error must mark the check skipped, got skipped=%v err=%q findings=%+v",
+			gofmt.Skipped, gofmt.Err, gofmt.Findings)
+	}
+	if len(gofmt.Findings) != 0 {
+		t.Errorf("gofmt parse error must yield no findings, got %+v", gofmt.Findings)
+	}
+	for _, f := range rep.Findings {
+		if f.Check == improve.CheckGofmt {
+			t.Errorf("no gofmt finding should surface from a parse error, got %+v", f)
+		}
+	}
+}
+
 func TestParseModTidyDrift(t *testing.T) {
 	diff := "--- go.mod.orig\n+++ go.mod\n@@\n-\tgolang.org/x/text v0.39.0\n+\tgolang.org/x/text v0.41.0 // indirect\n"
 	got := improve.ParseModTidyDrift(diff)

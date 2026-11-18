@@ -535,11 +535,25 @@ func ParseTestOutput(out string) []SelfFinding {
 
 // ParseGofmtOutput turns `gofmt -l .` output (one path per line) into
 // deterministic findings.
+//
+// `gofmt -l` lists one bare file path per line on stdout and exits 0. A file
+// that does not parse makes gofmt instead write a `path.go:12:3: message`
+// diagnostic to stderr and exit non-zero; because the runner captures combined
+// output, that diagnostic line reaches us too. Treating it as a path would emit
+// a bogus "gofmt drift" finding — which both suppresses run()'s "exit N without
+// parseable findings -> skipped" classification (so a failed check masquerades
+// as a real low-severity finding) and makes ApplyDeterministicFixes abort the
+// whole deterministic-fix batch on the unsafe target. So accept only lines that
+// are plausible bare .go paths and leave anything else for run() to classify as
+// a failed/skipped check (mirrors ParseModTidyDrift's looksLikeDiff guard).
 func ParseGofmtOutput(out string) []SelfFinding {
 	var findings []SelfFinding
 	for _, raw := range strings.Split(out, "\n") {
 		path := strings.TrimSpace(raw)
 		if path == "" {
+			continue
+		}
+		if !isGofmtPathLine(path) {
 			continue
 		}
 		findings = append(findings, newSelfFinding(CheckGofmt, SeverityLow, path,
@@ -548,6 +562,15 @@ func ParseGofmtOutput(out string) []SelfFinding {
 			"gofmt -w "+path))
 	}
 	return findings
+}
+
+// isGofmtPathLine reports whether line is a bare repo-relative .go path as
+// emitted by `gofmt -l` on stdout, rather than a `path.go:line:col: message`
+// parse diagnostic gofmt writes to stderr for a file that fails to parse.
+// Diagnostics always contain the `:line:col:` marker and a space, and never
+// end in ".go".
+func isGofmtPathLine(line string) bool {
+	return strings.HasSuffix(line, ".go") && !strings.ContainsAny(line, " \t:")
 }
 
 // ParseModTidyDrift turns a non-empty go.mod/go.sum drift description into a

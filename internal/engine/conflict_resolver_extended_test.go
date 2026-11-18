@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -663,5 +664,82 @@ func TestBinaryConflict_NoLLMCall(t *testing.T) {
 	}
 	if !hasBinaryEvent {
 		t.Error("expected STORY_CONFLICT_BINARY or STORY_CONFLICT_BINARY_REMOVED event to be emitted")
+	}
+}
+
+// TestBinaryConflict_SmallBinaryKeepsStoryVersion pins the data-loss regression:
+// a small (kept) binary asset changed by BOTH the story and the base must resolve
+// to the STORY's version. During a rebase the sides are inverted (--ours=base,
+// --theirs=story), so the previous `git checkout --ours` silently reverted the
+// story's asset change to the base version and the requirement merged with the
+// story's work lost. The resolver must take --theirs.
+func TestBinaryConflict_SmallBinaryKeepsStoryVersion(t *testing.T) {
+	bareDir := filepath.Join(t.TempDir(), "remote.git")
+	if err := exec.Command("git", "init", "--bare", bareDir).Run(); err != nil {
+		t.Fatalf("init bare: %v", err)
+	}
+	cloneDir := filepath.Join(t.TempDir(), "clone")
+	if err := exec.Command("git", "clone", bareDir, cloneDir).Run(); err != nil {
+		t.Fatalf("clone: %v", err)
+	}
+	runGit := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = cloneDir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v (%s)", args, err, out)
+		}
+	}
+	runGit("config", "user.email", "test@test.com")
+	runGit("config", "user.name", "Test")
+
+	// A small binary asset (null bytes => detected binary) with a non-compiled
+	// name, so it takes the kept-small-binary path, not the git-rm removal path.
+	asset := filepath.Join(cloneDir, "logo.png")
+	base := []byte{0x89, 'P', 'N', 'G', 0x00, 0x01, 0x02}
+	if err := os.WriteFile(asset, base, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", ".")
+	runGit("commit", "-m", "init")
+	runGit("push", "origin", "main")
+
+	// Main modifies the asset.
+	if err := os.WriteFile(asset, append(append([]byte{}, base...), 0xFF), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", ".")
+	runGit("commit", "-m", "main updates logo")
+	runGit("push", "origin", "main")
+
+	// Story branch (from before main's change) makes a DIFFERENT change.
+	storyVersion := append(append([]byte{}, base...), 0xAA, 0xBB)
+	runGit("checkout", "-b", "feature", "HEAD~1")
+	if err := os.WriteFile(asset, storyVersion, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", ".")
+	runGit("commit", "-m", "story updates logo")
+	runGit("fetch", "origin", "main")
+
+	senior := llm.NewReplayClient()   // zero responses — errors if called
+	techLead := llm.NewReplayClient() // binary must never reach an LLM
+	es := newEventStoreForTest(t)
+	cr := NewConflictResolver(senior, "senior-model", techLead, "tl-model", 4096, nil, es)
+
+	if err := cr.RebaseWithResolution(context.Background(), "s-binary-keep", cloneDir, "origin/main"); err != nil {
+		t.Fatalf("RebaseWithResolution: %v", err)
+	}
+	if senior.CallCount() > 0 || techLead.CallCount() > 0 {
+		t.Errorf("binary conflict must not reach an LLM (senior=%d, tl=%d)", senior.CallCount(), techLead.CallCount())
+	}
+
+	got, err := os.ReadFile(asset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, storyVersion) {
+		t.Errorf("small binary conflict must keep the STORY version %v, got %v (base was %v+0xFF) — story asset change was lost",
+			storyVersion, got, base)
 	}
 }

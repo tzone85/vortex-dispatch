@@ -2309,7 +2309,7 @@ func TestWiring_StoryConflictBinary_ProjectsWithoutError(t *testing.T) {
 	evt := state.NewEvent(state.EventStoryConflictBinary, "conflict-resolver", "s-wiring-bin-1",
 		map[string]any{
 			"file":   "server",
-			"reason": "binary conflict: took --ours (story branch version)",
+			"reason": "binary conflict: took --theirs (story branch version)",
 		})
 
 	if err := store.Project(evt); err != nil {

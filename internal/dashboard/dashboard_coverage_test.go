@@ -66,6 +66,33 @@ func TestTruncateStr_MaxLenZero(t *testing.T) {
 	}
 }
 
+// TestTruncateStr_NegativeMaxLenNoPanic pins the narrow-terminal crash fix:
+// renderStories calls truncateStr(s.Title, width-65) with the raw terminal
+// width, so a terminal narrower than 65 columns yields a negative maxLen. Before
+// the guard, s[:maxLen] panicked ("slice bounds out of range") and crashed the
+// TUI View(). A negative maxLen must return "" without panicking.
+func TestTruncateStr_NegativeMaxLenNoPanic(t *testing.T) {
+	for _, tc := range []struct {
+		s      string
+		maxLen int
+	}{
+		{"Add login", -5}, // width 60: 60-65
+		{"", -5},          // empty title on a narrow terminal
+		{"a very long story title that overflows", -40},
+	} {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("truncateStr(%q, %d) panicked: %v", tc.s, tc.maxLen, r)
+				}
+			}()
+			if got := truncateStr(tc.s, tc.maxLen); got != "" {
+				t.Errorf("truncateStr(%q, %d) = %q, want \"\"", tc.s, tc.maxLen, got)
+			}
+		}()
+	}
+}
+
 // TestHandleKey_Quit verifies 'q' produces quit command.
 func TestHandleKey_Quit(t *testing.T) {
 	m := Model{version: "test"}
